@@ -64,6 +64,22 @@
       "used_by": "scripts/dsh_transcript.py"
     },
     {
+      "id": "cordis-child-plugin",
+      "package": "ctx.plugin",
+      "contract": "stable launcher mounts an immutable generation as a child Cordis plugin and disposes it on swap",
+      "used_by": "host.mjs"
+    },
+    {
+      "id": "generation-pointer",
+      "contract": "update/current.json atomic pointer to a verified generation package",
+      "used_by": "host.mjs, scripts/updater.py"
+    },
+    {
+      "id": "github-release-api",
+      "contract": "formal releases only; SHA256SUMS; bounded asset download",
+      "used_by": "scripts/updater.py"
+    },
+    {
       "id": "uv-runtime",
       "contract": "uv run --no-project --python 3.11 and uv sync --frozen --project",
       "used_by": "cordis.patch.yml, scripts/setup.py"
