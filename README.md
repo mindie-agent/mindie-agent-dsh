@@ -4,7 +4,7 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
-> **`0.0.1-preview`（非正式 0.0.1）**：当前 tag 仅作为能力对齐中的预览，**不计入正式 0.0.1 发行**。原生 `/mindie-agent` 入口、会话绑定知识工具与 DSH Stop 采集适配器已落地；索引摘要 worker、社区贡献发布、诊断上报与 Windows/WSL 验收仍在补齐。正式 `0.0.1` 将在这些核心能力对齐后重新发布。
+> **`0.0.1-preview`（非正式 0.0.1）**：原生 `/mindie-agent` 入口、会话绑定知识工具、DSH Stop 公开对话采集、确定性脱敏、DSH 模型摘要索引、反馈与诊断开关均已落地，并在 macOS 上跑通真实模型；4090 WSL 与 Lenovo 原生 Windows 已验证安装、采集、服务、插件激活与 MCP。Windows/WSL 的测试 profile 没有模型凭据，成功贡献 PR 也未执行，因此当前 tag 仍是 **prerelease 预览**，不计入正式 0.0.1。正式版在补齐这两项验收后重新发布；细节见[验证记录](docs/verification.md)。
 
 <p align="center">
   <b>面向昇腾（Ascend）NPU AI Infra 研发、测试与排障的 DeepSeek Harness 原生插件</b><br/>

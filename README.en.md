@@ -4,7 +4,7 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
-> **`0.0.1-preview` (not the formal 0.0.1)**: this tag is a preview of the parity rebuild and is **not a formal 0.0.1 release**. The native `/mindie-agent` entry, session-bound knowledge tools, and the DSH Stop capture adapter are in place; the summary/indexing worker, community publication, diagnostics reporting, and Windows/WSL acceptance are still being completed. The formal `0.0.1` will be re-cut after those core capabilities match Codex/CC.
+> **`0.0.1-preview` (not the formal 0.0.1)**: the native `/mindie-agent` entry, session-bound knowledge tools, DSH Stop public-transcript capture, deterministic redaction, DSH-model summary indexing, feedback and diagnostics controls are implemented and were exercised with a live model on macOS. 4090 WSL and native Windows Lenovo verify setup, capture, service, plugin activation and MCP. The Windows/WSL test profiles had no model credential and no successful contribution PR was executed, so this tag remains a **prerelease preview**, not the formal 0.0.1. The formal release will be re-cut after those two acceptance items; see the [verification record](docs/verification.md).
 
 <p align="center">
   <b>Ascend NPU AI Infra knowledge and remote development for DeepSeek Harness</b><br/>
