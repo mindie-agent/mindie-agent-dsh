@@ -41,7 +41,8 @@ principles followed” claim.
    A failed stop is reported as a warning, not swallowed.
 5. **The MCP launcher resolves `uv` from well-known locations.** A GUI-launched
    DSH may have a narrower PATH than a terminal; `MINDIE_DSH_UV` remains an
-   override.
+   override. The resolution is inlined in the patch after a live reinstall
+   proved a cached CommonJS helper can survive a tag switch.
 6. **A Host-level knowledge identity is documented as such.** Read-only calls
    do not pretend to have per-session leases.
 

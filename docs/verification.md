@@ -3,6 +3,15 @@
 Date: 2026-10-17. This file records what was actually executed, not a target
 design. Anything not listed here is unverified.
 
+## Tag history
+
+The first `v0.0.1` tag (`ea2b233`) was replaced before any external use. A live
+link-to-tag reinstall kept the previously loaded CommonJS `paths.cjs` in the
+running DSH process, so a newly added `uvCommand` export was invisible until a
+restart. The fix inlines the builtin-only `uv` resolution in the patch text,
+which the Loader re-evaluates on every mount. The tag was re-cut, and the
+release tarball is built from the final documentation commit.
+
 ## Environment
 
 | Item | Value |
@@ -76,7 +85,8 @@ install_bundle(target=/Users/maoxx241/code/mindie-agent-dsh)
 -> stage=enable, enabled=true, application=applied
 ```
 
-`list_plugins` reported all three rows `active`:
+`list_plugins` reported all three rows `active` after the final tag install
+(`application: applied`):
 
 - `include:mindie-agent-skill` → `@deepseek-ai/dsh-skill-filesystem`
 - `include:mindie-agent-knowledge-mcp` → `@deepseek-ai/dsh-mcp-client`
@@ -84,6 +94,20 @@ install_bundle(target=/Users/maoxx241/code/mindie-agent-dsh)
 
 `dsh --profile web --dump-config` contains the same three inserted rows, with
 no shipped row or preset overridden.
+
+## Fresh-process check
+
+A copy of the Web profile was booted as `dshcheck` on port 3099 with the
+tagged package. Both MCP children started without a prior process cache:
+
+```text
+uv run .../mindie-agent-dsh/scripts/knowledge_mcp.py knowledge
+.../venv/bin/python .../mindie-agent-dsh/scripts/knowledge_mcp.py knowledge
+.../venv/bin/python -m remote_dev.mcp.server
+```
+
+This confirms the tagged package activates from a clean process. The same
+tag was then installed into the live profile and applied successfully.
 
 ## Skill discovery
 
