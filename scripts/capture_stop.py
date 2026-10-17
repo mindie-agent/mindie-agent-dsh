@@ -53,9 +53,9 @@ def main() -> int:
         event = json.loads(raw)
         if not isinstance(event, dict):
             raise ValueError("capture envelope is not an object")
-        config = mp.config_file()
+        config = mp.engine_config()
         if not config.is_file():
-            raise FileNotFoundError("runtime configuration is missing")
+            raise FileNotFoundError("runtime engine configuration is missing")
         from mindie_knowledge.loop.cli import capture_hook
 
         receipt = capture_hook(str(config), event)
