@@ -270,6 +270,7 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
         "capture_mode": "public-transcript",
         "transcript_adapter": str(adapter),
         "redactor_executable": redactor,
+        "summary_command": [str(mp.venv_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_organizer.py")],
         "community_config": str(mp.config_home() / "mindie-community.json"),
         "feeds": [dict(FEED)],
     }

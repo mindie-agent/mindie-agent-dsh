@@ -37,6 +37,7 @@
       inject:
         - tools
         - agents
+        - llm
 
     # The published remote-dev MCP server, imported from the pinned runtime.
     # This is the component's own server entry point, not an adapter copy.

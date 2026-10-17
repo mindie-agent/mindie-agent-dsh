@@ -212,13 +212,29 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
 def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge import consent_store
 
+    config = mp.config_home() / "diagnostics.json"
     value = args.get("reporting")
-    if value is None:
-        return {"reporting": consent_store.read(str(consent_path())).get("reporting")}
-    if value not in consent_store.REPORTING:
-        raise SidecarError("reporting must be enabled, disabled or later")
-    consent_store.record_reporting(str(consent_path()), value)
-    return {"reporting": value}
+    try:
+        from mindie_diagnostics.integration import configure_reporting, reporting_status
+
+        if value is None:
+            result = reporting_status(config=config)
+        else:
+            if value not in consent_store.REPORTING:
+                raise SidecarError("reporting must be enabled, disabled or later")
+            result = configure_reporting(
+                value == "enabled",
+                repository="mindie-agent/mindie-agent",
+                config=config,
+            )
+            consent_store.record_reporting(str(consent_path()), value)
+        return {"reporting": value, "diagnostics": result}
+    except SidecarError:
+        raise
+    except Exception as exc:
+        raise SidecarError(
+            f"diagnostics reporting is unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def connection():
