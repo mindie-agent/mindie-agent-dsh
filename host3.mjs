@@ -595,17 +595,6 @@ export function apply(ctx) {
     }
   }
 
-  ctx.on('agent/disposed', ({ agent }) => {
-    const session = agent?.session?.id
-    if (typeof session !== 'string') return
-    const tracked = sessions.get(session)
-    sessions.delete(session)
-    if (!tracked) return
-    sidecar
-      .call('deactivate', { session, cwd: tracked.cwd })
-      .catch((error) => log(`deactivate after agent disposal failed: ${error.message}`))
-  })
-
   ctx.on('agent/turn-stopping', ({ agent, turn }) => {
     try {
       const session = agent?.session
