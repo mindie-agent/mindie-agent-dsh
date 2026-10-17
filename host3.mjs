@@ -1,4 +1,3 @@
-console.error('MINDIE_HOST_MARKER_V3')
 // MindIE Agent DSH Host plugin.
 //
 // Registers session-aware knowledge tools and the Stop handoff. The knowledge
@@ -246,7 +245,6 @@ export const name = 'mindie-agent-dsh'
 export const inject = ['tools', 'agents', 'llm']
 
 export function apply(ctx) {
-  console.error('MINDIE_HOST_APPLY_V3')
   const sidecar = new Sidecar()
   const sessions = new Map()
   const p = runtimePaths()
@@ -609,9 +607,9 @@ function entryView(kind, sharing, state) {
     activated: Boolean(state?.token),
     sharing,
   }
-  if (!sharing?.configured) {
+  if (!sharing?.configured || sharing?.choice === 'later') {
     base.next =
-      'Contribution is not configured. Ask the user whether to enable public ' +
+      'Contribution is not decided. Ask the user once whether to enable public ' +
       'contribution; if yes, call mindie_entry(op="choose", choice="contribute", ' +
       'repository="owner/repo", account="..."), otherwise call ' +
       'mindie_entry(op="choose", choice="disabled"). Read-only knowledge works now.'
