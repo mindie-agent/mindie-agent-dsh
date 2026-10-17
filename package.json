@@ -8,6 +8,7 @@
   "files": [
     "cordis.patch.yml",
     "paths.cjs",
+    "host.mjs",
     "host3.mjs",
     "skills/",
     "scripts/",

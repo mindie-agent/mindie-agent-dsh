@@ -276,6 +276,27 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
     }
 
 
+def install_updater() -> dict[str, Any]:
+    """Install the stable updater and default to background checks."""
+    directory = mp.data_home() / "update"
+    for name in ("updater.py", "mindie_paths.py"):
+        source = mp.PACKAGE_DIR / "scripts" / name
+        destination = directory / name
+        try:
+            if destination.is_file() and destination.read_bytes() == source.read_bytes():
+                continue
+            copy_private(source, destination)
+        except PermissionError:
+            # Windows may still have the running updater script open. The
+            # existing stable copy remains valid; the next setup can refresh it.
+            if not destination.is_file():
+                raise
+    config = mp.config_home() / "update.json"
+    if not config.is_file():
+        write_private(config, {"enabled": True, "interval_hours": 6})
+    return {"script": str(directory / "updater.py"), "enabled": True, "interval_hours": 6}
+
+
 def stop_existing_service() -> None:
     """Best-effort retirement before a configuration rewrite.
 
@@ -425,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             knowledge = sync_feed(timeout=args.sync_timeout)
 
+        update = install_updater()
         status = "ready" if knowledge.get("status") in {"ready", "skipped"} else "partial"
         summary = {
             "schema": SCHEMA,
@@ -437,6 +459,7 @@ def main(argv: list[str] | None = None) -> int:
             "components": probe.get("versions"),
             "paths": paths,
             "knowledge": knowledge,
+            "update": update,
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (
                 "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager), "

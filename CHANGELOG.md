@@ -15,3 +15,6 @@
 - Stable-only composition: no experimental DSH package and no shipped
   row/preset override.
 - Pinned runtime: knowledge `0.11.0`, remote-dev `0.9.5`, diagnostics `0.4.1`.
+- Silent auto-update: stable launcher + immutable generation pointer, formal
+  release selection, SHA256 verification, live child-plugin swap, rollback,
+  update status/check/enable/disable.

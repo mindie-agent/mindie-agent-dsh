@@ -7,7 +7,7 @@
 
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, readdirSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -16,7 +16,13 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const { paths: runtimePaths, configHome } = require('./paths.cjs')
 
-const VERSION = '0.1.0'
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+  } catch {
+    return '0.0.1'
+  }
+})()
 const SETUP_TIMEOUT_MS = 15 * 60 * 1000
 const CALL_TIMEOUT_MS = 2 * 60 * 1000
 
@@ -289,6 +295,88 @@ export function apply(ctx) {
   const summarize = (request, prompt) => summarizeWithLlm(ctx.llm, route, request, prompt)
 
 
+  const updateFile = path.join(p.configHome, 'update.json')
+  const updateScript = path.join(p.dataHome, 'update', 'updater.py')
+  const updateStatusFile = path.join(p.dataHome, 'update', 'status.json')
+  const updateHostLog = path.join(p.dataHome, 'update', 'host.log')
+  const hostLog = (message) => { try { appendFileSync(updateHostLog, new Date().toISOString() + ' ' + message + '\n') } catch {} }
+  const profileName = () => {
+    const index = process.argv.indexOf('--profile')
+    if (index >= 0 && typeof process.argv[index + 1] === 'string' && process.argv[index + 1]) {
+      return process.argv[index + 1]
+    }
+    const match = String(import.meta.url).match(/[/\\]profiles[/\\]([^/\\]+)[/\\]node_modules[/\\]/)
+    return match ? match[1] : String(process.env.DSH_PROFILE || '')
+  }
+
+  const readUpdateConfig = () => {
+    try {
+      const value = JSON.parse(readFileSync(updateFile, 'utf8'))
+      return value && typeof value === 'object' ? value : { enabled: true }
+    } catch {
+      return { enabled: true }
+    }
+  }
+
+  const updateStatus = async () => {
+    try {
+      return JSON.parse(readFileSync(updateStatusFile, 'utf8'))
+    } catch {
+      return { schema: 'mindie-dsh-update-status/1', state: 'never' }
+    }
+  }
+
+  const writeUpdateEnabled = async (enabled) => {
+    const current = readUpdateConfig()
+    const next = { ...current, enabled: Boolean(enabled), interval_hours: current.interval_hours || 6 }
+    writeFileSync(updateFile + '.tmp', JSON.stringify(next, null, 2) + '\n', { mode: 0o600 })
+    renameSync(updateFile + '.tmp', updateFile)
+    return next
+  }
+
+  const startUpdateCheck = async () => {
+    if (!existsSync(updateScript)) return false
+    try {
+      const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
+      if (agents.some((agent) => agent?.status === 'running')) return false
+    } catch {
+      return false
+    }
+    const profile = profileName()
+    if (!profile) return false
+    try {
+      const child = spawn(
+        p.venvPython,
+        [updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
+        { detached: true, stdio: 'ignore', env: { ...process.env } },
+      )
+      child.unref()
+      return true
+    } catch (error) {
+      log(`update check could not start: ${error.message}`)
+      return false
+    }
+  }
+
+  let updateTimer
+  let updateInterval
+  try {
+    const config = readUpdateConfig()
+    if (config.enabled !== false) {
+      updateTimer = setTimeout(() => {
+        startUpdateCheck().catch(() => {})
+      }, 30000)
+      updateTimer.unref?.()
+      const hours = Number(config.interval_hours) >= 1 ? Number(config.interval_hours) : 6
+      updateInterval = setInterval(() => {
+        startUpdateCheck().catch(() => {})
+      }, hours * 60 * 60 * 1000)
+      updateInterval.unref?.()
+    }
+  } catch (error) {
+    log(`update timer could not start: ${error.message}`)
+  }
+
   summaryServer = createServer((req, res) => {
     const fail = (code, message) => {
       res.writeHead(code, { 'content-type': 'application/json' })
@@ -322,6 +410,8 @@ export function apply(ctx) {
     writeEndpoint()
   })
   ctx.effect(() => () => {
+    clearTimeout(updateTimer)
+    clearInterval(updateInterval)
     sidecar.dispose()
     sessions.clear()
     try {
@@ -378,6 +468,10 @@ export function apply(ctx) {
           'reporting-status',
           'reporting-enable',
           'reporting-disable',
+          'update-status',
+          'update-check',
+          'update-enable',
+          'update-disable',
         ],
       },
       choice: { type: 'string', enum: ['contribute', 'disabled'] },
@@ -433,6 +527,17 @@ export function apply(ctx) {
         const state = sessions.get(session.id)
         if (state) state.sharing = result.sharing
         return text(entryView('choose', result.sharing, state))
+      }
+      if (op === 'update-status') {
+        return text(await updateStatus())
+      }
+      if (op === 'update-check') {
+        const started = await startUpdateCheck()
+        return text({ started, next: 'The background check writes status under the MindIE data directory.' })
+      }
+      if (op === 'update-enable' || op === 'update-disable') {
+        const value = await writeUpdateEnabled(op === 'update-enable')
+        return text({ update: value })
       }
       if (op === 'deactivate') {
         const result = await sidecar.call('deactivate', { session: session.id, cwd })

@@ -18,7 +18,7 @@ STANDARD_ONLY = {
     "@deepseek-ai/dsh-skill-filesystem",
     "@deepseek-ai/dsh-mcp-client",
 }
-LOCAL_PLUGIN = "./host3.mjs"
+LOCAL_PLUGIN = "./host.mjs"
 
 EXPECTED_COMPONENTS = {
     "mindie-knowledge": (

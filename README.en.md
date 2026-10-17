@@ -4,7 +4,7 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
-> **Formal 0.0.1**: the native `/mindie-agent` entry, DSH Stop public-transcript capture, deterministic redaction, DSH-model summary indexing, knowledge feedback, community contribution (default upstream with automatic fork) and diagnostics controls are implemented. macOS, 4090 WSL and native Windows Lenovo completed live model/capture/summary acceptance; contribution PR #51 was merged by the repository automation. See the [verification record](docs/verification.md).
+> **Formal 0.0.1**: the native `/mindie-agent` entry, DSH Stop public-transcript capture, deterministic redaction, DSH-model summary indexing, knowledge feedback, community contribution (default upstream with automatic fork), diagnostics controls and silent auto-update are implemented. macOS, 4090 WSL and native Windows Lenovo completed live model/capture/summary acceptance; contribution PR #51 was merged by the repository automation. Updates use a stable launcher, immutable generations and an atomic pointer; formal Releases are checked in the background and swapped live while DSH runs. See the [verification record](docs/verification.md).
 
 <p align="center">
   <b>Ascend NPU AI Infra knowledge and remote development for DeepSeek Harness</b><br/>

@@ -33,7 +33,7 @@
     # an ordinary Host plugin (this package's index.mjs); the published
     # mindie-knowledge runtime still owns capture, redaction and indexing.
     - id: mindie-agent-host
-      name: ./host3.mjs
+      name: ./host.mjs
       inject:
         - tools
         - agents
