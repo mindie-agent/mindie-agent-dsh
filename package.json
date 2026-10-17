@@ -29,7 +29,8 @@
     "npu",
     "vllm-ascend",
     "knowledge",
-    "remote-dev"
+    "remote-dev",
+    "dsh-plugin"
   ],
   "engines": {
     "node": ">=22"

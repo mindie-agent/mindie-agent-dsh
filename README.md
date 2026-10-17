@@ -4,6 +4,8 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
+> 插件发现：本仓库使用 GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) 供 DSH 插件市场索引。
+
 > **0.0.1 正式版**：原生 `/mindie-agent` 入口、DSH Stop 公开对话采集、确定性脱敏、DSH 模型摘要索引、知识反馈、社区贡献（默认上游自动 fork）、诊断开关与静默自动更新均已落地。macOS、4090 WSL 与 Lenovo 原生 Windows 已完成实机模型/采集/摘要验收；贡献 PR #51 已由仓库自动化合并。自动更新采用稳定 launcher + 不可变 generation + 原子指针，在 DSH 运行期间后台检查正式 Release 并热切换。详细证据见[验证记录](docs/verification.md)。
 
 <p align="center">
