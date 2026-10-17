@@ -1,0 +1,75 @@
+# MindIE Agent for DeepSeek Harness — host composition patch.
+#
+# This bundle adds three Host rows and overrides no shipped row and no shipped
+# preset. It deliberately uses only stable (non-experimental) DSH packages:
+#
+#   @deepseek-ai/dsh-skill-filesystem  (the provider the standard preset uses)
+#   @deepseek-ai/dsh-mcp-client        (the shipped MCP stdio bridge)
+#
+# The rows are Host rows, so the skill and the MCP tools are inherited by every
+# agent preset, including the shipped `standard` preset. Nothing here shadows
+# or rewrites the standard composition.
+#
+# `baseUrl` is the profile context base URL, so createRequire resolves this
+# bundle from the profile's node_modules exactly as the shipped cordis preset
+# resolves its own bundled skills.
+
+- insert:
+    # The `/mindie-agent` user entry. The skill has
+    # `disable-model-invocation: true`, so it never enters the model catalog
+    # and can only be injected by an explicit `/mindie-agent` user invocation.
+    - id: mindie-agent-skill
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: mindie
+        includeDefaultRoots: false
+        watch: false
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().skillsDir
+
+    # Knowledge tools. The launcher is deliberately run with `uv run
+    # --no-project` so the MCP server can start before setup: it then reports a
+    # precise setup command instead of disappearing. After setup it re-executes
+    # itself with the pinned runtime interpreter.
+    - id: mindie-agent-knowledge-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: mindie-knowledge
+        transport: stdio
+        command: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').uvCommand()
+        args:
+          - run
+          - --quiet
+          - --no-project
+          - --python
+          - '3.11'
+          - !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().knowledgeScript
+          - knowledge
+        env:
+          MINDIE_DSH_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configFile
+          MINDIE_DSH_ENGINE_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().engineConfig
+          MINDIE_DSH_STATE_DIR: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir
+          MINDIE_DSH_SESSION_ID: dsh
+        cwd: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().packageDir
+        toolCallTimeoutMs: 600000
+        failOnStartupError: false
+
+    # The published remote-dev MCP server, imported from the pinned runtime.
+    # This is the component's own server entry point, not an adapter copy.
+    - id: mindie-agent-remote-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: remote-dev
+        transport: stdio
+        command: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().venvPython
+        args:
+          - '-m'
+          - remote_dev.mcp.server
+        env:
+          MINDIE_DSH_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configFile
+          MINDIE_DSH_STATE_DIR: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir
+          REMOTE_DEV_STATE_DIR: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir, 'remote')
+          REMOTE_DEV_SESSION_ID: dsh
+        cwd: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().packageDir
+        toolCallTimeoutMs: 600000
+        failOnStartupError: false

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+.github/
+requirements-dev.txt
+*.tgz

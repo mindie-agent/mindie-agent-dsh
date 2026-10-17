@@ -1,0 +1,45 @@
+{
+  "schema": "mindie-harness-compatibility/1",
+  "harness": "DeepSeek Harness (dsh)",
+  "adapter": "mindie-agent-dsh",
+  "plugin_version": "0.0.1",
+  "verified": [
+    {
+      "dsh_version": "0.2.0-rc.2",
+      "node": ">=22",
+      "python": ">=3.11",
+      "platforms": [
+        "macOS 27.0.1 arm64"
+      ],
+      "evidence": "docs/verification.md"
+    }
+  ],
+  "interfaces": [
+    {
+      "id": "bundle-patch",
+      "contract": "package.json dsh.bundle.patch -> cordis.patch.yml insert rows",
+      "used_by": "cordis.patch.yml"
+    },
+    {
+      "id": "skill-filesystem",
+      "package": "@deepseek-ai/dsh-skill-filesystem",
+      "contract": "customSkillDirs + providerName",
+      "used_by": "cordis.patch.yml"
+    },
+    {
+      "id": "mcp-stdio",
+      "package": "@deepseek-ai/dsh-mcp-client",
+      "contract": "stdio command/args/env/cwd, toolCallTimeoutMs, failOnStartupError",
+      "used_by": "cordis.patch.yml"
+    },
+    {
+      "id": "uv-runtime",
+      "contract": "uv run --no-project --python 3.11 and uv sync --frozen --project",
+      "used_by": "cordis.patch.yml, scripts/setup.py"
+    }
+  ],
+  "notes": [
+    "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
+    "The bundle inserts Host rows and overrides no shipped row or shipped preset."
+  ]
+}

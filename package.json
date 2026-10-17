@@ -1,0 +1,56 @@
+{
+  "name": "mindie-agent-dsh",
+  "version": "0.0.1",
+  "private": true,
+  "description": "MindIE Agent for DeepSeek Harness: Ascend NPU knowledge and remote-dev tools composed from stable DSH plugins.",
+  "license": "MIT",
+  "type": "commonjs",
+  "files": [
+    "cordis.patch.yml",
+    "paths.cjs",
+    "skills/",
+    "scripts/",
+    "docs/",
+    "pyproject.toml",
+    "uv.lock",
+    "runtime-requirements.txt",
+    "harness-compatibility.json",
+    "CHANGELOG.md",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mindie",
+    "dsh",
+    "ascend",
+    "npu",
+    "vllm-ascend",
+    "knowledge",
+    "remote-dev"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mindie-agent/mindie-agent-dsh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mindie-agent/mindie-agent-dsh/issues"
+  },
+  "homepage": "https://github.com/mindie-agent/mindie-agent-dsh#readme"
+}
