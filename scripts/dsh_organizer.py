@@ -148,6 +148,16 @@ def _extract_json(text: str) -> dict:
     value = json.loads(stripped[start : end + 1])
     if not isinstance(value, dict):
         raise ValueError("model returned a non-object")
+    # The model may naturally use the old LangMem key name or a plain
+    # navigation string. Map only these two unambiguous aliases; everything
+    # else must match the shared result contract exactly.
+    if "blocks" not in value and isinstance(value.get("block_indexes"), list):
+        value["blocks"] = value.pop("block_indexes")
+    navigation = value.get("navigation")
+    if isinstance(navigation, str):
+        text = navigation.strip()
+        first = text.splitlines()[0].strip() if text else "Task navigation"
+        value["navigation"] = {"title": first[:120] or "Task navigation", "summary": text[:1000]}
     return value
 
 
