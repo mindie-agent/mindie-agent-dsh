@@ -18,6 +18,7 @@ STANDARD_ONLY = {
     "@deepseek-ai/dsh-skill-filesystem",
     "@deepseek-ai/dsh-mcp-client",
 }
+LOCAL_PLUGIN = "./host3.mjs"
 
 EXPECTED_COMPONENTS = {
     "mindie-knowledge": (
@@ -73,12 +74,12 @@ class PackageContractTests(unittest.TestCase):
             set(ids),
             {
                 "mindie-agent-skill",
-                "mindie-agent-knowledge-mcp",
+                "mindie-agent-host",
                 "mindie-agent-remote-mcp",
             },
         )
         names = {row["name"] for row in rows}
-        self.assertEqual(names, STANDARD_ONLY)
+        self.assertEqual(names, STANDARD_ONLY | {LOCAL_PLUGIN})
         for row in rows:
             self.assertFalse(
                 row["name"].startswith("@deepseek-ai/dsh-experimental-"),

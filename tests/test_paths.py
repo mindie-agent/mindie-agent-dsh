@@ -104,11 +104,6 @@ class PathContractTests(unittest.TestCase):
             self.assertFalse((root / "data").exists())
             self.assertFalse((root / "config").exists())
 
-    def test_capture_stub_fails_loudly(self) -> None:
-        module = load_module("capture_stub", SCRIPTS / "dsh_capture_unavailable.py")
-        with self.assertRaises(NotImplementedError):
-            module.read_material("anything")
-
 
 if __name__ == "__main__":
     unittest.main()

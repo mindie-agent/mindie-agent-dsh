@@ -1,14 +1,16 @@
 # MindIE Agent for DeepSeek Harness — host composition patch.
 #
 # This bundle adds three Host rows and overrides no shipped row and no shipped
-# preset. It deliberately uses only stable (non-experimental) DSH packages:
+# preset. The only DSH packages it uses are stable (non-experimental):
 #
 #   @deepseek-ai/dsh-skill-filesystem  (the provider the standard preset uses)
 #   @deepseek-ai/dsh-mcp-client        (the shipped MCP stdio bridge)
 #
-# The rows are Host rows, so the skill and the MCP tools are inherited by every
-# agent preset, including the shipped `standard` preset. Nothing here shadows
-# or rewrites the standard composition.
+# The knowledge tool surface is this package's own Host plugin; the published
+# mindie-knowledge runtime still owns capture, redaction and indexing. The rows
+# are Host rows, so the skill, native tools and remote-dev MCP are inherited by
+# every agent preset, including the shipped `standard` preset. Nothing here
+# shadows or rewrites the standard composition.
 #
 # `baseUrl` is the profile context base URL, so createRequire resolves this
 # bundle from the profile's node_modules exactly as the shipped cordis preset
@@ -27,49 +29,14 @@
         customSkillDirs:
           - !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().skillsDir
 
-    # Knowledge tools. The launcher is deliberately run with `uv run
-    # --no-project` so the MCP server can start before setup: it then reports a
-    # precise setup command instead of disappearing. After setup it re-executes
-    # itself with the pinned runtime interpreter.
-    - id: mindie-agent-knowledge-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: mindie-knowledge
-        transport: stdio
-        command: !!js >-
-          (() => {
-            const fs = process.getBuiltinModule('node:fs')
-            const os = process.getBuiltinModule('node:os')
-            const path = process.getBuiltinModule('node:path')
-            const override = process.env.MINDIE_DSH_UV
-            if (override) return path.resolve(override)
-            const candidates = process.platform === 'win32'
-              ? [path.join(os.homedir(), '.local', 'bin', 'uv.exe')]
-              : [path.join(os.homedir(), '.local', 'bin', 'uv'), '/opt/homebrew/bin/uv', '/usr/local/bin/uv']
-            for (const candidate of candidates) {
-              try {
-                fs.accessSync(candidate, fs.constants.X_OK)
-                return candidate
-              } catch {}
-            }
-            return process.platform === 'win32' ? 'uv.exe' : 'uv'
-          })()
-        args:
-          - run
-          - --quiet
-          - --no-project
-          - --python
-          - '3.11'
-          - !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().knowledgeScript
-          - knowledge
-        env:
-          MINDIE_DSH_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configFile
-          MINDIE_DSH_ENGINE_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().engineConfig
-          MINDIE_DSH_STATE_DIR: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir
-          MINDIE_DSH_SESSION_ID: dsh
-        cwd: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().packageDir
-        toolCallTimeoutMs: 600000
-        failOnStartupError: false
+    # Native Host tool surface and the Stop handoff. The knowledge bridge is
+    # an ordinary Host plugin (this package's index.mjs); the published
+    # mindie-knowledge runtime still owns capture, redaction and indexing.
+    - id: mindie-agent-host
+      name: ./host3.mjs
+      inject:
+        - tools
+        - agents
 
     # The published remote-dev MCP server, imported from the pinned runtime.
     # This is the component's own server entry point, not an adapter copy.

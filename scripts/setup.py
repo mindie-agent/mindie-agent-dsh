@@ -261,8 +261,8 @@ def install_redactor(*, timeout: int = 300) -> str:
 
 def engine_configuration(redactor: str) -> dict[str, Any]:
     capture_dir = mp.data_home() / "capture"
-    adapter = capture_dir / "transcript_unavailable.py"
-    copy_private(mp.PACKAGE_DIR / "scripts" / "dsh_capture_unavailable.py", adapter)
+    adapter = capture_dir / "dsh_transcript.py"
+    copy_private(mp.PACKAGE_DIR / "scripts" / "dsh_transcript.py", adapter)
     return {
         "root": str(mp.data_home()),
         "domain": DOMAIN,
@@ -270,6 +270,7 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
         "capture_mode": "public-transcript",
         "transcript_adapter": str(adapter),
         "redactor_executable": redactor,
+        "community_config": str(mp.config_home() / "mindie-community.json"),
         "feeds": [dict(FEED)],
     }
 
