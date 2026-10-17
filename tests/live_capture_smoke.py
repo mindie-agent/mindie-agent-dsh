@@ -95,7 +95,11 @@ def session_file(root: Path, session_id: str) -> Path:
 
 
 def main() -> int:
-    root = Path(tempfile.mkdtemp(prefix="mindie-dsh-capture-"))
+    override = os.environ.get("MINDIE_SMOKE_ROOT")
+    root = Path(override) if override else Path(tempfile.mkdtemp(prefix="mindie-dsh-capture-"))
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
     engine = None
     service = None
     receipt: dict = {"root": str(root)}
