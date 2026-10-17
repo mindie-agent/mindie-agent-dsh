@@ -336,6 +336,7 @@ export function apply(ctx) {
 
   const startUpdateCheck = async () => {
     if (!existsSync(updateScript)) return false
+    if (readUpdateConfig().enabled === false) return false
     try {
       const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
       if (agents.some((agent) => agent?.status === 'running')) return false
@@ -362,17 +363,15 @@ export function apply(ctx) {
   let updateInterval
   try {
     const config = readUpdateConfig()
-    if (config.enabled !== false) {
-      updateTimer = setTimeout(() => {
-        startUpdateCheck().catch(() => {})
-      }, 30000)
-      updateTimer.unref?.()
-      const hours = Number(config.interval_hours) >= 1 ? Number(config.interval_hours) : 6
-      updateInterval = setInterval(() => {
-        startUpdateCheck().catch(() => {})
-      }, hours * 60 * 60 * 1000)
-      updateInterval.unref?.()
-    }
+    updateTimer = setTimeout(() => {
+      startUpdateCheck().catch(() => {})
+    }, 30000)
+    updateTimer.unref?.()
+    const hours = Number(config.interval_hours) >= 1 ? Number(config.interval_hours) : 6
+    updateInterval = setInterval(() => {
+      startUpdateCheck().catch(() => {})
+    }, hours * 60 * 60 * 1000)
+    updateInterval.unref?.()
   } catch (error) {
     log(`update timer could not start: ${error.message}`)
   }

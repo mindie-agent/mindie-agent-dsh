@@ -98,6 +98,11 @@ This record keeps implementation status and real acceptance evidence separate.
 - A no-update check against the real GitHub Releases wrote `up-to-date`; the
   updater is started 30 seconds after Host apply, then at the configured
   interval, and defers while an Agent is running.
+- 4090 WSL and Lenovo Windows: the stable launcher mounted the seed host, a
+  no-update check returned `up-to-date` with a successful feed sync, and a
+  synthetic generation pointer swapped the child plugin (summary endpoint token
+  changed, same DSH pid). Removing the pointer returned the seed. No profile
+  dependency change or DSH restart occurred.
 - Offline tests: 24 Python tests and the summary-endpoint Node test pass.
 
 ## Known limits

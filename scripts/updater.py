@@ -254,26 +254,6 @@ def run(command, timeout, cwd=None, env=None):
     return completed.returncode, detail[-2000:]
 
 
-def profile_spec(profile: str):
-    path = Path.home() / ".dsh" / "profiles" / profile / "package.json"
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    dependencies = document.get("dependencies")
-    if not isinstance(dependencies, dict):
-        return None
-    value = dependencies.get("mindie-agent-dsh")
-    return value if isinstance(value, str) else None
-
-
-def dsh_command():
-    explicit = os.environ.get("MINDIE_DSH_BIN")
-    if explicit:
-        return explicit
-    return shutil.which("dsh")
-
-
 def backup_config() -> Path | None:
     config = mp.config_home()
     if not config.is_dir():
@@ -309,19 +289,6 @@ def setup_candidate(package: Path, python: str) -> Path | None:
         restore_config(backup)
         raise UpdateError("candidate setup failed: " + detail[-800:])
     return backup
-
-
-def install_candidate(profile: str, package: Path):
-    dsh = dsh_command()
-    if dsh is None:
-        raise UpdateError("dsh CLI is not available to install the candidate")
-    code, detail = run(
-        [dsh, "plugin", "--profile", profile, "add", str(package)],
-        timeout=INSTALL_TIMEOUT,
-    )
-    if code != 0:
-        raise UpdateError("profile install failed: " + detail[-800:])
-    return detail
 
 
 def sync_feed(timeout: int = 90) -> dict:
