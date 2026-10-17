@@ -1,4 +1,9 @@
-# 0.0.1 verification record
+# 0.0.1-preview verification record
+
+> **Preview notice**: the `v0.0.1` tag is marked `prerelease` and is not the
+> formal 0.0.1 release. This record preserves the initial read-only acceptance
+> evidence; it is superseded by the parity rebuild now in progress. The
+> formal 0.0.1 will re-run the full capability and platform acceptance.
 
 Date: 2026-10-17. This file records what was actually executed, not a target
 design. Anything not listed here is unverified.

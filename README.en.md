@@ -4,6 +4,8 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
+> **`0.0.1-preview` (not the formal 0.0.1)**: this tag is a preview of the parity rebuild and is **not a formal 0.0.1 release**. The native `/mindie-agent` entry, session-bound knowledge tools, and the DSH Stop capture adapter are in place; the summary/indexing worker, community publication, diagnostics reporting, and Windows/WSL acceptance are still being completed. The formal `0.0.1` will be re-cut after those core capabilities match Codex/CC.
+
 <p align="center">
   <b>Ascend NPU AI Infra knowledge and remote development for DeepSeek Harness</b><br/>
   <sub>Works inside the standard preset · read-only domain knowledge · the official remote-dev NPU tool set · stable DSH plugins only</sub>
