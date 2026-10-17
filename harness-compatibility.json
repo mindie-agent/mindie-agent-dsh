@@ -9,7 +9,9 @@
       "node": ">=22",
       "python": ">=3.11",
       "platforms": [
-        "macOS 27.0.1 arm64"
+        "macOS 27.0.1 arm64",
+        "Ubuntu 24.04 WSL (4090)",
+        "Windows 11 native (Lenovo)"
       ],
       "evidence": "docs/verification.md"
     }
@@ -31,6 +33,35 @@
       "package": "@deepseek-ai/dsh-mcp-client",
       "contract": "stdio command/args/env/cwd, toolCallTimeoutMs, failOnStartupError",
       "used_by": "cordis.patch.yml"
+    },
+    {
+      "id": "host-tools",
+      "package": "ctx.tools.register",
+      "contract": "registered tool definitions with parameters/output/execute",
+      "used_by": "host3.mjs"
+    },
+    {
+      "id": "agent-turn-stopping",
+      "package": "ctx.on('agent/turn-stopping')",
+      "contract": "agent, turn, signal; session id and header cwd",
+      "used_by": "host3.mjs"
+    },
+    {
+      "id": "agent-route",
+      "package": "exec.agent.options",
+      "contract": "provider/model route for the session's DSH model",
+      "used_by": "host3.mjs"
+    },
+    {
+      "id": "llm-stream",
+      "package": "ctx.llm.stream",
+      "contract": "text-delta, usage and finish chunks for the summary endpoint",
+      "used_by": "host3.mjs"
+    },
+    {
+      "id": "session-v4-transcript",
+      "contract": "~/.dsh/sessions/*/session-*/session.v4.jsonl.zstd concatenated zstd frames",
+      "used_by": "scripts/dsh_transcript.py"
     },
     {
       "id": "uv-runtime",
