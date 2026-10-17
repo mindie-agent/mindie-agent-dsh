@@ -44,6 +44,26 @@ def append_log(value: dict) -> None:
         pass
 
 
+def diagnose(stage: str, error: Exception) -> dict | None:
+    try:
+        from mindie_diagnostics.integration import record_failure
+
+        result = record_failure(
+            "mindie-agent-dsh",
+            "capture",
+            stage=stage,
+            category=type(error).__name__,
+            exception=error,
+            host="dsh",
+            version="0.0.1",
+        )
+        if isinstance(result, dict) and result.get("incident_id"):
+            return {"incident_id": result.get("incident_id")}
+    except Exception:
+        pass
+    return None
+
+
 def main() -> int:
     started = time.time()
     try:
@@ -62,16 +82,26 @@ def main() -> int:
         if isinstance(receipt, dict):
             receipt = {"stage": receipt.get("stage"), "reason": receipt.get("reason"),
                        "capture_id": receipt.get("capture_id"), "duplicate": receipt.get("duplicate")}
-        append_log({"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": receipt})
+        entry = {"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": receipt}
+        if isinstance(receipt, dict) and receipt.get("stage") not in {"accepted-local", "accepted-runtime"}:
+            projected = diagnose(
+                str(receipt.get("stage") or "capture"),
+                RuntimeError(str(receipt.get("reason") or "capture not accepted")),
+            )
+            if projected is not None:
+                entry["diagnostic"] = projected
+        append_log(entry)
         return 0
     except Exception as exc:  # noqa: BLE001
-        append_log(
-            {
-                "time": time.time(),
-                "elapsed": round(time.time() - started, 3),
-                "error": {"type": type(exc).__name__, "message": str(exc)[:500]},
-            }
-        )
+        entry = {
+            "time": time.time(),
+            "elapsed": round(time.time() - started, 3),
+            "error": {"type": type(exc).__name__, "message": str(exc)[:500]},
+        }
+        projected = diagnose("hook", exc)
+        if projected is not None:
+            entry["diagnostic"] = projected
+        append_log(entry)
         return 1
 
 

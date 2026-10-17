@@ -24,7 +24,9 @@ switch.
 - **Knowledge feedback**: query/explain/feedback/sync with the exact
   `feedback_ref`; feedback is non-publishable while sharing is off.
 - **Optional diagnostics reporting**: status/enable/disable through the shared
-  `mindie-diagnostics` component, independent of contribution.
+  `mindie-diagnostics` component, independent of contribution. Tool/capture
+  failures record bounded local incidents; enabling reporting installs and
+  verifies the component's reporting worker.
 - **Stability by composition**: only
   `@deepseek-ai/dsh-skill-filesystem`, `@deepseek-ai/dsh-mcp-client` and this
   package's own Host plugin; no `@deepseek-ai/dsh-experimental-*` package; no
@@ -63,7 +65,7 @@ metadata, and `SHA256SUMS` were verified. See
 | 4090 WSL Ubuntu 24.04 | `0.2.0-rc.2` | 22.22.1 | 3.11.15 | live model, capture, summary, plugin/MCP |
 | Lenovo native Windows | `0.2.0-rc.2` | 24.19.0 | 3.11.16 | live model, capture, summary, plugin/MCP |
 
-Offline tests: 18 Python tests and the summary-endpoint Node test pass.
+Offline tests: 19 Python tests and the summary-endpoint Node test pass.
 `tests/live_capture_smoke.py` passed on all three platforms.
 
 ## Known limits

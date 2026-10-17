@@ -28,6 +28,7 @@ if str(HERE) not in sys.path:
 import mindie_paths as mp  # noqa: E402
 
 MAX_LINE = 256 * 1024
+ADAPTER_VERSION = "0.0.1"
 
 
 class SidecarError(RuntimeError):
@@ -328,6 +329,24 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
                 config=config,
             )
             consent_store.record_reporting(str(consent_path()), value)
+            if value == "enabled":
+                try:
+                    worker = subprocess.run(
+                        [sys.executable, "-m", "mindie_diagnostics.cli", "reporting", "ensure",
+                         "--config", str(config)],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        check=False,
+                    )
+                    result = dict(result)
+                    result["worker"] = {
+                        "status": "ensured" if worker.returncode == 0 else "failed",
+                        "detail": (worker.stderr or worker.stdout or "")[-500:],
+                    }
+                except (OSError, subprocess.SubprocessError) as exc:
+                    result = dict(result)
+                    result["worker"] = {"status": "failed", "detail": type(exc).__name__}
         return {"reporting": value, "diagnostics": result}
     except SidecarError:
         raise
@@ -401,6 +420,31 @@ OPS = {
 }
 
 
+def diagnostic(operation: str, error: Exception) -> dict[str, Any] | None:
+    """Record one bounded local incident; reporting remains a separate opt-in."""
+    try:
+        from mindie_diagnostics.integration import record_failure
+
+        receipt = record_failure(
+            "mindie-agent-dsh",
+            operation,
+            stage="tool",
+            category=type(error).__name__,
+            exception=error,
+            host="dsh",
+            version=ADAPTER_VERSION,
+            reportable=not isinstance(error, SidecarError),
+        )
+        if isinstance(receipt, dict) and receipt.get("incident_id"):
+            return {
+                "incident_id": receipt.get("incident_id"),
+                "record_ref": receipt.get("record_ref"),
+            }
+    except Exception:
+        pass
+    return None
+
+
 def response(identifier: Any, *, ok: bool, result: Any = None, error: Exception | None = None) -> dict[str, Any]:
     if ok:
         return {"id": identifier, "ok": True, "result": result}
@@ -442,7 +486,11 @@ def main() -> int:
             result = OPS[op](args)
             print(json.dumps(response(identifier, ok=True, result=result), ensure_ascii=False), flush=True)
         except Exception as exc:  # noqa: BLE001
-            print(json.dumps(response(identifier, ok=False, error=exc), ensure_ascii=False), flush=True)
+            envelope = response(identifier, ok=False, error=exc)
+            projected = diagnostic(op, exc)
+            if projected is not None:
+                envelope["error"]["diagnostic"] = projected
+            print(json.dumps(envelope, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

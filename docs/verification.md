@@ -36,8 +36,12 @@ This record keeps implementation status and real acceptance evidence separate.
   This verifies the normal accept-at-init → auto-fork → publish path. The PR
   contains a test capture and is now part of the canonical corpus; that test
   content is called out here rather than hidden.
-- Diagnostics reporting status/enable/disable was exercised through
-  `mindie-diagnostics`; reporting was returned to disabled.
+- Diagnostics: a sidecar failure recorded local incident
+  `77cecb168d3642c5ba4183cd3679bc6c`; enabling reporting ran
+  `mindie_diagnostics.cli reporting ensure` and confirmed a healthy reporting
+  worker, then disabled it. A rejected Stop envelope recorded capture incident
+  `acc50f110f4245bc8e1c3b164e9709cd`. Fault text is not uploaded unless the
+  shared reporting choice is enabled.
 - Bugs found and fixed during acceptance: the Stop helper initially passed the
   adapter config instead of the engine config (`stage=unavailable`); the model
   initially returned `block_indexes`/string navigation (now only unambiguous
