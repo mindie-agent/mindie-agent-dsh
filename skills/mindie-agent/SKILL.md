@@ -29,7 +29,9 @@ session mode.
 - If `sharing.choice` is `later` or contribution is unconfigured, ask the user
   **once** whether to enable public experience contribution.
   - If yes: `mindie_entry(op="choose", choice="contribute",
-    repository="<owner/repo>", account="<github-account>")`.
+    account="<github-account>")`. The default upstream is
+    `mindie-agent/knowledge-vllm-ascend`; the tool auto-forks it to the account.
+    Pass `repository`/`fork` only when the user explicitly names another destination.
   - If no: `mindie_entry(op="choose", choice="disabled")`.
 - A saved `contribute` or `disabled` choice is never re-asked. The user can
   change it later only by explicitly saying so in a `/mindie-agent` task.

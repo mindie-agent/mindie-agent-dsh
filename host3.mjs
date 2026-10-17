@@ -383,11 +383,18 @@ export function apply(ctx) {
       choice: { type: 'string', enum: ['contribute', 'disabled'] },
       repository: {
         type: 'string',
-        description: 'Public owner/repo stated by the user; required to contribute.',
+        description:
+          'Optional upstream owner/repo; defaults to mindie-agent/knowledge-vllm-ascend.',
       },
       account: {
         type: 'string',
-        description: 'Public GitHub account stated by the user; required to contribute.',
+        description:
+          'Optional public GitHub account; derived from gh when omitted. The fork is created under it.',
+      },
+      fork: {
+        type: 'string',
+        description:
+          'Optional fork owner/repo. By default the upstream is forked to the account.',
       },
     },
     required: ['op'],
@@ -420,6 +427,7 @@ export function apply(ctx) {
           choice,
           repository: args.repository,
           account: args.account,
+          fork: args.fork,
           cwd,
         })
         const state = sessions.get(session.id)
@@ -626,7 +634,8 @@ function entryView(kind, sharing, state) {
     base.next =
       'Contribution is not decided. Ask the user once whether to enable public ' +
       'contribution; if yes, call mindie_entry(op="choose", choice="contribute", ' +
-      'repository="owner/repo", account="..."), otherwise call ' +
+      'account="<public GitHub account>"). The default upstream is ' +
+      'mindie-agent/knowledge-vllm-ascend and the tool creates the fork. Otherwise call ' +
       'mindie_entry(op="choose", choice="disabled"). Read-only knowledge works now.'
   } else if (sharing.enabled) {
     base.next = 'Contribution is enabled for the configured project scope.'

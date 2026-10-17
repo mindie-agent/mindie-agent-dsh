@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -92,6 +94,8 @@ def public_settings() -> dict[str, Any]:
         "configured": community.state in {"enabled", "disabled"},
         "enabled": bool(community.enabled),
         "repository": community.repository,
+        "fork": community.raw.get("fork"),
+        "account": community.raw.get("account"),
         "project_roots": [str(item) for item in community.project_roots],
         "consent": consent.get("state"),
         "choice": consent.get("choice"),
@@ -173,6 +177,94 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
     return {"deactivated": bool(disabled), "sharing": public_settings()}
 
 
+COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
+
+
+def _gh(*arguments: str) -> str:
+    executable = shutil.which("gh")
+    if executable is None:
+        raise SidecarError(
+            "GitHub CLI (gh) is required to fork and publish community contributions"
+        )
+    try:
+        completed = subprocess.run(
+            [executable, *arguments],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SidecarError(f"gh could not run: {type(exc).__name__}") from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+        raise SidecarError("gh failed: " + (detail[-1][:300] if detail else "unknown error"))
+    return completed.stdout.strip()
+
+
+def _github_account() -> str:
+    value = _gh("api", "user", "--jq", ".login").strip()
+    if not value or "/" in value:
+        raise SidecarError("GitHub CLI did not return a usable account; pass account explicitly")
+    return value
+
+
+def _existing_fork(repository: str, account: str) -> str | None:
+    try:
+        raw = _gh(
+            "repo", "list", account, "--fork", "--limit", "200",
+            "--json", "nameWithOwner,parent",
+        )
+        values = json.loads(raw)
+    except (SidecarError, ValueError):
+        return None
+    if not isinstance(values, list):
+        return None
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        parent = item.get("parent")
+        if isinstance(parent, dict):
+            parent_name = parent.get("nameWithOwner")
+            if not isinstance(parent_name, str):
+                owner = parent.get("owner")
+                login = owner.get("login") if isinstance(owner, dict) else None
+                name = parent.get("name")
+                if isinstance(login, str) and isinstance(name, str):
+                    parent_name = login + "/" + name
+            if parent_name == repository:
+                name = item.get("nameWithOwner")
+                if isinstance(name, str) and name.count("/") == 1:
+                    return name
+    return None
+
+
+def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
+    if fork:
+        owner = fork.split("/", 1)[0]
+        if owner != account:
+            raise SidecarError("fork must belong to the public GitHub account")
+        try:
+            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+            return fork
+        except SidecarError:
+            pass
+    existing = _existing_fork(repository, account)
+    if existing:
+        return existing
+    _gh("repo", "fork", repository, "--clone=false")
+    existing = _existing_fork(repository, account)
+    if existing:
+        return existing
+    if fork:
+        try:
+            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+            return fork
+        except SidecarError:
+            pass
+    raise SidecarError("GitHub did not expose the fork after the fork request")
+
+
 def op_configure(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge import consent_store
     from mindie_knowledge.loop.settings import CommunityWriteContext
@@ -185,17 +277,25 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
         raise SidecarError("cwd must be an absolute path")
     repository = args.get("repository")
     account = args.get("account")
+    fork = None
     if choice == "contribute":
-        if not isinstance(repository, str) or "/" not in repository:
-            raise SidecarError("repository owner/repo is required for contribution")
-        if not isinstance(account, str) or not account.strip():
-            raise SidecarError("account is required for contribution")
+        repository = repository or COMMUNITY_REPOSITORY
+        if not isinstance(repository, str) or repository.count("/") != 1:
+            raise SidecarError("repository must be owner/repo")
+        account = account or _github_account()
+        if not isinstance(account, str) or not account.strip() or "/" in account:
+            raise SidecarError("account must be a public GitHub account name")
+        fork = args.get("fork")
+        if fork is not None and (not isinstance(fork, str) or fork.count("/") != 1):
+            raise SidecarError("fork must be owner/repo")
+        fork = _ensure_fork(repository, fork, account)
         consent_store.record_choice(str(consent_path()), "contribute")
     else:
         consent_store.record_choice(str(consent_path()), "disabled")
     request: dict[str, Any] = {
         "enabled": choice == "contribute",
         "repository": repository if choice == "contribute" else None,
+        "fork": fork,
         "project_roots": [cwd] if choice == "contribute" else [],
         "branch": "main",
         "idle_seconds": 300,

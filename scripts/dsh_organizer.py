@@ -19,6 +19,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="strict")
+        except (AttributeError, OSError, ValueError):
+            pass
+
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
@@ -178,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--identity" in argv:
-        print(json.dumps(identity(), ensure_ascii=False))
+        print(json.dumps(identity(), ensure_ascii=True))
         return 0
     started = time.monotonic()
     request = None
@@ -209,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
                 error_reason="result_contract_invalid",
                 billing_status="reported",
             )
-            print(json.dumps(envelope, ensure_ascii=False))
+            print(json.dumps(envelope, ensure_ascii=True))
             return 0
         envelope = summarizer.outcome(
             request,
@@ -222,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             elapsed_ms=int((time.monotonic() - started) * 1000),
             billing_status="reported",
         )
-        print(json.dumps(envelope, ensure_ascii=False))
+        print(json.dumps(envelope, ensure_ascii=True))
         return 0
     except ConfigurationError as exc:
         if request is None:
@@ -240,11 +247,11 @@ def main(argv: list[str] | None = None) -> int:
                 error_reason="configuration_invalid",
                 billing_status="not_called",
             )
-            print(json.dumps(envelope, ensure_ascii=False))
+            print(json.dumps(envelope, ensure_ascii=True))
             return 0
         except Exception:
             pass
-        print(json.dumps({"schema": "mindie-summary-error/1", "error": str(exc)}))
+        print(json.dumps({"schema": "mindie-summary-error/1", "error": str(exc)}, ensure_ascii=True))
         return 1
     except UncertainError as exc:
         if request is not None:
@@ -259,9 +266,9 @@ def main(argv: list[str] | None = None) -> int:
                 error_reason="unknown_failure",
                 billing_status="unknown",
             )
-            print(json.dumps(envelope, ensure_ascii=False))
+            print(json.dumps(envelope, ensure_ascii=True))
             return 0
-        print(json.dumps({"schema": "mindie-summary-error/1", "error": str(exc)}))
+        print(json.dumps({"schema": "mindie-summary-error/1", "error": str(exc)}, ensure_ascii=True))
         return 1
 
 
