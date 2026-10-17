@@ -238,9 +238,27 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def connection():
-    from mindie_knowledge.loop.cli import ensure_service
+    from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service, rpc
 
-    return ensure_service(engine_path())
+    engine = engine_path()
+    try:
+        return ensure_service(engine)
+    except Exception as first:
+        # A stopped or crashed service can leave a loopback connection file
+        # behind. Probe it once; only a refused endpoint may be discarded.
+        path = None
+        try:
+            path = connection_path(config_at(engine))
+            recorded = json.loads(path.read_text(encoding="utf-8"))
+            rpc(recorded, "status", {}, timeout=1.5)
+            return recorded
+        except Exception:
+            if path is not None:
+                try:
+                    path.unlink()
+                except OSError:
+                    raise first from None
+        return ensure_service(engine)
 
 
 def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
