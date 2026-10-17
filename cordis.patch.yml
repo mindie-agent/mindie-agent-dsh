@@ -36,7 +36,24 @@
       config:
         serverName: mindie-knowledge
         transport: stdio
-        command: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').uvCommand()
+        command: !!js >-
+          (() => {
+            const fs = process.getBuiltinModule('node:fs')
+            const os = process.getBuiltinModule('node:os')
+            const path = process.getBuiltinModule('node:path')
+            const override = process.env.MINDIE_DSH_UV
+            if (override) return path.resolve(override)
+            const candidates = process.platform === 'win32'
+              ? [path.join(os.homedir(), '.local', 'bin', 'uv.exe')]
+              : [path.join(os.homedir(), '.local', 'bin', 'uv'), '/opt/homebrew/bin/uv', '/usr/local/bin/uv']
+            for (const candidate of candidates) {
+              try {
+                fs.accessSync(candidate, fs.constants.X_OK)
+                return candidate
+              } catch {}
+            }
+            return process.platform === 'win32' ? 'uv.exe' : 'uv'
+          })()
         args:
           - run
           - --quiet

@@ -68,26 +68,4 @@ function paths() {
   }
 }
 
-function uvCommand() {
-  const override = env('MINDIE_DSH_UV')
-  if (override) return path.resolve(override)
-  const candidates =
-    process.platform === 'win32'
-      ? [path.join(os.homedir(), '.local', 'bin', 'uv.exe')]
-      : [
-          path.join(os.homedir(), '.local', 'bin', 'uv'),
-          '/opt/homebrew/bin/uv',
-          '/usr/local/bin/uv',
-        ]
-  for (const candidate of candidates) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK)
-      return candidate
-    } catch {
-      // try the next well-known location
-    }
-  }
-  return process.platform === 'win32' ? 'uv.exe' : 'uv'
-}
-
-module.exports = { paths, dataHome, configHome, uvCommand }
+module.exports = { paths, dataHome, configHome }
