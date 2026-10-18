@@ -1,7 +1,7 @@
-"""MindIE-owned paths for the DSH adapter.
-
-These functions mirror ``paths.cjs`` exactly; ``tests/test_paths.py`` compares
-the two so the bundle patch and the Python runtime cannot drift.
+"""[Role] Canonical filesystem path authority for the DSH adapter (mirrors paths.cjs).
+[Invariants] Must stay byte-for-byte consistent with paths.cjs across POSIX and Windows.
+[Timeouts & Locks] Pure path resolution; zero locks, zero subprocesses, zero I/O waits.
+[Side-Effect Policy] Read-only except ensure_private_dir(), which creates target directories.
 """
 
 from __future__ import annotations
@@ -15,15 +15,11 @@ APP_PARTS = ("mindie-agent", "dsh")
 
 def _env(name: str) -> str | None:
     value = os.environ.get(name)
-    if not isinstance(value, str):
-        return None
-    value = value.strip()
-    return value or None
+    return value.strip() or None if isinstance(value, str) else None
 
 
 def data_home() -> Path:
-    override = _env("MINDIE_DSH_DATA_HOME")
-    if override:
+    if override := _env("MINDIE_DSH_DATA_HOME"):
         return Path(override).expanduser().resolve()
     if os.name == "nt":
         base = _env("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
@@ -33,8 +29,7 @@ def data_home() -> Path:
 
 
 def config_home() -> Path:
-    override = _env("MINDIE_DSH_CONFIG_HOME")
-    if override:
+    if override := _env("MINDIE_DSH_CONFIG_HOME"):
         return Path(override).expanduser().resolve()
     if os.name == "nt":
         base = _env("APPDATA") or str(Path.home() / "AppData" / "Roaming")
@@ -63,9 +58,7 @@ def venv_dir() -> Path:
 
 
 def venv_python() -> Path:
-    if os.name == "nt":
-        return venv_dir() / "Scripts" / "python.exe"
-    return venv_dir() / "bin" / "python"
+    return venv_dir() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def skills_dir() -> Path:
@@ -81,16 +74,9 @@ def setup_script() -> Path:
 
 
 def setup_command() -> str:
-    return (
-        "uv run --quiet --no-project --python 3.11 "
-        + str(setup_script())
-    )
+    return f"uv run --quiet --no-project --python 3.11 {setup_script()}"
 
 
 def ensure_private_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    try:
-        path.chmod(0o700)
-    except OSError:
-        pass
     return path

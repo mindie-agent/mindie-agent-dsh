@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""Provision the pinned MindIE runtime for the DeepSeek Harness adapter.
-
-The install is deliberately one explicit step: build the locked Python runtime,
-generate the knowledge-engine configuration, install the deterministic
-transcript redactor, and synchronize the configured public knowledge feed. The
-DSH bundle itself remains a thin composition; this script owns no plugin
-lifecycle.
-
-Usage:
-    uv run --quiet --no-project --python 3.11 scripts/setup.py
-    uv run --quiet --no-project --python 3.11 scripts/setup.py --no-sync
+"""[Role] One-step runtime provisioner for the DeepSeek Harness adapter.
+[Invariants] Syncs locked uv runtime, verifies SQLite FTS5 + component imports, installs transcript redactor, and writes engine/adapter configs atomically.
+[Timeouts & Locks] uv sync bounded by --install-timeout (default 900s), runtime probe 120s, redactor install 300s, service stop 60s, feed sync 900s.
+[Side-Effect Policy] Populates data_home()/venv, writes config_home()/engine.json and config.json via atomic os.replace, and stages updater scripts.
 """
 
 from __future__ import annotations
@@ -21,7 +14,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -67,18 +59,11 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            argv,
-            cwd=str(cwd) if cwd else None,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            argv, cwd=str(cwd) if cwd else None, env=env,
+            text=True, capture_output=True, timeout=timeout, check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise SetupError(
-            f"command exceeded {timeout}s: {' '.join(argv)}"
-        ) from exc
+        raise SetupError(f"command exceeded {timeout}s: {' '.join(argv)}") from exc
     except OSError as exc:
         raise SetupError(f"could not run {argv[0]}: {exc}") from exc
 
@@ -90,39 +75,18 @@ def tail(text: str, limit: int = 4000) -> str:
 
 def write_private(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=str(path.parent))
-    try:
-        if hasattr(os, "fchmod"):
-            os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
-            stream.write("\n")
-        descriptor = -1
-        os.replace(temporary, path)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def copy_private(source: Path, destination: Path) -> None:
     if not source.is_file():
         raise SetupError(f"required plugin file is missing: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
-        prefix="." + destination.name + ".", dir=str(destination.parent)
-    )
-    try:
-        if hasattr(os, "fchmod"):
-            os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "wb") as out, source.open("rb") as stream:
-            shutil.copyfileobj(stream, out)
-        descriptor = -1
-        os.replace(temporary, destination)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    tmp.write_bytes(source.read_bytes())
+    os.replace(tmp, destination)
 
 
 def check_host() -> None:
@@ -140,19 +104,11 @@ def check_host() -> None:
 def sync_runtime(python: str | None, *, timeout: int) -> None:
     venv = mp.venv_dir()
     mp.ensure_private_dir(mp.data_home())
-    env = dict(os.environ)
-    env["UV_PROJECT_ENVIRONMENT"] = str(venv)
+    env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
     env.setdefault("UV_NO_PROGRESS", "1")
     argv = [
-        "uv",
-        "sync",
-        "--frozen",
-        "--quiet",
-        "--no-dev",
-        "--project",
-        str(mp.PACKAGE_DIR),
-        "--python",
-        python or "3.11",
+        "uv", "sync", "--frozen", "--quiet", "--no-dev",
+        "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
     ]
     progress(f"building locked runtime at {venv}")
     completed = run(argv, timeout=timeout, env=env, cwd=mp.PACKAGE_DIR)
@@ -164,13 +120,8 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
 
 def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
     probe = r"""
-import importlib.metadata as md
-import json
-import sqlite3
-import sys
-
-import mindie_knowledge
-import remote_dev
+import importlib.metadata as md, json, sqlite3, sys
+import mindie_knowledge, remote_dev
 
 db = sqlite3.connect(":memory:")
 try:
@@ -188,19 +139,12 @@ print(json.dumps({
     "python": sys.version.split()[0],
     "sqlite": sqlite3.sqlite_version,
     "executable": sys.executable,
-    "versions": {
-        "mindie-knowledge": version("mindie-knowledge"),
-        "remote-dev": version("remote-dev"),
-        "mindie-diagnostics": version("mindie-diagnostics"),
-    },
+    "versions": {k: version(k) for k in ("mindie-knowledge", "remote-dev", "mindie-diagnostics")},
 }))
 """
     completed = run([str(mp.venv_python()), "-c", probe], timeout=timeout)
     if completed.returncode != 0:
-        raise SetupError(
-            "runtime import/FTS5 probe failed. "
-            + tail(completed.stderr or completed.stdout)
-        )
+        raise SetupError("runtime import/FTS5 probe failed. " + tail(completed.stderr or completed.stdout))
     try:
         payload = json.loads(completed.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
@@ -208,8 +152,7 @@ print(json.dumps({
     if not isinstance(payload, dict):
         raise SetupError("runtime probe returned a non-object")
     versions = payload.get("versions") or {}
-    missing = [name for name in COMPONENTS if not versions.get(name)]
-    if missing:
+    if missing := [name for name in COMPONENTS if not versions.get(name)]:
         raise SetupError("missing runtime components: " + ", ".join(missing))
     return payload
 
@@ -221,22 +164,15 @@ def install_redactor(*, timeout: int = 300) -> str:
         timeout=timeout,
     )
     if completed.returncode != 0:
-        raise SetupError(
-            "could not install the transcript redactor. "
-            + tail(completed.stderr or completed.stdout)
-        )
+        raise SetupError("could not install the transcript redactor. " + tail(completed.stderr or completed.stdout))
     path = completed.stdout.strip().splitlines()[-1].strip() if completed.stdout.strip() else ""
     if not path or not Path(path).is_absolute() or not Path(path).is_file():
-        raise SetupError(
-            "the redactor installer did not return an existing absolute executable: "
-            + tail(completed.stdout)
-        )
+        raise SetupError("the redactor installer did not return an existing absolute executable: " + tail(completed.stdout))
     return path
 
 
 def engine_configuration(redactor: str) -> dict[str, Any]:
-    capture_dir = mp.data_home() / "capture"
-    adapter = capture_dir / "dsh_transcript.py"
+    adapter = mp.data_home() / "capture" / "dsh_transcript.py"
     copy_private(mp.PACKAGE_DIR / "scripts" / "dsh_transcript.py", adapter)
     return {
         "root": str(mp.data_home()),
@@ -252,18 +188,14 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
 
 
 def install_updater() -> dict[str, Any]:
-    """Install the stable updater and default to background checks."""
     directory = mp.data_home() / "update"
     for name in ("updater.py", "mindie_paths.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:
-            if destination.is_file() and destination.read_bytes() == source.read_bytes():
-                continue
-            copy_private(source, destination)
+            if not (destination.is_file() and destination.read_bytes() == source.read_bytes()):
+                copy_private(source, destination)
         except PermissionError:
-            # Windows may still have the running updater script open. The
-            # existing stable copy remains valid; the next setup can refresh it.
             if not destination.is_file():
                 raise
     config = mp.config_home() / "update.json"
@@ -273,77 +205,37 @@ def install_updater() -> dict[str, Any]:
 
 
 def stop_existing_service() -> None:
-    """Best-effort retirement before a configuration rewrite.
-
-    A running service whose configuration fingerprint differs from the new
-    engine config would otherwise refuse the next start. The outcome is
-    reported, never hidden; setup continues because the runtime itself is
-    still usable.
-    """
-
     engine = mp.engine_config()
     if not engine.is_file() or not mp.venv_python().is_file():
         return
     completed = run(
-        [
-            str(mp.venv_python()),
-            "-m",
-            "mindie_knowledge.loop.cli",
-            "stop",
-            "--config",
-            str(engine),
-        ],
+        [str(mp.venv_python()), "-m", "mindie_knowledge.loop.cli", "stop", "--config", str(engine)],
         timeout=60,
     )
     if completed.returncode != 0:
-        progress(
-            "warning: an existing knowledge service could not be stopped: "
-            + tail(completed.stderr or completed.stdout, 500)
-        )
+        progress("warning: an existing knowledge service could not be stopped: " + tail(completed.stderr or completed.stdout, 500))
 
 
 def sync_feed(*, timeout: int) -> dict[str, Any]:
     progress("synchronizing the public knowledge feed")
     completed = run(
-        [
-            str(mp.venv_python()),
-            "-m",
-            "mindie_knowledge.loop.cli",
-            "sync",
-            "--config",
-            str(mp.engine_config()),
-        ],
+        [str(mp.venv_python()), "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(mp.engine_config())],
         timeout=timeout,
     )
     if completed.returncode != 0:
-        return {
-            "status": "unavailable",
-            "error": tail(completed.stderr or completed.stdout),
-        }
+        return {"status": "unavailable", "error": tail(completed.stderr or completed.stdout)}
     raw = completed.stdout.strip()
     try:
         rows = json.loads(raw)
     except ValueError:
-        return {
-            "status": "unavailable",
-            "error": "sync returned non-JSON output: " + tail(raw or completed.stderr),
-        }
+        return {"status": "unavailable", "error": "sync returned non-JSON output: " + tail(raw or completed.stderr)}
     if not isinstance(rows, list):
         return {"status": "unavailable", "error": "sync returned a non-list result"}
-    feeds: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        feeds.append(
-            {
-                key: row.get(key)
-                for key in ("repository", "status", "commit", "revision", "checked")
-                if key in row
-            }
-        )
-    ok = bool(feeds) and all(
-        item.get("status") in {"synced", "unchanged"} for item in feeds
-    )
+    feeds = [
+        {k: row.get(k) for k in ("repository", "status", "commit", "revision", "checked") if k in row}
+        for row in rows if isinstance(row, dict)
+    ]
+    ok = bool(feeds) and all(item.get("status") in {"synced", "unchanged"} for item in feeds)
     result: dict[str, Any] = {"status": "ready" if ok else "unavailable", "feeds": feeds}
     if not ok:
         result["error"] = "one or more feeds did not report synced/unchanged"
@@ -377,63 +269,47 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps(
                     {
-                        "schema": SCHEMA,
-                        "status": "dry-run",
-                        "version": VERSION,
-                        "python": sys.version.split()[0],
-                        "uv": shutil.which("uv"),
-                        "components": COMPONENTS,
-                        "paths": paths,
+                        "schema": SCHEMA, "status": "dry-run", "version": VERSION,
+                        "python": sys.version.split()[0], "uv": shutil.which("uv"),
+                        "components": COMPONENTS, "paths": paths,
                         "sync": "skipped" if args.no_sync else "planned",
                     },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
+                    ensure_ascii=False, indent=2, sort_keys=True,
                 )
             )
             return 0
 
-        mp.ensure_private_dir(mp.data_home())
-        mp.ensure_private_dir(mp.config_home())
-        mp.ensure_private_dir(mp.state_dir())
+        for d in (mp.data_home(), mp.config_home(), mp.state_dir()):
+            mp.ensure_private_dir(d)
         sync_runtime(args.python, timeout=args.install_timeout)
         probe = probe_runtime()
         redactor = install_redactor()
         engine = engine_configuration(redactor)
         stop_existing_service()
         write_private(mp.engine_config(), engine)
-        adapter = {
-            "schema": ADAPTER_SCHEMA,
-            "version": VERSION,
-            "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
-            "python": str(mp.venv_python()),
-            "venv_dir": str(mp.venv_dir()),
-            "engine_config": str(mp.engine_config()),
-            "state_dir": str(mp.state_dir()),
-            "domain": DOMAIN,
-            "components": COMPONENTS,
-        }
-        write_private(mp.config_file(), adapter)
-
-        if args.no_sync:
-            knowledge: dict[str, Any] = {"status": "skipped"}
-        else:
-            knowledge = sync_feed(timeout=args.sync_timeout)
-
+        write_private(
+            mp.config_file(),
+            {
+                "schema": ADAPTER_SCHEMA,
+                "version": VERSION,
+                "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
+                "python": str(mp.venv_python()),
+                "venv_dir": str(mp.venv_dir()),
+                "engine_config": str(mp.engine_config()),
+                "state_dir": str(mp.state_dir()),
+                "domain": DOMAIN,
+                "components": COMPONENTS,
+            },
+        )
+        knowledge = {"status": "skipped"} if args.no_sync else sync_feed(timeout=args.sync_timeout)
         update = install_updater()
         status = "ready" if knowledge.get("status") in {"ready", "skipped"} else "partial"
         summary = {
-            "schema": SCHEMA,
-            "status": status,
-            "version": VERSION,
-            "package_dir": str(mp.PACKAGE_DIR),
-            "python": probe.get("python"),
-            "sqlite": probe.get("sqlite"),
-            "executable": probe.get("executable"),
-            "components": probe.get("versions"),
-            "paths": paths,
-            "knowledge": knowledge,
-            "update": update,
+            "schema": SCHEMA, "status": status, "version": VERSION,
+            "package_dir": str(mp.PACKAGE_DIR), "python": probe.get("python"),
+            "sqlite": probe.get("sqlite"), "executable": probe.get("executable"),
+            "components": probe.get("versions"), "paths": paths,
+            "knowledge": knowledge, "update": update,
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (
                 "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager), "

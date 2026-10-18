@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Bounded DSH Stop handoff.
-
-The Host plugin spawns this helper detached at a turn boundary. It reads one
-Stop envelope from stdin, commits one knowledge capture row, and exits. It
-never waits for the knowledge service, never emits to stdout, and records the
-receipt in a bounded local log for diagnosis.
+"""[Role] Detached DSH Stop-hook capture handoff helper.
+[Invariants] Reads at most 256 KiB from stdin; never emits to stdout; never blocks on knowledge service startup.
+[Timeouts & Locks] Bounded by capture_hook local SQLite WAL handoff; rotates capture.log at 1 MiB.
+[Side-Effect Policy] Appends one capture row via mindie_knowledge.loop.cli.capture_hook and logs receipt to capture.log.
 """
 
 from __future__ import annotations
@@ -34,13 +32,10 @@ def append_log(value: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.is_file() and path.stat().st_size > LOG_LIMIT:
-            rotated = path.with_suffix(".1")
-            os.replace(path, rotated)
+            os.replace(path, path.with_suffix(".1"))
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
     except OSError:
-        # A diagnostic log failure must not turn into a second capture or a
-        # user-visible turn failure; the capture receipt itself is the authority.
         pass
 
 
@@ -49,16 +44,11 @@ def diagnose(stage: str, error: Exception) -> dict | None:
         from mindie_diagnostics.integration import record_failure
 
         result = record_failure(
-            "mindie-agent-dsh",
-            "capture",
-            stage=stage,
-            category=type(error).__name__,
-            exception=error,
-            host="dsh",
-            version="0.0.2",
+            "mindie-agent-dsh", "capture", stage=stage,
+            category=type(error).__name__, exception=error, host="dsh", version="0.0.2",
         )
         if isinstance(result, dict) and result.get("incident_id"):
-            return {"incident_id": result.get("incident_id")}
+            return {"incident_id": result["incident_id"]}
     except Exception:
         pass
     return None
@@ -80,15 +70,13 @@ def main() -> int:
 
         receipt = capture_hook(str(config), event)
         if isinstance(receipt, dict):
-            receipt = {"stage": receipt.get("stage"), "reason": receipt.get("reason"),
-                       "capture_id": receipt.get("capture_id"), "duplicate": receipt.get("duplicate")}
+            receipt = {k: receipt.get(k) for k in ("stage", "reason", "capture_id", "duplicate")}
         entry = {"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": receipt}
         if isinstance(receipt, dict) and receipt.get("stage") not in {"accepted-local", "accepted-runtime"}:
-            projected = diagnose(
+            if projected := diagnose(
                 str(receipt.get("stage") or "capture"),
                 RuntimeError(str(receipt.get("reason") or "capture not accepted")),
-            )
-            if projected is not None:
+            ):
                 entry["diagnostic"] = projected
         append_log(entry)
         return 0
@@ -98,8 +86,7 @@ def main() -> int:
             "elapsed": round(time.time() - started, 3),
             "error": {"type": type(exc).__name__, "message": str(exc)[:500]},
         }
-        projected = diagnose("hook", exc)
-        if projected is not None:
+        if projected := diagnose("hook", exc):
             entry["diagnostic"] = projected
         append_log(entry)
         return 1

@@ -1,17 +1,7 @@
-"""DSH v4 session-log public-transcript adapter for mindie-knowledge.
-
-DSH stores one session as concatenated zstd frames, each frame adding a batch
-of JSONL events. Public material is the ordered pair of:
-
-* ``user/message`` events whose ``data.source.kind`` is ``user`` (native user
-  input, not approvals, runtime context, skill catalogs or injected jobs);
-* assistant ``text`` content blocks (public progress and final answers), never
-  reasoning, tool calls, tool results or stream chunks.
-
-The adapter renders a deterministic transcript (``### user`` / ``### assistant``
-records separated by blank lines) and exposes byte offsets into that rendered
-stream. The stream is append-only for an append-only session log, so the
-knowledge core's cursor remains valid across incremental reads.
+"""[Role] DSH v4 concatenated-zstd session-log public-transcript adapter for mindie-knowledge.
+[Invariants] Extracts only public user messages (source.kind == 'user') and assistant text blocks; preserves append-only byte-offset cursor monotonicity.
+[Timeouts & Locks] Decompression bounded at MAX_DECOMPRESSED_BYTES=128 MiB and scan budget max_seconds=2.0s.
+[Side-Effect Policy] Strictly read-only; never mutates session logs or external state.
 """
 
 from __future__ import annotations
@@ -23,9 +13,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-try:  # available in the pinned runtime (ReMe dependency)
+try:
     import zstandard
-except ImportError:  # pragma: no cover - reported as unknown-format below
+except ImportError:  # pragma: no cover
     zstandard = None
 
 ANCHOR_BYTES = 512
@@ -49,14 +39,8 @@ class FileIdentity:
 
     def serialize(self) -> str:
         return json.dumps(
-            {
-                "dev": self.dev,
-                "ino": self.ino,
-                "anchor_len": self.anchor_len,
-                "anchor_digest": self.anchor_digest,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
+            {"dev": self.dev, "ino": self.ino, "anchor_len": self.anchor_len, "anchor_digest": self.anchor_digest},
+            sort_keys=True, separators=(",", ":"),
         )
 
     @staticmethod
@@ -72,34 +56,21 @@ class FileIdentity:
                 or len(anchor_digest) != 64
             ):
                 return None
-            return FileIdentity(
-                path, int(data["dev"]), int(data["ino"]), 0, 0,
-                anchor_len, anchor_digest,
-            )
+            return FileIdentity(path, int(data["dev"]), int(data["ino"]), 0, 0, anchor_len, anchor_digest)
         except (ValueError, KeyError, TypeError):
             return None
 
 
 def identify(path) -> FileIdentity | None:
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        with open(path, "rb") as stream:
+            stat = os.fstat(stream.fileno())
+            anchor = stream.read(ANCHOR_BYTES)
     except (OSError, ValueError):
         return None
-    try:
-        stat = os.fstat(fd)
-        anchor = os.read(fd, ANCHOR_BYTES)
-    except OSError:
-        return None
-    finally:
-        os.close(fd)
     return FileIdentity(
-        str(Path(path).resolve()),
-        stat.st_dev,
-        stat.st_ino,
-        stat.st_size,
-        stat.st_mtime_ns,
-        len(anchor),
-        hashlib.sha256(anchor).hexdigest(),
+        str(Path(path).resolve()), stat.st_dev, stat.st_ino,
+        stat.st_size, stat.st_mtime_ns, len(anchor), hashlib.sha256(anchor).hexdigest(),
     )
 
 
@@ -113,18 +84,12 @@ def _seconds(raw):
 def _session_in_path(path):
     try:
         resolved = Path(path).resolve()
-        parts = resolved.parts
     except OSError:
         return None
-    if "sessions" not in parts:
-        return None
-    # <DSH_HOME>/sessions/<encoded-cwd>/<session-id>/session.v4.jsonl.zstd
-    parent = resolved.parent.name
-    return parent or None
+    return (resolved.parent.name or None) if "sessions" in resolved.parts else None
 
 
 def _decompress(path):
-    """Return (bytes, partial). Concatenated frames are read in order."""
     if zstandard is None:
         raise RuntimeError("zstandard is unavailable in the pinned runtime")
     chunks = []
@@ -152,17 +117,15 @@ def _decompress(path):
 def _text_blocks(content):
     if not isinstance(content, list):
         return []
-    values = []
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text = block.get("text")
-            if isinstance(text, str) and text.strip():
-                values.append(text)
-    return values
+    return [
+        text
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+        and isinstance(text := block.get("text"), str) and text.strip()
+    ]
 
 
 def _records(raw, *, boundary):
-    """Yield (timestamp, kind, text) for public records in log order."""
     current_turn = None
     for line in raw.decode("utf-8", "replace").splitlines():
         if not line.strip():
@@ -178,28 +141,18 @@ def _records(raw, *, boundary):
         stamp = _seconds(event.get("time"))
         if kind == "turn/start":
             current_turn = data.get("turn")
-            continue
-        if kind == "user/message":
+        elif kind == "user/message":
             source = data.get("source") if isinstance(data.get("source"), dict) else {}
             if source.get("kind") not in PUBLIC_USER_KINDS:
                 continue
             texts = _text_blocks(data.get("content"))
-            if not texts:
-                continue
-            text = "\n".join(texts)
-            if boundary is not None and (stamp is None or stamp < boundary):
-                continue
-            yield stamp, "user", text, current_turn
-            continue
-        if kind == "assistant/message":
+            if texts and (boundary is None or (stamp is not None and stamp >= boundary)):
+                yield stamp, "user", "\n".join(texts), current_turn
+        elif kind == "assistant/message":
             message = data.get("message") if isinstance(data.get("message"), dict) else {}
             texts = _text_blocks(message.get("content"))
-            if not texts:
-                continue
-            text = "\n".join(texts)
-            if boundary is not None and (stamp is None or stamp < boundary):
-                continue
-            yield stamp, "assistant", text, data.get("turn", current_turn)
+            if texts and (boundary is None or (stamp is not None and stamp >= boundary)):
+                yield stamp, "assistant", "\n".join(texts), data.get("turn", current_turn)
 
 
 def read_material(
@@ -222,41 +175,23 @@ def read_material(
         raise ValueError("scan_until must be an exact byte boundary at or after start")
 
     result = dict(
-        status="ok",
-        start=start,
-        end=start,
-        digest=hashlib.sha256(b"").hexdigest(),
-        text="",
-        records=0,
-        skipped_records=0,
-        oversize_records=0,
-        partial=False,
-        more=False,
-        timestamps_reliable=True,
-        session_match=None,
-        coverage_note=None,
-        coverage=[],
+        status="ok", start=start, end=start, digest=hashlib.sha256(b"").hexdigest(),
+        text="", records=0, skipped_records=0, oversize_records=0,
+        partial=False, more=False, timestamps_reliable=True,
+        session_match=None, coverage_note=None, coverage=[],
     )
     boundary = _seconds(not_before) if not_before is not None else None
     try:
-        with open(path, "rb") as stream:
-            stat = os.fstat(stream.fileno())
-            anchor = stream.read(ANCHOR_BYTES)
-            current = FileIdentity(
-                str(Path(path).resolve()),
-                stat.st_dev,
-                stat.st_ino,
-                stat.st_size,
-                stat.st_mtime_ns,
-                len(anchor),
-                hashlib.sha256(anchor).hexdigest(),
-            )
+        current = identify(path)
+        if current is None:
+            result.update(status="missing", coverage_note="transcript unreadable")
+            return result
         result["identity"] = current.serialize()
-        result["snapshot_size"] = stat.st_size
+        result["snapshot_size"] = current.size
         if expected is not None and (
             expected.path != current.path
-            or expected.dev != stat.st_dev
-            or expected.ino != stat.st_ino
+            or expected.dev != current.dev
+            or expected.ino != current.ino
             or not expected.anchor_len
             or current.anchor_digest != expected.anchor_digest
         ):
@@ -276,11 +211,11 @@ def read_material(
         raw, partial = _decompress(path)
         result["partial"] = partial
         records = list(_records(raw, boundary=boundary))
-        values = []
-        for _stamp, kind, text, _turn in records:
-            normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-            if normalized:
-                values.append(f"### {kind}\n{normalized}".encode("utf-8"))
+        values = [
+            f"### {kind}\n{norm}".encode("utf-8")
+            for _stamp, kind, text, _turn in records
+            if (norm := text.replace("\r\n", "\n").replace("\r", "\n").strip())
+        ]
         full = b""
         spans = []
         for index, value in enumerate(values):
@@ -289,9 +224,6 @@ def read_material(
             begin = len(full)
             full += value
             spans.append((begin, len(full)))
-
-        def next_begin(index):
-            return spans[index + 1][0] if index + 1 < len(spans) else len(full)
 
         if start > len(full):
             result.update(status="replaced", coverage_note="transcript truncated")
@@ -302,12 +234,10 @@ def read_material(
                 result.update(status="unknown-format", coverage_note="no recognized DSH session records")
             return result
         effective_start = start
-        begin_index = next((i for i, (begin, _finish) in enumerate(spans) if begin == effective_start), None)
+        begin_index = next((i for i, (begin, _f) in enumerate(spans) if begin == effective_start), None)
         if begin_index is None and full[start : start + 2] == b"\n\n":
-            # The previous page ended at EOF; a later append puts the separator
-            # before the first new record. A cursor at that separator is valid.
             effective_start = start + 2
-            begin_index = next((i for i, (begin, _finish) in enumerate(spans) if begin == effective_start), None)
+            begin_index = next((i for i, (begin, _f) in enumerate(spans) if begin == effective_start), None)
         if begin_index is None:
             result.update(status="invalid-boundary", coverage_note="cursor is not a record boundary")
             return result
@@ -315,7 +245,7 @@ def read_material(
         selected = 0
         end = effective_start
         for index in range(begin_index, len(spans)):
-            candidate = next_begin(index)
+            candidate = spans[index + 1][0] if index + 1 < len(spans) else len(full)
             if selected:
                 if candidate - effective_start > max_text_bytes or candidate - effective_start > max_scan_bytes:
                     break
@@ -328,13 +258,10 @@ def read_material(
         if selected == 0:
             result.update(status="unchanged", end=start)
             return result
-        text = full[effective_start:end].decode("utf-8", "replace")
+        slice_bytes = full[effective_start:end]
         result.update(
-            end=end,
-            text=text,
-            records=selected,
-            digest=hashlib.sha256(full[effective_start:end]).hexdigest(),
-            more=end < len(full),
+            end=end, text=slice_bytes.decode("utf-8", "replace"), records=selected,
+            digest=hashlib.sha256(slice_bytes).hexdigest(), more=end < len(full),
             skipped_records=max(0, len(records) - selected),
         )
         return result
