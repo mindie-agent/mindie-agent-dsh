@@ -57,7 +57,7 @@ class PackageContractTests(unittest.TestCase):
     def test_package_manifest(self) -> None:
         package = json.loads(PACKAGE.read_text(encoding="utf-8"))
         self.assertEqual(package["name"], "mindie-agent-dsh")
-        self.assertEqual(package["version"], "0.0.1")
+        self.assertEqual(package["version"], "0.0.2")
         self.assertEqual(package["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
         self.assertEqual(package["peerDependencies"]["@deepseek-ai/dsh"], "0.2.0-rc.2")
         self.assertTrue(package["peerDependenciesMeta"]["@deepseek-ai/dsh"]["optional"])
@@ -113,7 +113,7 @@ class PackageContractTests(unittest.TestCase):
         requirements = (ROOT / "runtime-requirements.txt").read_text(encoding="utf-8")
         lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
         compatibility = json.loads((ROOT / "harness-compatibility.json").read_text(encoding="utf-8"))
-        self.assertEqual(compatibility["plugin_version"], "0.0.1")
+        self.assertEqual(compatibility["plugin_version"], "0.0.2")
         self.assertEqual(compatibility["verified"][0]["dsh_version"], "0.2.0-rc.2")
         direct = {"mindie-knowledge", "remote-dev"}
         for name, (version, commit) in EXPECTED_COMPONENTS.items():

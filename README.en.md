@@ -6,7 +6,7 @@
 
 > Plugin discovery: this repository carries the GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) for DSH plugin marketplaces.
 
-> **Formal 0.0.1**: the native `/mindie-agent` entry, DSH Stop public-transcript capture, deterministic redaction, DSH-model summary indexing, knowledge feedback, community contribution (default upstream with automatic fork), diagnostics controls and silent auto-update are implemented. macOS, 4090 WSL and native Windows Lenovo completed live model/capture/summary acceptance; contribution PR #51 was merged by the repository automation. Updates use a stable launcher, immutable generations and an atomic pointer; formal Releases are checked in the background and swapped live while DSH runs. See the [verification record](docs/verification.md).
+> **Formal 0.0.2**: DSH is a native `mindie-bench` harness (PR #2) and passed CPU L2 G0/G1/G2 canaries with real verifier judgments; G3 native capture is not supported yet. The 0.0.1 stable launcher, silent auto-update, Stop capture/redaction, knowledge feedback and community contribution remain. See the [benchmark note](docs/benchmark.md) and [verification record](docs/verification.md).
 
 <p align="center">
   <b>Ascend NPU AI Infra knowledge and remote development for DeepSeek Harness</b><br/>
@@ -61,7 +61,7 @@ It brings two core capabilities into DSH:
 ```bash
 MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
 rm -rf "$MINDIE_TMP"
-git clone --depth 1 --branch v0.0.1 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+git clone --depth 1 --branch v0.0.2 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
 uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
@@ -86,14 +86,14 @@ Success means the final JSON reports:
 In the DSH Web **Plugins** page, install and enable:
 
 ```text
-git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.1
+git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2
 ```
 
 Or, from an agent session that has the `plugin_manager` tool:
 
 ```text
 plugin_manager(action="install_bundle",
-               target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.1")
+               target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")
 ```
 
 > `dsh plugin --profile <name> add <spec>` only runs pnpm; it does not select the bundle. Enable `mindie-agent-dsh` on the Plugins page afterwards. Do not hand-edit the profile's `package.json` or `cordis.patch.yml`.

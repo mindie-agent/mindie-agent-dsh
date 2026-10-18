@@ -28,7 +28,7 @@ if str(HERE) not in sys.path:
 import mindie_paths as mp  # noqa: E402
 
 MAX_LINE = 256 * 1024
-ADAPTER_VERSION = "0.0.1"
+ADAPTER_VERSION = "0.0.2"
 
 
 class SidecarError(RuntimeError):

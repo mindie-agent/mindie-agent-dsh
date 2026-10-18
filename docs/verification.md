@@ -81,6 +81,24 @@ This record keeps implementation status and real acceptance evidence separate.
   service, plugin activation, MCP and model/summary are independently verified;
   no feed-sync success is claimed.
 
+## Benchmark harness (0.0.2)
+
+`mindie-bench` PR #2 was merged into
+`mindie-agent/mindie-bench` and treats DSH as a native L1/L2 G0-G2 harness.
+The trial profile is a fresh owned headless profile; the model credential stays
+in the benchmark gateway.
+
+- G0 `cpu-rope-rotary-dim-64` L2: `completed_pass`, 11 turns, native
+  bash/read/glob tools, real verifier.
+- G1: `completed_pass`; remote-dev MCP started and passed preflight; the CPU
+  task was solved locally (0 remote calls).
+- G2: `completed_pass`; 1 knowledge query, 1 explain and a skill call observed
+  with the real knowledge relay and MindIE skill.
+- G3 native capture is explicitly unsupported for DSH; the benchmark returns a
+  clear error rather than silently degrading.
+- Benchmark full suite local: 804 passed, 16 environment-skipped. GitHub CI
+  baseline fails on bwrap/runtime-helper sandbox checks; see the PR note.
+
 ## Silent auto-update
 
 - The seed `host.mjs` launcher mounted `host3.mjs` as a child Cordis plugin and

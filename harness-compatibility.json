@@ -2,7 +2,7 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.0.1",
+  "plugin_version": "0.0.2",
   "verified": [
     {
       "dsh_version": "0.2.0-rc.2",
@@ -83,6 +83,11 @@
       "id": "uv-runtime",
       "contract": "uv run --no-project --python 3.11 and uv sync --frozen --project",
       "used_by": "cordis.patch.yml, scripts/setup.py"
+    },
+    {
+      "id": "mindie-bench-headless",
+      "contract": "mindie-bench native dsh harness: dsh --profile bench --json, pi-ai OpenAI Responses route, fresh DSH_HOME, MCP/skill rows; G0-G2",
+      "used_by": "../mindie-bench"
     }
   ],
   "notes": [

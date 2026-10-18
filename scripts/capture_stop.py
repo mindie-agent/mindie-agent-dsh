@@ -55,7 +55,7 @@ def diagnose(stage: str, error: Exception) -> dict | None:
             category=type(error).__name__,
             exception=error,
             host="dsh",
-            version="0.0.1",
+            version="0.0.2",
         )
         if isinstance(result, dict) and result.get("incident_id"):
             return {"incident_id": result.get("incident_id")}

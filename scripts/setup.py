@@ -35,7 +35,7 @@ import mindie_paths as mp  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 DOMAIN = "vllm-ascend"
 FEED = {
     "repository": "mindie-agent/knowledge-vllm-ascend",
@@ -437,7 +437,6 @@ def main(argv: list[str] | None = None) -> int:
             "state_dir": str(mp.state_dir()),
             "domain": DOMAIN,
             "components": COMPONENTS,
-            "capture": {"enabled": False, "reason": "DSH capture is not implemented in 0.0.1"},
         }
         write_private(mp.config_file(), adapter)
 

@@ -6,7 +6,7 @@
 
 > 插件发现：本仓库使用 GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) 供 DSH 插件市场索引。
 
-> **0.0.1 正式版**：原生 `/mindie-agent` 入口、DSH Stop 公开对话采集、确定性脱敏、DSH 模型摘要索引、知识反馈、社区贡献（默认上游自动 fork）、诊断开关与静默自动更新均已落地。macOS、4090 WSL 与 Lenovo 原生 Windows 已完成实机模型/采集/摘要验收；贡献 PR #51 已由仓库自动化合并。自动更新采用稳定 launcher + 不可变 generation + 原子指针，在 DSH 运行期间后台检查正式 Release 并热切换。详细证据见[验证记录](docs/verification.md)。
+> **`0.0.2` 正式版**：DSH 已作为原生 harness 接入 `mindie-bench`（PR #2），在 CPU L2 的 G0/G1/G2 canary 中通过真实 verifier；G3 原生采集暂不支持。0.0.1 的稳定 launcher、静默自动更新、Stop 采集/脱敏、知识反馈与社区贡献全部保留。详见[benchmark 说明](docs/benchmark.md)与[验证记录](docs/verification.md)。
 
 <p align="center">
   <b>面向昇腾（Ascend）NPU AI Infra 研发、测试与排障的 DeepSeek Harness 原生插件</b><br/>
@@ -61,7 +61,7 @@
 ```bash
 MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
 rm -rf "$MINDIE_TMP"
-git clone --depth 1 --branch v0.0.1 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+git clone --depth 1 --branch v0.0.2 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
 uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
@@ -86,14 +86,14 @@ uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 在 DSH Web 的 **Plugins** 页面安装并启用：
 
 ```text
-git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.1
+git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2
 ```
 
 也可以在具备 `plugin_manager` 工具的 Agent 会话中安装：
 
 ```text
 plugin_manager(action="install_bundle",
-               target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.1")
+               target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")
 ```
 
 > 说明：`dsh plugin --profile <name> add <spec>` 只负责 pnpm 安装，不会替用户勾选 bundle。安装后在 **Plugins** 页面启用 `mindie-agent-dsh` 即可；不要手改 profile 的 `package.json` 或 `cordis.patch.yml`。

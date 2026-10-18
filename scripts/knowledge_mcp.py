@@ -11,7 +11,7 @@ This is a deliberately thin stdio MCP server:
   sync to the published mindie-knowledge local service.
 
 It never invents identity, never activates a task, and never writes knowledge
-on its own. 0.0.1 has no feedback or capture surface.
+on its own. The native Host tools supersede this legacy bridge.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from mindie_paths import (  # noqa: E402
 )
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
-SERVER_VERSION = "0.0.1"
+SERVER_VERSION = "0.0.2"
 PROTOCOL_FALLBACK = "2025-11-25"
 MAX_ERROR_CHARS = 1200
 

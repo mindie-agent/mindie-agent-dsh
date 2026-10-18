@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.2 — 2026-10-18
+
+- DSH is a native mindie-bench harness (benchmark PR #2): fresh headless
+  profile, broker model route, MCP/knowledge/skill rows and headless JSON
+  trajectory parsing.
+- G0/G1/G2 CPU L2 canaries pass; G3 native capture remains Codex/Claude-only.
+- Version/compatibility metadata refresh; runtime baseline remains 0.0.1.
+
 ## 0.0.1 — 2026-10-17
 
 - Native `/mindie-agent` Host entry: init/status/choose/deactivate, sharing and
