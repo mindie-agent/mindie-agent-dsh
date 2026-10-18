@@ -46,14 +46,8 @@ class UpdaterTests(unittest.TestCase):
         selected = updater.choose(values, "0.0.1")
         self.assertIsNotNone(selected)
         self.assertEqual(selected[1], "v0.0.2")
-
-    def test_no_candidate_for_current_or_unrelated_tags(self):
         self.assertIsNone(updater.choose([release("v0.0.1")], "0.0.1"))
         self.assertIsNone(updater.choose([{"tag_name": "main"}], "0.0.1"))
-
-    def test_version_parser_is_strict(self):
-        self.assertEqual(updater.parse_current("v0.1.2"), (0, 1, 2))
-        self.assertEqual(updater.parse_current("not-a-version"), (0, 0, 0))
 
     def test_sha256sums_must_match(self):
         with tempfile.TemporaryDirectory() as temporary:

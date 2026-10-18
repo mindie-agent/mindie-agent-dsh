@@ -254,41 +254,19 @@ def run(command, timeout, cwd=None, env=None):
     return completed.returncode, detail[-2000:]
 
 
-def backup_config() -> Path | None:
-    config = mp.config_home()
-    if not config.is_dir():
-        return None
-    backup = update_dir() / "config-backup"
-    shutil.rmtree(backup, ignore_errors=True)
-    shutil.copytree(config, backup)
-    return backup
-
-
-def restore_config(backup: Path | None) -> None:
-    if backup is None or not backup.is_dir():
-        return
-    config = mp.config_home()
-    shutil.rmtree(config, ignore_errors=True)
-    shutil.copytree(backup, config)
-
-
-def setup_candidate(package: Path, python: str) -> Path | None:
-    """Provision the candidate into the shared runtime with a config backup."""
+def setup_candidate(package: Path, python: str) -> None:
+    """Provision the candidate into the shared runtime."""
     updater = shutil.which("uv")
     if updater is None:
         raise UpdateError("uv is not available to provision the candidate")
-    backup = backup_config()
     command = [
         updater, "run", "--quiet", "--no-project", "--python", "3.11",
         str(package / "scripts" / "setup.py"), "--python", python,
+        *os.environ.get("MINDIE_DSH_UPDATE_SETUP_ARGS", "").split(),
     ]
-    extra = os.environ.get("MINDIE_DSH_UPDATE_SETUP_ARGS", "").split()
-    command.extend(extra)
     code, detail = run(command, timeout=INSTALL_TIMEOUT, cwd=package)
     if code != 0:
-        restore_config(backup)
         raise UpdateError("candidate setup failed: " + detail[-800:])
-    return backup
 
 
 def sync_feed(timeout: int = 90) -> dict:
@@ -324,7 +302,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         status.update(state="up-to-date", checked_at=time.time(), feed=sync_feed())
         atomic_json(status_path(), status)
         return status
-    version_tuple, tag, asset_url, sums_url = candidate
+    _version_tuple, tag, asset_url, sums_url = candidate
     status["latest"] = tag
     generation = update_dir() / "generations" / tag
     package = generation / "package"
@@ -343,7 +321,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         if manifest.get("version") != tag.lstrip("v"):
             raise UpdateError("candidate version does not match the release tag")
     previous = read_json(current_path(), {})
-    backup = setup_candidate(package, sys.executable)
+    setup_candidate(package, sys.executable)
     if not apply:
         status.update(
             state="staged",
@@ -371,23 +349,21 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
 
 def acquire_lock():
     update_dir().mkdir(parents=True, exist_ok=True)
-    try:
-        descriptor = os.open(lock_path(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    for _ in range(2):
         try:
-            age = time.time() - lock_path().stat().st_mtime
-        except OSError:
-            age = 0
-        if age > 3600:
+            descriptor = os.open(lock_path(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(descriptor, str(os.getpid()).encode())
+            os.close(descriptor)
+            return descriptor
+        except FileExistsError:
             try:
-                lock_path().unlink()
+                if time.time() - lock_path().stat().st_mtime > 3600:
+                    lock_path().unlink(missing_ok=True)
+                    continue
             except OSError:
                 pass
-            return acquire_lock()
-        return None
-    os.write(descriptor, str(os.getpid()).encode())
-    os.close(descriptor)
-    return descriptor
+            return None
+    return None
 
 
 def main() -> int:

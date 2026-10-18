@@ -105,34 +105,50 @@ def public_settings() -> dict[str, Any]:
     }
 
 
-def ensure_default_sharing() -> None:
-    """Create the explicit read-only default on first activation.
+def _with_heal(path: Path, fn):
+    try:
+        return fn()
+    except Exception:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+        return fn()
 
-    A missing authority is a fault, not an opt-out. The first explicit
-    /mindie-agent activation records the install-level ``later`` choice and a
-    valid disabled community document, so later gates see a real revocation
-    while the entry can still offer to enable contribution for this task.
-    """
 
-    from mindie_knowledge import consent_store
+def _configure_community(request: dict[str, Any]):
     from mindie_knowledge.loop.settings import CommunityWriteContext
+
+    path = community_path()
+
+    def _write():
+        with CommunityWriteContext(str(path)) as context:
+            return context.configure(str(path), request)
+
+    return _with_heal(path, _write)
+
+
+def ensure_default_sharing() -> None:
+    """Create or heal the explicit read-only default on activation."""
+    from mindie_knowledge import consent_store
+    from mindie_knowledge.loop import settings as settings_mod
 
     consent = consent_path()
     community = community_path()
-    if consent.exists() or community.exists():
-        return
-    consent_store.record_choice(str(consent), "later")
-    request = {
-        "enabled": False,
-        "repository": None,
-        "project_roots": [],
-        "branch": "main",
-        "idle_seconds": 300,
-        "visibility": "public",
-        "consent_config": str(consent),
-    }
-    with CommunityWriteContext(str(community)) as context:
-        context.configure(str(community), request)
+    if consent_store.read(str(consent)).get("state") != "ok":
+        _with_heal(consent, lambda: consent_store.record_choice(str(consent), "later"))
+    if settings_mod.load(str(community)).state not in {"enabled", "disabled"}:
+        _configure_community(
+            {
+                "enabled": False,
+                "repository": None,
+                "project_roots": [],
+                "branch": "main",
+                "idle_seconds": 300,
+                "visibility": "public",
+                "consent_config": str(consent),
+            }
+        )
 
 
 def lease_view(session: str) -> dict[str, Any]:
@@ -241,15 +257,8 @@ def _existing_fork(repository: str, account: str) -> str | None:
 
 
 def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
-    if fork:
-        owner = fork.split("/", 1)[0]
-        if owner != account:
-            raise SidecarError("fork must belong to the public GitHub account")
-        try:
-            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
-            return fork
-        except SidecarError:
-            pass
+    if fork and fork.split("/", 1)[0] != account:
+        raise SidecarError("fork must belong to the public GitHub account")
     existing = _existing_fork(repository, account)
     if existing:
         return existing
@@ -268,7 +277,6 @@ def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
 
 def op_configure(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge import consent_store
-    from mindie_knowledge.loop.settings import CommunityWriteContext
 
     choice = args.get("choice")
     if choice not in {"contribute", "disabled"}:
@@ -290,9 +298,8 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
         if fork is not None and (not isinstance(fork, str) or fork.count("/") != 1):
             raise SidecarError("fork must be owner/repo")
         fork = _ensure_fork(repository, fork, account)
-        consent_store.record_choice(str(consent_path()), "contribute")
-    else:
-        consent_store.record_choice(str(consent_path()), "disabled")
+    consent = consent_path()
+    _with_heal(consent, lambda: consent_store.record_choice(str(consent), choice))
     request: dict[str, Any] = {
         "enabled": choice == "contribute",
         "repository": repository if choice == "contribute" else None,
@@ -302,11 +309,9 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
         "idle_seconds": 300,
         "visibility": "public",
         "account": account if choice == "contribute" else None,
-        "consent_config": str(consent_path()),
+        "consent_config": str(consent),
     }
-    path = community_path()
-    with CommunityWriteContext(str(path)) as context:
-        state = context.configure(str(path), request)
+    state = _configure_community(request)
     return {"state": state.state, "sharing": public_settings()}
 
 
@@ -328,7 +333,8 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
                 repository="mindie-agent/mindie-agent",
                 config=config,
             )
-            consent_store.record_reporting(str(consent_path()), value)
+            consent = consent_path()
+            _with_heal(consent, lambda: consent_store.record_reporting(str(consent), value))
             if value == "enabled":
                 try:
                     worker = subprocess.run(
@@ -357,26 +363,13 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def connection():
-    from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service, rpc
+    from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service
 
     engine = engine_path()
     try:
         return ensure_service(engine)
-    except Exception as first:
-        # A stopped or crashed service can leave a loopback connection file
-        # behind. Probe it once; only a refused endpoint may be discarded.
-        path = None
-        try:
-            path = connection_path(config_at(engine))
-            recorded = json.loads(path.read_text(encoding="utf-8"))
-            rpc(recorded, "status", {}, timeout=1.5)
-            return recorded
-        except Exception:
-            if path is not None:
-                try:
-                    path.unlink()
-                except OSError:
-                    raise first from None
+    except Exception:
+        connection_path(config_at(engine)).unlink(missing_ok=True)
         return ensure_service(engine)
 
 

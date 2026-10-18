@@ -17,7 +17,6 @@ knowledge core's cursor remains valid across incremental reads.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import time
@@ -30,17 +29,8 @@ except ImportError:  # pragma: no cover - reported as unknown-format below
     zstandard = None
 
 ANCHOR_BYTES = 512
-MAX_RECORDS = 200
 MAX_DECOMPRESSED_BYTES = 128 * 1024 * 1024
 PUBLIC_USER_KINDS = {"user"}
-RECOGNIZED = {
-    "session",
-    "turn/start",
-    "turn/end",
-    "step/start",
-    "user/message",
-    "assistant/message",
-}
 
 
 @dataclass(frozen=True)
@@ -210,16 +200,6 @@ def _records(raw, *, boundary):
             if boundary is not None and (stamp is None or stamp < boundary):
                 continue
             yield stamp, "assistant", text, data.get("turn", current_turn)
-
-
-def _render(records):
-    rendered = []
-    for _stamp, kind, text, _turn in records:
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-        if not normalized:
-            continue
-        rendered.append(f"### {kind}\n{normalized}")
-    return "\n\n".join(rendered)
 
 
 def read_material(

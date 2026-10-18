@@ -60,18 +60,10 @@ def endpoint() -> dict:
     if not isinstance(value, dict):
         raise ConfigurationError("the DSH summary endpoint file is invalid")
     url = value.get("url")
-    token = value.get("token")
-    model = value.get("model")
-    provider = value.get("provider")
     if (
         not isinstance(url, str)
         or not url.startswith("http://127.0.0.1:")
-        or not isinstance(token, str)
-        or not token
-        or not isinstance(model, str)
-        or not model
-        or not isinstance(provider, str)
-        or not provider
+        or not all(isinstance(value.get(k), str) and value.get(k) for k in ("token", "model", "provider"))
     ):
         raise ConfigurationError("the DSH summary endpoint has no active model route")
     return value
@@ -80,21 +72,18 @@ def endpoint() -> dict:
 def identity() -> dict:
     from mindie_knowledge.materials import summarizer
 
+    worker_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     try:
         value = endpoint()
         model = value["model"]
-        provider = value["provider"]
         implementation = {
-            "worker": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "worker": worker_hash,
             "summarizer": hashlib.sha256(Path(summarizer.__file__).read_bytes()).hexdigest(),
-            "provider": provider,
+            "provider": value["provider"],
         }
     except ConfigurationError:
         model = "dsh/unavailable"
-        implementation = {
-            "worker": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "provider": "unavailable",
-        }
+        implementation = {"worker": worker_hash, "provider": "unavailable"}
     return summarizer.policy_identity(model=model, effort="off", implementation=implementation)
 
 

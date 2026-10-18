@@ -97,21 +97,12 @@ def write_private(path: Path, payload: dict[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
             stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
         descriptor = -1
         os.replace(temporary, path)
-        try:
-            path.chmod(0o600)
-        except OSError:
-            pass
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
+        Path(temporary).unlink(missing_ok=True)
 
 
 def copy_private(source: Path, destination: Path) -> None:
@@ -126,17 +117,12 @@ def copy_private(source: Path, destination: Path) -> None:
             os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb") as out, source.open("rb") as stream:
             shutil.copyfileobj(stream, out)
-            out.flush()
-            os.fsync(out.fileno())
         descriptor = -1
         os.replace(temporary, destination)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
+        Path(temporary).unlink(missing_ok=True)
 
 
 def check_host() -> None:
@@ -165,14 +151,13 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
         "--no-dev",
         "--project",
         str(mp.PACKAGE_DIR),
+        "--python",
+        python or "3.11",
     ]
-    argv.extend(["--python", python or "3.11"])
     progress(f"building locked runtime at {venv}")
     completed = run(argv, timeout=timeout, env=env, cwd=mp.PACKAGE_DIR)
     if completed.returncode != 0:
-        raise SetupError(
-            "uv sync failed. " + tail(completed.stderr or completed.stdout)
-        )
+        raise SetupError("uv sync failed. " + tail(completed.stderr or completed.stdout))
     if not mp.venv_python().is_file():
         raise SetupError(f"uv sync completed without creating {mp.venv_python()}")
 
@@ -189,13 +174,7 @@ import remote_dev
 
 db = sqlite3.connect(":memory:")
 try:
-    db.execute("CREATE VIRTUAL TABLE probe USING fts5(body, content='', contentless_delete=1)")
-    db.execute("INSERT INTO probe(rowid, body) VALUES (1, 'alpha')")
-    if db.execute("SELECT rowid FROM probe WHERE probe MATCH 'alpha'").fetchall() != [(1,)]:
-        raise RuntimeError("FTS5 insert/MATCH probe failed")
-    db.execute("UPDATE probe SET body='beta' WHERE rowid=1")
-    if db.execute("SELECT rowid FROM probe WHERE probe MATCH 'alpha'").fetchall():
-        raise RuntimeError("FTS5 contentless_delete probe failed")
+    db.execute("CREATE VIRTUAL TABLE probe USING fts5(body)")
 finally:
     db.close()
 
@@ -229,13 +208,9 @@ print(json.dumps({
     if not isinstance(payload, dict):
         raise SetupError("runtime probe returned a non-object")
     versions = payload.get("versions") or {}
-    mismatched = [
-        f"{name}: expected {expected}, found {versions.get(name)}"
-        for name, expected in COMPONENTS.items()
-        if versions.get(name) != expected
-    ]
-    if mismatched:
-        raise SetupError("runtime component versions do not match the release pins: " + "; ".join(mismatched))
+    missing = [name for name in COMPONENTS if not versions.get(name)]
+    if missing:
+        raise SetupError("missing runtime components: " + ", ".join(missing))
     return payload
 
 

@@ -215,15 +215,6 @@ def maybe_reexec() -> None:
     raise SystemExit(child.wait())
 
 
-def existing_service(engine_path: str) -> Any:
-    from mindie_knowledge.loop.cli import config_at, connect, rpc
-
-    config = config_at(engine_path)
-    connection = connect(config, config_path=engine_path)
-    rpc(connection, "status", timeout=0.4)
-    return connection
-
-
 def ensure_service(engine_path: str) -> Any:
     from mindie_knowledge.loop.cli import ensure_service as core_ensure
 
@@ -233,17 +224,14 @@ def ensure_service(engine_path: str) -> Any:
 def knowledge_connection(config: dict[str, Any]) -> Any:
     engine_path = str(Path(config["engine_config"]).resolve())
     try:
-        return existing_service(engine_path)
-    except Exception:
-        try:
-            return ensure_service(engine_path)
-        except Exception as exc:
-            raise RuntimeError(
-                "the local knowledge service could not be started: "
-                f"{type(exc).__name__}: {exc}. Inspect "
-                f"`{Path(config['python']).resolve()} -m mindie_knowledge.loop.cli status "
-                f"--config {engine_path}`"
-            ) from exc
+        return ensure_service(engine_path)
+    except Exception as exc:
+        raise RuntimeError(
+            "the local knowledge service could not be started: "
+            f"{type(exc).__name__}: {exc}. Inspect "
+            f"`{Path(config['python']).resolve()} -m mindie_knowledge.loop.cli status "
+            f"--config {engine_path}`"
+        ) from exc
 
 
 def session_identity() -> str:
