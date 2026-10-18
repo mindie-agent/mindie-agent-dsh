@@ -399,14 +399,14 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         connection(),
         method,
         dict(payload, _session_id=session, _activation=token),
-        timeout=None,
+        timeout=30.0,
     )
 
 
 def op_sync(_args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge.loop.transport import rpc
 
-    return {"feeds": rpc(connection(), "sync", {}, timeout=None)}
+    return {"feeds": rpc(connection(), "sync", {}, timeout=120.0)}
 
 
 OPS = {

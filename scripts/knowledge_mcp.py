@@ -259,14 +259,14 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     connection = knowledge_connection(config)
     session = session_identity()
     if name == "knowledge_sync":
-        return rpc(connection, "sync", {}, timeout=None)
+        return rpc(connection, "sync", {}, timeout=120.0)
     if name == "knowledge_query":
         payload = dict(args)
         if not payload.get("query") and not payload.get("continuation"):
             raise ValueError("knowledge_query requires `query` or `continuation`")
         payload.update({"_session_id": session, "_session_verified": True})
         try:
-            return rpc(connection, "query", payload, timeout=None)
+            return rpc(connection, "query", payload, timeout=30.0)
         except FeedUnavailableError as exc:
             raise RuntimeError(
                 f"{exc} The configured feed has no installed snapshot. "
@@ -275,7 +275,7 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     if name == "knowledge_explain":
         payload = {"ref": args.get("ref"), "_session_id": session, "_session_verified": True}
         try:
-            return rpc(connection, "explain", payload, timeout=None)
+            return rpc(connection, "explain", payload, timeout=30.0)
         except FeedUnavailableError as exc:
             raise RuntimeError(
                 f"{exc} Call knowledge_sync once, then retry."
