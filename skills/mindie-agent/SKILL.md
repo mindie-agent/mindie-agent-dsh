@@ -36,8 +36,13 @@ session mode.
 - A saved `contribute` or `disabled` choice is never re-asked. The user can
   change it later only by explicitly saying so in a `/mindie-agent` task.
 - `mindie_entry(op="status")` is read-only. `op="deactivate"` revokes this
-  task's capture lease. Reporting is opt-in and independent:
-  `reporting-status` (read-only). The contribution choice controls both knowledge sharing and sanitized fault reports. Show the user [the contribution notice](references/user-notice.md) during first setup.
+  task's capture lease. The single unified contribution choice in
+  `mindie-consent.json` controls both community knowledge sharing and automatic
+  sanitized fault reporting (`contribute` enables both; `disabled` turns both
+  off, while normal local knowledge reads and `remote-dev` tool execution work
+  regardless of whether contribution is enabled). Use `reporting-status`
+  (read-only) to inspect real worker and queue state, and show the user
+  [the contribution notice](references/user-notice.md) during first setup.
 
 ## Knowledge tools
 

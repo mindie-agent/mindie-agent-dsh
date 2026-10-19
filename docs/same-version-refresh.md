@@ -1,27 +1,22 @@
-# Explicit refresh of an existing 0.0.2 installation
+# Explicit Refresh of an Existing `0.0.2` Installation
 
-The earlier `0.0.2` installer/updater compares version numbers. It does not
-discover another commit carrying the same version. Refresh both the Python
-runtime and the DSH bundle explicitly, using the full commit recorded in the
-new GitHub Release.
+This `0.0.2` release is an authorized one-time replacement of the earlier `0.0.2` build (`828c375d1f546ed653250526465b8075c1691390`). Because the legacy updater compares version strings using strict greater-than (`>`), it will not automatically select a new commit that carries the same `0.0.2` version string. In addition, an active DSH process keeps the previously loaded Node Host plugin in memory until the process exits.
 
-These steps retain the existing data/config directories, consent choices,
-community settings and knowledge materials. Keep any existing
-`MINDIE_DSH_DATA_HOME`, `MINDIE_DSH_CONFIG_HOME`, `DSH_HOME` and other path
-overrides in the shell. Do not delete those directories or create a new profile
-to perform an upgrade.
+If you already installed the earlier `0.0.2` build, refresh both the Python runtime (`scripts/setup.py`) and the DSH plugin bundle using the exact release source SHA, then restart the entire DSH process.
 
-1. Exit the DSH process using the affected profile. Package replacement needs
-   a process restart to load the new JavaScript modules.
-2. Set `MINDIE_RELEASE_COMMIT` to the release's full commit and `MINDIE_PROFILE`
-   to the profile already used by DSH; `web` below is an example.
-3. Provision from that commit, then replace the bundle with the same commit.
+These steps preserve your existing data and configuration directories, unified contribution choice (`mindie-consent.json`), community settings, and local knowledge materials. Keep any existing `MINDIE_DSH_DATA_HOME`, `MINDIE_DSH_CONFIG_HOME`, `DSH_HOME`, or other path environment variables set in your shell; do not delete those directories or create a new profile.
+
+## Step-by-Step Refresh
+
+1. **Exit the running DSH process** for the target profile so the updated Node Host plugin modules reload cleanly after replacement.
+2. **Set `MINDIE_RELEASE_COMMIT`** to the full commit SHA of the current `0.0.2` GitHub Release and **`MINDIE_PROFILE`** to your active DSH profile (e.g., `web`).
+3. **Refresh the Python runtime and replace the plugin bundle** from that exact commit:
 
 POSIX shell:
 
 ```sh
 set -e
-MINDIE_RELEASE_COMMIT="<full commit from the release>"
+MINDIE_RELEASE_COMMIT="<full commit from the 0.0.2 release>"
 MINDIE_PROFILE="web"
 MINDIE_STAGE="$(mktemp -d)"
 git clone https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_STAGE/source"
@@ -36,7 +31,7 @@ dsh plugin --profile "$MINDIE_PROFILE" add \
 Windows PowerShell:
 
 ```powershell
-$MINDIE_RELEASE_COMMIT = "<full commit from the release>"
+$MINDIE_RELEASE_COMMIT = "<full commit from the 0.0.2 release>"
 $MINDIE_PROFILE = "web"
 $MINDIE_STAGE = Join-Path ([IO.Path]::GetTempPath()) ("mindie-dsh-" + [guid]::NewGuid().ToString("N"))
 git clone https://github.com/mindie-agent/mindie-agent-dsh.git $MINDIE_STAGE
@@ -49,50 +44,22 @@ dsh.cmd plugin --profile $MINDIE_PROFILE add "git+https://github.com/mindie-agen
 if ($LASTEXITCODE -ne 0) { throw "bundle refresh failed" }
 ```
 
-Run the commands in order and stop on any failure. `--no-sync` retains the
-existing feed while separating package refresh from a network feed sync; omit
-it when a feed refresh is also wanted. Setup must report `status: "ready"`.
-The new setup copies the transcript adapter, summary worker and its path module
-under the persistent data directory. The staging clone can then be removed.
+- Run the commands in order and stop on any error. `--no-sync` retains the existing local knowledge snapshot during the runtime refresh (omit `--no-sync` if you also want to sync the remote knowledge feed immediately).
+- Verify that `setup.py` outputs `status: "ready"` with `mindie-knowledge 0.12.2`, `remote-dev 0.10.1`, and `mindie-diagnostics 0.4.3`. `setup.py` also copies the transcript adapter, summary worker, and path helper into `state_dir/bin/` so the staging checkout (`$MINDIE_STAGE`) can be safely removed afterwards.
+- For a DSH Desktop profile (where the CLI rejects `--profile desktop`) or scripted GitHub bundle installers (`install-from-github.mjs`), install the same `git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>` spec via the Desktop **Plugins** page or `plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>")`, then quit and relaunch the DSH application.
 
-For the Desktop-managed profile, use its Plugins page to install the same exact
-Git spec after provisioning; the CLI deliberately rejects `--profile desktop`.
-The `plugin_manager` tool's `install_bundle` action accepts that same spec.
-Close and reopen Desktop after replacing its package.
+4. **Restart the DSH process**, verify that `mindie-agent-dsh` is enabled on the **Plugins** page, open a new session, and run `/mindie-agent`.
 
-4. Restart the original DSH profile/process. Check that `mindie-agent-dsh` is
-   enabled on the Plugins page, open a new session and use `/mindie-agent`.
-   The native DSH `0.2.0-rc.2` CLI used in the Windows acceptance selected the
-   bundle during `add`; checking the saved selection also covers installations
-   with different package-manager behavior.
-
-The CLI-only composition check does not call a model:
+To verify Host row composition from the CLI without invoking a model:
 
 ```sh
 dsh --profile "$MINDIE_PROFILE" --dump-config
 ```
 
-It should include `mindie-agent-host`, `mindie-agent-skill` and
-`mindie-agent-remote-mcp`. It checks composition, not a model turn or successful
-Stop-event capture.
+Confirm that the output lists `mindie-agent-host`, `mindie-agent-skill`, and `mindie-agent-remote-mcp`.
 
-## Acceptance and Windows boundaries
+## Verified Refresh Behavior & Platform Notes
 
-Native Windows acceptance refreshed old commit `828c375d1f546ed653250526465b8075c1691390`
-to the new `0.0.2` runtime: a real stored material retained its content and
-revision, consent/community file hashes stayed unchanged, the disabled sharing
-choice stayed disabled and an existing session lease stayed active. Exact-SHA
-DSH package replacement and native configuration composition also passed.
-The persistent-worker regression removes the setup checkout, then exercises
-`--identity` and one authenticated loopback summary response using the installed
-worker. It uses a synthetic response and makes no paid model call.
-
-Run normal Windows desktop sessions without elevation. An elevated SSH/admin
-process can create owner-only directories owned by Administrators; a
-LeastPrivilege background task cannot read those directories. Application
-Control can also block the selected `pythonw.exe`. Acceptance on a separate
-Windows host confirmed normal-user Task Scheduler startup, Stop-envelope
-capture, secret/IP redaction and material creation. This does not certify a
-machine whose local policy blocks the executable or a model-generated host
-turn. Do not change application-control policy or elevate the service to make
-an acceptance check pass.
+- **State & Consent Preservation**: Refreshing from `828c375d1f546ed653250526465b8075c1691390` to the updated `0.0.2` commit preserves stored knowledge materials, `mindie-consent.json` and community configuration files, existing `disabled` / `later` / `read-only` choices, and active session leases without re-prompting.
+- **Self-Contained Persistent Workers**: Because `setup.py` installs worker scripts under `state_dir/bin/`, removing the temporary source clone after setup leaves `--identity` checks and loopback summary worker requests working normally.
+- **Windows User-Level Execution**: Run DSH and `setup.py` under your normal non-elevated Windows user account so background scheduled tasks and `pythonw.exe` share standard user directory permissions.
