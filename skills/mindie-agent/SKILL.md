@@ -22,22 +22,34 @@ session mode.
 - Never repair MindIE because a tool failed. One explicit invocation covers
   this task; a failed call is reported and the user's work continues.
 
-## First configuration (one time, never re-asked)
+## Contribution choice
 
 `mindie_entry(op="init")` returns `sharing` and `next`.
 
-- If `sharing.choice` is `later` or contribution is unconfigured, ask the user
-  **once** whether to enable public experience contribution.
+- Reuse a saved `contribute` with `sharing.choice_revision`. Preserve saved
+  `disabled`, `later`, and `read-only` choices without prompting.
+- If no choice exists, present the contribution notice and ask **once**
+  whether to enable public knowledge sharing and sanitized product-fault reporting.
+  A legacy `contribute` without `choice_revision` returns
+  `sharing.reporting_activation.status="needs_choice"`; explain the expanded
+  choice once through this entry before recording it.
   - If yes: `mindie_entry(op="choose", choice="contribute",
     account="<github-account>")`. The default upstream is
     `mindie-agent/knowledge-vllm-ascend`; the tool auto-forks it to the account.
     Pass `repository`/`fork` only when the user explicitly names another destination.
   - If no: `mindie_entry(op="choose", choice="disabled")`.
-- A saved `contribute` or `disabled` choice is never re-asked. The user can
-  change it later only by explicitly saying so in a `/mindie-agent` task.
+- An explicit enable or disable request is already the user's choice; do not
+  add another confirmation. New choices are only `contribute` and `disabled`.
+  Incomplete configuration alone never authorizes contribution. The user can
+  change a saved choice by explicitly saying so in a `/mindie-agent` task.
 - `mindie_entry(op="status")` is read-only. `op="deactivate"` revokes this
-  task's capture lease. Reporting is opt-in and independent:
-  `reporting-status` (read-only). The contribution choice controls both knowledge sharing and sanitized fault reports. Show the user [the contribution notice](references/user-notice.md) during first setup.
+  task's capture lease. The single unified contribution choice in
+  `mindie-consent.json` controls both community knowledge sharing and automatic
+  sanitized fault reporting (`contribute` enables both; `disabled` turns both
+  off, while normal local knowledge reads and `remote-dev` tool execution work
+  regardless of whether contribution is enabled). Use `reporting-status`
+  (read-only) to inspect real worker and queue state, and show the user
+  [the contribution notice](references/user-notice.md) during first setup.
 
 ## Knowledge tools
 

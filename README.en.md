@@ -6,11 +6,9 @@
 
 > Plugin discovery: this repository carries the GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) for DSH plugin marketplaces.
 
-> **Formal 0.0.2**: DSH is a native `mindie-bench` harness (PR #2) and passed CPU L2 G0/G1/G2 canaries with real verifier judgments; G3 native capture is not supported yet. The 0.0.1 stable launcher, silent auto-update, Stop capture/redaction, knowledge feedback and community contribution remain. See the [benchmark note](docs/benchmark.md) and [verification record](docs/verification.md).
-
 <p align="center">
-  <b>Ascend NPU AI Infra knowledge and remote development for DeepSeek Harness</b><br/>
-  <sub>Works inside the standard preset · read-only domain knowledge · the official remote-dev NPU tool set · stable DSH plugins only</sub>
+  <b>Native DeepSeek Harness Plugin for the Ascend NPU AI Infra Lifecycle</b><br/>
+  <sub>Inherited by the standard preset · Domain knowledge & sanitized experience loop · Remote-dev NPU toolset · Stable DSH plugins only</sub>
 </p>
 
 <p align="center">
@@ -24,22 +22,23 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#architecture-and-stability-boundary">Architecture</a> ·
-  <a href="#001-scope-and-known-limits">Limits</a>
+  <a href="#contribution-and-fault-reporting-in-002">Contribution & Reporting</a> ·
+  <a href="#002-scope-and-known-limits">Limits</a>
 </p>
 
 ---
 
-**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the DSH-native adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), candidate version `0.0.2`.
+**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.0.2`.
 
-It brings two core capabilities into DSH:
+Designed for the Ascend NPU AI Infra design, development, and testing lifecycle, `0.0.2` delivers **`vLLM-Ascend` feature development & testing** and **`AscendC` / `Triton` operator implementation & verification** (with broader Ascend AI Infra domains expanding on the roadmap):
 
-- **`/mindie-agent` knowledge and skill entry** — on-demand retrieval of Ascend engineering knowledge such as `knowledge-vllm-ascend`;
-- **the official `remote-dev` tool set** — read, write, execute, test, and poll long-running work on remote Ascend hosts and containers.
+- **`/mindie-agent` knowledge, skill, and experience loop entry** — on-demand access to `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, and `knowledge_sync` over `knowledge-vllm-ascend`, plus background `session.v4.jsonl.zstd` public-transcript redaction and community PR publication when contribution is enabled;
+- **Official `remote-dev` NPU toolset** — read, write, execute, test, and poll long-running jobs on remote Ascend servers and containers;
+- **Ecosystem support** — `v0.0.2` supports Claude Code ([`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)), OpenAI Codex CLI ([`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)), Kimi Code ([`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)), and DeepSeek Harness (this repository).
 
 > [!IMPORTANT]
 > **Stability by composition: stable DSH plugins only.**
-> This adapter composes exactly two non-experimental packages: `@deepseek-ai/dsh-skill-filesystem` and `@deepseek-ai/dsh-mcp-client`. It uses **no `@deepseek-ai/dsh-experimental-*` package**, overrides **no shipped row or shipped preset**, and inserts every new row at the Host layer.
-> Consequently the shipped `standard` preset and every other preset inherit the skill and tools directly. There is no “MindIE mode” to switch to and no configuration drift against the standard composition.
+> This adapter composes `@deepseek-ai/dsh-skill-filesystem`, `@deepseek-ai/dsh-mcp-client`, and the local Host plugin `./host.mjs`. It uses **no `@deepseek-ai/dsh-experimental-*` package**, overrides **no shipped row or shipped preset**, and inserts its three rows (`mindie-agent-skill`, `mindie-agent-host`, `mindie-agent-remote-mcp`) at the Host layer so the shipped `standard` preset and other presets inherit them directly.
 
 ## Quick Start
 
@@ -49,14 +48,14 @@ It brings two core capabilities into DSH:
 | --- | --- | --- |
 | DeepSeek Harness | `0.2.0-rc.2` | The optional peer dependency pins this exact runtime |
 | Node.js | `>= 22` | DSH runtime requirement |
-| Python | `>= 3.11` | `uv` selects/manages 3.11; the system Python need not be 3.11 |
-| `uv` | a recent release | builds the locked runtime and provides the 3.11 interpreter |
-| `git` | a recent release | fetches the plugin and the public knowledge feed |
+| Python | `>= 3.11` | `uv` selects/manages Python 3.11+ |
+| `uv` | a recent release | builds the locked runtime and provides the Python interpreter |
+| `git` & `gh` | installed and authenticated | fetches the plugin/knowledge feed and authenticates PR publication & fault reporting |
 | Network | first install | fetches pinned components and the public knowledge snapshot |
 
 ### Step 1 — Provision the pinned runtime before enabling the bundle
 
-`dsh-mcp-client` connects the MCP server as soon as the bundle is enabled, so prepare the runtime **first**:
+`dsh-mcp-client` and the Host plugin connect to the local runtime when the bundle is enabled, so provision the runtime **first**:
 
 ```bash
 MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
@@ -65,21 +64,21 @@ git clone --depth 1 --branch v0.0.2 https://github.com/mindie-agent/mindie-agent
 uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
-Success means the final JSON reports:
+Verify that the final JSON reports the `0.0.2` pinned components and ready status:
 
 ```json
 {
   "status": "ready",
   "components": {
-    "mindie-knowledge": "0.11.0",
-    "remote-dev": "0.9.5",
-    "mindie-diagnostics": "0.4.1"
+    "mindie-knowledge": "0.12.2",
+    "remote-dev": "0.10.1",
+    "mindie-diagnostics": "0.4.3"
   },
   "knowledge": { "status": "ready" }
 }
 ```
 
-`setup.py` is idempotent: it revalidates the runtime against `uv.lock`, rewrites the engine configuration, and performs an incremental feed sync. Runtime, config, knowledge, and remote-dev state default to `~/.local/share/mindie-agent/dsh` and `~/.config/mindie-agent/dsh`; the temporary clone can be deleted afterwards.
+`setup.py` is idempotent: it revalidates the runtime against `uv.lock`, installs persistent background worker scripts under `state_dir/bin/`, rewrites the engine configuration, and performs an incremental feed sync. Runtime, config, knowledge, and `remote-dev` state default to `~/.local/share/mindie-agent/dsh` and `~/.config/mindie-agent/dsh`; the temporary clone can be removed afterwards.
 
 ### Step 2 — Install and enable the bundle in DSH
 
@@ -98,7 +97,10 @@ plugin_manager(action="install_bundle",
 
 > Alternatively, run `dsh plugin --profile <name> add <spec>`. Confirm that `mindie-agent-dsh` is enabled on the Plugins page afterwards. Do not hand-edit the profile's `package.json` or `cordis.patch.yml`.
 
-Existing early `0.0.2` installations need the [explicit same-version refresh](docs/same-version-refresh.md) for both runtime and bundle, followed by a DSH process restart. The old updater does not detect a new commit with the same version. Refresh retains authorization, sharing choices and knowledge materials.
+> [!WARNING]
+> **Same-version refresh for existing `0.0.2` installations**:
+> This `0.0.2` release is an authorized one-time replacement of the earlier `0.0.2` build (source commit `828c375d1f546ed653250526465b8075c1691390`). Because the legacy updater only selects versions strictly greater (`>`) than the installed version string, existing `0.0.2` installations will **not** automatically pick up the refreshed `0.0.2` commit, and the in-memory Node worker keeps running the old code until the DSH process restarts.
+> Users on an existing `0.0.2` install must explicitly refresh both the Python runtime (`scripts/setup.py`) and the plugin bundle (`dsh plugin --profile <name> add "git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>" --ignore-scripts` or `plugin_manager(action="install_bundle", ...)`) using the exact source SHA per **[`docs/same-version-refresh.md`](docs/same-version-refresh.md)**, then **restart the entire DSH process**. Existing user consent (`mindie-consent.json`), community settings, and local knowledge materials are preserved.
 
 Open a **new session** afterwards (existing sessions keep the composition they started with) and type `/mindie-agent`.
 
@@ -110,18 +112,19 @@ Open a **new session** afterwards (existing sessions keep the composition they s
 
 Success criteria:
 
-1. the skill is injected by the explicit `/mindie-agent` gesture, never by model auto-discovery;
-2. the tool list contains `mcp__mindie-knowledge__knowledge_query` / `knowledge_explain` / `knowledge_sync` and `mcp__remote-dev__remote_*`;
-3. knowledge results carry `ref`s and `knowledge_explain` returns the block body;
-4. remote operations use a real host / port / container, and long work is polled through `remote_job_*`.
+1. The skill is injected by the explicit `/mindie-agent` invocation (never by model auto-discovery) and calls `mindie_entry(op="init")` to bind the task;
+2. The Host tool surface exposes `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, and `knowledge_sync`, while the MCP surface exposes `mcp__remote-dev__remote_*`;
+3. Knowledge search returns citation groups with `ref`s, and `knowledge_explain` reads the requested task or block body;
+4. Remote operations use a real host / port / container, and long-running work is polled through `remote_job_*`.
 
 ## Usage
 
 | Capability | Trigger | Notes |
 | --- | --- | --- |
-| Ascend knowledge, engineering experience, testing and troubleshooting references | **manual** `/mindie-agent <request>` | explicit skill injection, then read-only knowledge tools; knowledge is reference, current-environment evidence wins |
-| Remote Ascend hosts / containers | **default-on**, no slash command | describe the remote work naturally; the agent calls `mcp__remote-dev__remote_*` |
-| Knowledge feed refresh | `knowledge_sync` inside a `/mindie-agent` task | once, only when the corpus is unavailable/stale or the user asks for the latest knowledge |
+| Ascend knowledge, engineering experience, testing and troubleshooting references | **Manual** `/mindie-agent <request>` | Explicit skill injection followed by `mindie_entry` and `knowledge_*` tools; historical knowledge is reference only, and current-environment evidence takes precedence |
+| Remote Ascend hosts / containers | **Default-on**, no slash command | Describe the remote task in natural language; the agent calls `mcp__remote-dev__remote_*` |
+| Knowledge feed refresh | `knowledge_sync` inside a `/mindie-agent` task | Called once when the corpus is unavailable/stale or the user asks for the latest knowledge |
+| Sanitized experience capture & fault reporting | **Unified contribution switch** | When `contribute` is enabled, completed turns (`agent/turn-stopping`) sanitize `session.v4.jsonl.zstd` public messages in the background for community PR publication and enable sanitized tool fault reporting |
 
 Examples:
 
@@ -140,64 +143,64 @@ flowchart TB
   subgraph DSH["DeepSeek Harness 0.2.0-rc.2"]
     HOST["Host composition<br/>mindie-agent-dsh bundle"]
     STD["standard / any agent preset"]
-    SKILL["@deepseek-ai/dsh-skill-filesystem<br/>providerName=mindie"]
-    KMC["@deepseek-ai/dsh-mcp-client<br/>serverName=mindie-knowledge"]
-    RMC["@deepseek-ai/dsh-mcp-client<br/>serverName=remote-dev"]
+    SKILL["mindie-agent-skill<br/>@deepseek-ai/dsh-skill-filesystem"]
+    HPLUG["mindie-agent-host<br/>./host.mjs -> ./host3.mjs"]
+    RMC["mindie-agent-remote-mcp<br/>@deepseek-ai/dsh-mcp-client"]
     STD --> HOST
     HOST --> SKILL
-    HOST --> KMC
+    HOST --> HPLUG
     HOST --> RMC
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
-  KMC --> BR["knowledge_mcp.py<br/>thin stdio bridge"]
-  BR --> KS["mindie-knowledge 0.11.0<br/>local loopback service"]
-  KS --> FEED[("knowledge-vllm-ascend<br/>public feed")]
-  RMC --> RD["remote-dev 0.9.5<br/>official MCP server"]
+  HPLUG --> KS["mindie-knowledge 0.12.2<br/>mindie_entry / knowledge_* / Stop capture"]
+  HPLUG --> DIAG["mindie-diagnostics 0.4.3<br/>Bounded local diagnostics & unified consent reporter"]
+  KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
+  RMC --> RD["remote-dev 0.10.1<br/>remote_dev.mcp.server"]
   RD --> NPU[("remote Ascend host / Docker container")]
 ```
 
-### What “stable plugins only” means here
+### Host Composition Rows and Responsibilities
 
-| Row | Plugin | Source | Experimental |
+| Row ID | Plugin / Entry | Responsibility | Experimental |
 | --- | --- | --- | --- |
-| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | the provider the standard preset uses | no |
-| `mindie-agent-knowledge-mcp` | `@deepseek-ai/dsh-mcp-client` | shipped stable MCP bridge | no |
-| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | same | no |
+| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the `/mindie-agent` skill bundle (`disable-model-invocation: true`) | no |
+| `mindie-agent-host` | `./host.mjs` (mounts generation `./host3.mjs`) | Registers native Host tools (`mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_sync`), handles `agent/turn-stopping` capture handoff, serves the model summary bridge, and manages generation swaps | no |
+| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | Launches the pinned `remote-dev 0.10.1` official MCP server (`remote_dev.mcp.server`) | no |
 
-- **No override** of any shipped row or preset — only `insert`; DSH upgrades to the standard preset are not shadowed.
-- **No custom Cordis Host plugin** — the knowledge bridge is an MCP server, and remote-dev uses the component's official server entry point.
-- The package declares only an optional exact peer on `@deepseek-ai/dsh@0.2.0-rc.2`, so installing it does not pull a second DSH runtime into the profile.
+- **No override** of any shipped row or preset — `cordis.patch.yml` only performs `insert` operations, so DSH upgrades to the standard preset are never shadowed.
+- The package declares only an optional exact peer on `@deepseek-ai/dsh@0.2.0-rc.2`, avoiding duplicate DSH runtimes in the profile.
 
-## Historical 0.0.1 Scope (Superseded by 0.0.2)
+## Contribution and Fault Reporting in `0.0.2`
 
-- **Read-only knowledge**: `knowledge_query`, `knowledge_explain`, plus explicit `knowledge_sync`. There is **no** `knowledge_feedback` in 0.0.1.
-- **No Session-Stop capture, community contribution, or automatic fault reporting**: DSH session logs are zstd JSONL; this version does not implement a parser and never pretends a capture succeeded. The configured capture adapter fails loudly if invoked.
-- **Knowledge identity is the Host-level `dsh` identity**, not per-session. Do not claim session isolation.
-- **remote-dev state is Host-level and shared**: job records live under `~/.local/share/mindie-agent/dsh/state/remote` and are visible across sessions.
-- Verification evidence is in [`docs/verification.md`](docs/verification.md). `0.0.1` is accepted only on **macOS 27.0.1 arm64 + DSH 0.2.0-rc.2**; other platforms are untested.
-- No automatic updater. Upgrading means re-running `setup.py` and selecting the new tag in the Plugins page.
+- **Unified Persistent Switch (`mindie-consent.json`)**: Community knowledge sharing and automatic tool fault reporting share a single persistent switch. Explicitly selecting `contribute` configures scoped public knowledge sharing (defaulting to `mindie-agent/knowledge-vllm-ascend` with automatic personal fork resolution) and starts the native background fault reporter; selecting `disabled` stops subsequent outgoing sends for both paths.
+- **Upgrade Preservation & Legacy Re-Confirmation**: Existing `disabled`, `later`, and `read-only` choices stay off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / marked `needs_choice`) do **not** automatically gain fault-upload permission on upgrade or startup until explicitly re-confirmed once by the user.
+- **Three-State Separation**: The system strictly separates (1) local consent configuration written to `mindie-consent.json`, (2) background reporter or organizer worker running, and (3) external GitHub Issue or knowledge PR created. Use `reporting-status` for a read-only check of real worker and queue state, and see **[the contribution notice](skills/mindie-agent/references/user-notice.md)**.
 
-## Development and Tests
+## `0.0.2` Scope and Known Limits
+
+- **Pinned Runtime Components**: `mindie-knowledge 0.12.2` (`4e328305323eafc7fd43ecc0c53eb3cc0541fdef`), `remote-dev 0.10.1` (`a6649222aae4851deec5774513f8319aece09051`), and `mindie-diagnostics 0.4.3` (`1b5a0eeb79d498c39002fc1853271c17e0f26e66`).
+- **Same-Version Refresh Boundary**: `0.0.2` replaces the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Existing `0.0.2` installations must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
+- **Shared Host-Level `remote-dev` State**: Remote job records live under `~/.local/share/mindie-agent/dsh/state/remote` and are visible across sessions on the same Host.
+- **Background Auto-Update Scope**: The stable launcher `host.mjs` checks for formal releases and swaps child plugin generations while the DSH Host process is running; no OS-level scheduler runs when DSH is stopped.
+- **Benchmark Harness Scope**: `mindie-bench` supports DSH as a native L1/L2 G0–G2 evaluation harness (see [`docs/benchmark.md`](docs/benchmark.md)); G3 native capture evaluation in `mindie-bench` is not yet wired for DSH.
+
+## Development, Tests, and Release Benchmarks
 
 ```bash
-# offline contract/protocol tests; no user-directory writes
-python3 -m unittest discover -s tests -v
+# Offline contract, protocol, and unit tests (no user-directory writes)
+pytest -q
+node --test tests/test_summary_endpoint.mjs
 
-# prerequisites and paths only; no runtime build
+# Prerequisite and path check only (no runtime build)
 uv run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
-
-# manual knowledge MCP probe
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-  | uv run --quiet --no-project --python 3.11 scripts/knowledge_mcp.py knowledge
 ```
 
-Paired release mapping and acceptance evidence: [`docs/verification.md`](docs/verification.md) and [`harness-compatibility.json`](harness-compatibility.json).
+### `0.0.2` Release Benchmarks
+
+Every formal `0.0.2` GitHub Release attaches `benchmark-results.json`, `benchmark-results.md`:
+- [`benchmarks/release.json`](benchmarks/release.json) (executed by `benchmarks/release.py`) measures deterministic per-operation latency (`us/op`) for extracting public messages and filtering hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`), paired with `plugin-manifest-hygiene` release manifest verification.
+- These reproducible CPU microbenchmarks measure local component latency and manifest integrity only; they are distinct from standing Ascend A2/A3 NPU live integration acceptance and end-to-end Agent productivity evaluation in `mindie-bench`. See [`docs/benchmark.md`](docs/benchmark.md) and [`docs/verification.md`](docs/verification.md).
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-## Contribution and diagnostics in 0.0.2
-
-The contribution switch controls both public knowledge sharing and sanitized product-fault reports. `contribute` enables both; `disabled` disables both. Existing choices are preserved. Legacy choices require one explicit confirmation before fault uploads; startup never grants consent. Inspect `reporting-status` for real worker and queue state. See [the contribution notice](skills/mindie-agent/references/user-notice.md). Restart the entire DSH process after upgrading the bundle.
