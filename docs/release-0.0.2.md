@@ -17,7 +17,7 @@ GitHub Release: `mindie-agent/mindie-agent-dsh@v0.0.2` (`draft=false`, `prerelea
   - Existing `disabled`, `later`, and `read-only` settings stay off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / marked `needs_choice`) do not automatically enable fault uploads on upgrade until explicitly re-confirmed once by the user.
   - State reporting keeps three states strictly distinct: (1) local consent configuration written, (2) background reporter or organizer worker running, and (3) external GitHub Issue or knowledge PR created.
 - **Reproducible Release Benchmarks & `mindie-bench` Harness**:
-  - Every formal release publishes `benchmark-results.json`, `benchmark-results.md` from [`benchmarks/release.json`](../benchmarks/release.json) (`public-transcript` / `public_100_message_parse_latency` in `us/op` and `plugin-manifest-hygiene` manifest checks).
+  - Every formal release publishes `benchmark-results.json`, `benchmark-results.md` from [`benchmarks/release.json`](../benchmarks/release.json) (`public-transcript` / `public_100_message_parse_latency` in `us/op`).
   - `mindie-bench` (PR #2) supports DSH (`harness.name = "dsh"`) for L1/L2 G0–G2 evaluation using an isolated headless profile (`DSH_HOME/profiles/bench`).
 
 ## Install (Fresh Installation)
@@ -34,7 +34,7 @@ Then install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.gi
 
 See [benchmark.md](benchmark.md) and [verification.md](verification.md) for full details:
 
-- **Release CPU Microbenchmark (`benchmarks/release.json`)**: Measures deterministic per-operation latency (`us/op`) for extracting public user/assistant messages and stripping hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`), paired with `plugin-manifest-hygiene` manifest verification.
+- **Release CPU Microbenchmark (`benchmarks/release.json`)**: Measures deterministic per-operation latency (`us/op`) for extracting public user/assistant messages and stripping hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`).
 - **`mindie-bench` L2 Canary (`cpu-rope-rotary-dim-64`, DSH `0.2.0-rc.2`)**:
 
 | Group | Result |
