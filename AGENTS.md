@@ -20,7 +20,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 
 - **JS ↔ Python Path Parity**: `paths.cjs` and `scripts/mindie_paths.py` resolve identical paths across POSIX (`XDG_DATA_HOME` / `XDG_CONFIG_HOME`) and Windows (`LOCALAPPDATA` / `APPDATA`), verified by `tests/test_paths.py`.
 - **Warm Sidecar Protocol**: `host3.mjs` communicates with `scripts/mindie_sidecar.py` over line-delimited JSON (`{"id", "op", "args"}` → `{"id", "ok", "result"|"error"}`).
-- **Explicit Consent & Community Authority**: `op_activate` initializes default read-only sharing (`choice="later"`, `enabled=False`) if unconfigured; `op_configure` requires `choice in {"contribute", "disabled"}` and ensures the user's GitHub fork via `gh` when `choice == "contribute"`.
+- **Explicit Consent & Community Authority**: `op_activate` reads the existing profile choice without creating consent. `op_configure` requires `choice in {"contribute", "disabled"}` and writes the shared authority; contribute enables both knowledge sharing and sanitized failure reporting. Missing or legacy consent returns `needs_choice` until an explicit choice. All producers and the reporter use `config_home()/diagnostics.json`.
 - **Loopback Summary Routing**: `host3.mjs` writes `state_dir()/summary-endpoint.json` (`http://127.0.0.1:<port>`, bearer token, model, provider). `dsh_organizer.py` posts the batch once and maps HTTP/timeout failures after transmission to `status="outcome_unknown"` (`billing_status="unknown"`).
 
 ## 3. Timeout Budgets & `v0.0.2` Anti-Over-Defensive Iron Rules
@@ -29,7 +29,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
   - Sidecar / MCP knowledge RPCs: `30.0s` (`query`, `explain`, `feedback`); feed sync: `120.0s`.
   - Loopback organizer HTTP POST: `DEADLINE_SECONDS = 300s` (`MAX_REQUEST_BYTES = MAX_RESPONSE_BYTES = 256 KiB`).
   - Transcript incremental scan: `max_seconds = 2.0s`, `max_text_bytes = 48 KiB`, `MAX_DECOMPRESSED_BYTES = 128 MiB`.
-  - Setup & Updater: `uv sync` `900s`, redactor install `300s`, candidate setup `600s`, GitHub API lookup `30s`, asset download `60s`.
+  - Setup & Updater: standalone `uv sync` has a `900s` stage budget and redactor installation `300s`. Updater supplies one `600s` total candidate setup deadline and reserves `10s` for cleanup. GitHub API lookup `30s`, asset download `60s`. Explicit contribution configuration has a `600s` outer budget including community operations and the shared reporter's `75s` startup; ordinary sidecar calls use `120s`.
 - **Four `v0.0.2` Iron Rules**:
   1. Lightweight SQLite connections (WAL + busy timeout set once on open; no per-query schema reflection or `.owner` `lstat` ceremony).
   2. Reserve `unknown` (`outcome_unknown`) strictly for irreversible external model/network writes; never brick local state on transient errors.
