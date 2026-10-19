@@ -4,7 +4,7 @@
 
 ## 1. Reproducible Release Microbenchmarks (`benchmarks/release.json`)
 
-Every formal GitHub Release publishes `benchmark-results.json`, `benchmark-results.md`, `benchmark-SHA256SUMS`, and `SHA256SUMS` generated from [`benchmarks/release.json`](../benchmarks/release.json) and [`benchmarks/release.py`](../benchmarks/release.py):
+Every formal GitHub Release publishes `benchmark-results.json`, `benchmark-results.md` generated from [`benchmarks/release.json`](../benchmarks/release.json) and [`benchmarks/release.py`](../benchmarks/release.py):
 
 - **Workload Measured**:
   - `public-transcript` (`public_100_message_parse_latency`, `us/op`): measures deterministic per-operation latency for decompressing a 100-message DSH v4 `session.v4.jsonl.zstd` stream via `dsh_transcript.read_material`, extracting visible user/assistant text, and filtering non-public `reasoning` blocks.

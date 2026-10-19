@@ -14,7 +14,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 | `scripts/dsh_organizer.py` | Loopback summary worker (`mindie-summary-outcome/1`) | Calls active DSH session's loopback summary endpoint (`summary-endpoint.json`); returns `returned`, `failed`, or `outcome_unknown` without retrying uncertain calls. |
 | `scripts/dsh_transcript.py` | DSH v4 `.jsonl.zstd` public-transcript reader | Streams concatenated zstd frames (`<= 128 MiB`), extracts only `user/message` (`source.kind == "user"`) and `assistant/message` `text` blocks, maintains monotonic byte-offset cursors. |
 | `scripts/setup.py` | One-step locked runtime provisioner | Runs `uv sync --frozen`, probes SQLite FTS5 + component imports, installs transcript redactor, writes `engine.json` / `config.json` via `os.replace`. |
-| `scripts/updater.py` | Background GitHub Release updater | Verifies `SHA256SUMS`, stages candidate under `update/generations/<tag>`, provisions candidate before switching `current.json`. |
+| `scripts/updater.py` | Background GitHub Release updater | Stages candidate under `update/generations/<tag>`, provisions candidate before switching `current.json`. |
 
 ## 2. Host Interaction Protocols & State Invariants
 

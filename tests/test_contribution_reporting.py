@@ -73,11 +73,24 @@ class ContributionReportingTests(unittest.TestCase):
                     patch.object(mindie_sidecar, "_ensure_fork", return_value="account/knowledge"), \
                     patch("mindie_diagnostics.reporting_commands.ensure",
                           return_value={"status": "degraded", "category": "test_service_unavailable"}) as ensure:
+                authority = config / "mindie-consent.json"
+                authority.write_text(json.dumps({
+                    "schema": "mindie-consent/1", "choice": "contribute",
+                    "reporting": "disabled",
+                }))
+                before = authority.read_bytes()
+                self.assertEqual(dsh_diagnostics.activate()["status"], "needs_choice")
+                self.assertEqual(authority.read_bytes(), before)
+                ensure.assert_not_called()
                 result = mindie_sidecar.op_configure({
                     "choice": "contribute", "cwd": str(root), "account": "account",
                 })
                 self.assertEqual(result["sharing"]["reporting_activation"]["status"], "degraded")
                 ensure.assert_called_once_with(config / "diagnostics.json", unit_dir=None)
+                revision = consent_store.read(authority)["choice_revision"]
+                self.assertTrue(revision)
+                self.assertEqual(dsh_diagnostics.activate(ensure=False)["status"], "configured")
+                self.assertEqual(consent_store.read(authority)["choice_revision"], revision)
                 first = mindie_sidecar.diagnostic("rpc", RuntimeError("synthetic public fixture"))
                 second = capture_stop.diagnose("hook", RuntimeError("synthetic public fixture"))
                 queue = Outbox(root / "queue.sqlite3")

@@ -17,7 +17,7 @@ GitHub Release: `mindie-agent/mindie-agent-dsh@v0.0.2` (`draft=false`, `prerelea
   - Existing `disabled`, `later`, and `read-only` settings stay off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / marked `needs_choice`) do not automatically enable fault uploads on upgrade until explicitly re-confirmed once by the user.
   - State reporting keeps three states strictly distinct: (1) local consent configuration written, (2) background reporter or organizer worker running, and (3) external GitHub Issue or knowledge PR created.
 - **Reproducible Release Benchmarks & `mindie-bench` Harness**:
-  - Every formal release publishes `benchmark-results.json`, `benchmark-results.md`, `benchmark-SHA256SUMS`, and `SHA256SUMS` from [`benchmarks/release.json`](../benchmarks/release.json) (`public-transcript` / `public_100_message_parse_latency` in `us/op` and `plugin-manifest-hygiene` manifest checks).
+  - Every formal release publishes `benchmark-results.json`, `benchmark-results.md` from [`benchmarks/release.json`](../benchmarks/release.json) (`public-transcript` / `public_100_message_parse_latency` in `us/op` and `plugin-manifest-hygiene` manifest checks).
   - `mindie-bench` (PR #2) supports DSH (`harness.name = "dsh"`) for L1/L2 G0–G2 evaluation using an isolated headless profile (`DSH_HOME/profiles/bench`).
 
 ## Install (Fresh Installation)
@@ -54,5 +54,3 @@ See [benchmark.md](benchmark.md) and [verification.md](verification.md) for full
 - `mindie-agent-dsh-0.0.2.tgz`
 - `benchmark-results.json`
 - `benchmark-results.md`
-- `benchmark-SHA256SUMS`
-- `SHA256SUMS`

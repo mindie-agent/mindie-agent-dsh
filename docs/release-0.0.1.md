@@ -30,7 +30,7 @@ switch.
 - **Silent auto-update**: a stable `host.mjs` launcher mounts the selected
   immutable generation as a child Cordis plugin. The Host checks formal GitHub
   Releases in the background (30 seconds after startup, then every configured
-  interval), verifies `SHA256SUMS`, provisions the candidate, and atomically
+  interval), provisions the candidate, and atomically
   switches `update/current.json`. The launcher swaps the child plugin without
   replacing the loaded bundle or restarting DSH; a failed mount rolls back.
   Checks are deferred while an Agent is running and can be inspected with
@@ -61,8 +61,8 @@ Plugins page, open a new session, and type `/mindie-agent`.
 | `mindie-agent/diagnostics` | `v0.4.1` | `10cc3391ed358d7b7e0e1acb99ca5be4d1934b47` |
 
 The complete transitive lock is `uv.lock`. All three Releases are ordinary
-(non-draft, non-prerelease); their tag commits, locked commits, wheel/sdist
-metadata, and `SHA256SUMS` were verified. See
+(non-draft, non-prerelease); their tag commits, locked commits, and wheel/sdist
+metadata were verified. See
 [`verification.md`](verification.md).
 
 ## Verified environment
@@ -96,4 +96,3 @@ Offline tests: 24 Python tests and the summary-endpoint Node test pass.
 ## Assets
 
 - `mindie-agent-dsh-0.0.1.tgz` — source/installable package contents
-- `SHA256SUMS` — checksum for the release asset

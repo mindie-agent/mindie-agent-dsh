@@ -20,7 +20,7 @@ principles followed” claim.
 | 9. Visible errors | Missing runtime/setup, service startup failure, unknown tool, unexpected arguments, capture attempts, and failed sync all return explicit errors. Setup reports `partial` when runtime is ready but sync failed. |
 | 10. Gap-driven implementation | The only custom code is the knowledge MCP bridge (the component has no MCP server) and the setup/path helpers. |
 | 11. Authorization decoupled | No contribution authorization exists in 0.0.1, so there is nothing to reset or silently change. |
-| 12. Paired releases | Pins match the published `knowledge v0.11.0`, `remote-dev v0.9.5`, and `diagnostics v0.4.1` releases; artifacts and `SHA256SUMS` verified in `verification.md`. |
+| 12. Paired releases | Pins match the published `knowledge v0.11.0`, `remote-dev v0.9.5`, and `diagnostics v0.4.1` releases. |
 | 13. Silent update boundary | This version deliberately has no updater. Upgrades are explicit: re-run setup and switch tags. |
 | 14. `unknown` protection | Remote-dev's own `submission_state`/`category` error contract is preserved; the skill forbids automatic replay of uncertain writes. |
 
