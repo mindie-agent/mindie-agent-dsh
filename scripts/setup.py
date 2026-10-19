@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[Role] One-step runtime provisioner for the DeepSeek Harness adapter.
 [Invariants] Syncs locked uv runtime, verifies SQLite FTS5 + component imports, installs transcript redactor, and writes engine/adapter configs atomically.
-[Timeouts & Locks] uv sync bounded by --install-timeout (default 900s), runtime probe 120s, redactor install 300s, service stop 60s, feed sync 900s.
+[Timeouts & Locks] Every subprocess receives the remaining shared setup budget; timeout cleanup has a separate five-second allowance.
 [Side-Effect Policy] Populates data_home()/venv, writes config_home()/engine.json and config.json via atomic os.replace, and stages updater scripts.
 """
 
@@ -23,6 +23,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import mindie_paths as mp  # noqa: E402
+import setup_process  # noqa: E402
 
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
@@ -64,12 +65,14 @@ def run(
             raise SetupError("setup exceeded its total time budget")
         timeout = min(timeout, remaining)
     try:
-        return subprocess.run(
+        return setup_process.run(
             argv, cwd=str(cwd) if cwd else None, env=env,
-            text=True, capture_output=True, timeout=timeout, check=False,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         raise SetupError(f"command exceeded {timeout}s: {' '.join(argv)}") from exc
+    except subprocess.SubprocessError as exc:
+        raise SetupError(f"command tree cleanup failed: {exc}") from exc
     except OSError as exc:
         raise SetupError(f"could not run {argv[0]}: {exc}") from exc
 
@@ -195,7 +198,7 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
 
 def install_updater() -> dict[str, Any]:
     directory = mp.data_home() / "update"
-    for name in ("updater.py", "mindie_paths.py"):
+    for name in ("updater.py", "mindie_paths.py", "setup_process.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:

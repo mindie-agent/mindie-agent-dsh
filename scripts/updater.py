@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[Role] Bounded background release updater for mindie-agent-dsh.
 [Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; verifies SHA256SUMS and provisions candidate before switching current.json.
-[Timeouts & Locks] Single-instance check.lock (stale after 3600s); release lookup 30s, asset download 60s, candidate setup 600s, feed sync 90s.
+[Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
 [Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
 """
 
@@ -26,6 +26,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import mindie_paths as mp  # noqa: E402
+import setup_process  # noqa: E402
 
 SCHEMA = "mindie-dsh-update-status/1"
 DEFAULT_API = "https://api.github.com/repos/mindie-agent/mindie-agent-dsh/releases"
@@ -200,9 +201,9 @@ def extract(asset: Path, destination: Path) -> Path:
 
 def run(command, timeout, cwd=None, env=None):
     try:
-        completed = subprocess.run(
+        completed = setup_process.run(
             command, cwd=str(cwd) if cwd else None, env=env,
-            capture_output=True, text=True, timeout=timeout, check=False,
+            timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, f"{type(exc).__name__}: {exc}"
