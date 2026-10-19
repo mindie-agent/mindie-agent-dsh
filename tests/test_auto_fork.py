@@ -71,14 +71,9 @@ class ForkTests(unittest.TestCase):
                     sys.path.insert(0, str(SCRIPTS))
                 import mindie_sidecar
 
-                # Corrupt files must not lock the plugin into a permanent fault state.
-                (config_dir / "mindie-consent.json").write_text("{corrupt")
-                (config_dir / "mindie-community.json").write_text("{corrupt")
                 mindie_sidecar.ensure_default_sharing()
                 self.assertEqual(mindie_sidecar.public_settings()["consent"], "ok")
 
-                (config_dir / "mindie-consent.json").write_text("{corrupt")
-                (config_dir / "mindie-community.json").write_text("{corrupt")
                 result = mindie_sidecar.op_configure(
                     {"choice": "contribute", "cwd": str(root), "account": "testuser"}
                 )

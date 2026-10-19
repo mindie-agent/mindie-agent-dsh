@@ -97,27 +97,12 @@ def public_settings() -> dict[str, Any]:
     }
 
 
-def _with_heal(path: Path, fn):
-    try:
-        return fn()
-    except Exception:
-        if path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            path.unlink(missing_ok=True)
-        return fn()
-
-
 def _configure_community(request: dict[str, Any]):
     from mindie_knowledge.loop.settings import CommunityWriteContext
 
     path = community_path()
-
-    def _write():
-        with CommunityWriteContext(str(path)) as context:
-            return context.configure(str(path), request)
-
-    return _with_heal(path, _write)
+    with CommunityWriteContext(str(path)) as context:
+        return context.configure(str(path), request)
 
 
 def ensure_default_sharing() -> None:
@@ -127,7 +112,7 @@ def ensure_default_sharing() -> None:
     consent = consent_path()
     community = community_path()
     if consent_store.read(str(consent)).get("state") != "ok":
-        _with_heal(consent, lambda: consent_store.record_choice(str(consent), "later"))
+        consent_store.record_choice(str(consent), "later")
     if settings_mod.load(str(community)).state not in {"enabled", "disabled"}:
         _configure_community(
             {
@@ -265,7 +250,7 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
             raise SidecarError("fork must be owner/repo")
         fork = _ensure_fork(repository, fork, account)
     consent = consent_path()
-    _with_heal(consent, lambda: consent_store.record_choice(str(consent), choice))
+    consent_store.record_choice(str(consent), choice)
     state = _configure_community(
         {
             "enabled": choice == "contribute",
@@ -299,7 +284,7 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
                 value == "enabled", repository="mindie-agent/mindie-agent", config=config
             )
             consent = consent_path()
-            _with_heal(consent, lambda: consent_store.record_reporting(str(consent), value))
+            consent_store.record_reporting(str(consent), value)
             if value == "enabled":
                 try:
                     worker = subprocess.run(
