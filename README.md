@@ -96,7 +96,9 @@ plugin_manager(action="install_bundle",
                target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")
 ```
 
-> 说明：`dsh plugin --profile <name> add <spec>` 只负责 pnpm 安装，不会替用户勾选 bundle。安装后在 **Plugins** 页面启用 `mindie-agent-dsh` 即可；不要手改 profile 的 `package.json` 或 `cordis.patch.yml`。
+> 也可以运行 `dsh plugin --profile <name> add <spec>`。安装后在 **Plugins** 页面确认 `mindie-agent-dsh` 已启用；不要手改 profile 的 `package.json` 或 `cordis.patch.yml`。
+
+已安装早期 `0.0.2` 的用户需要按[同版本显式刷新步骤](docs/same-version-refresh.md)更新运行时与 bundle，并重启 DSH 进程。旧更新器不会发现同版本的新提交。刷新会保留原有授权、共享选择和知识材料。
 
 启用后打开**新会话**（已有会话保留其启动时的组合），输入 `/mindie-agent` 即可使用。
 

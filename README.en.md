@@ -96,7 +96,9 @@ plugin_manager(action="install_bundle",
                target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")
 ```
 
-> `dsh plugin --profile <name> add <spec>` only runs pnpm; it does not select the bundle. Enable `mindie-agent-dsh` on the Plugins page afterwards. Do not hand-edit the profile's `package.json` or `cordis.patch.yml`.
+> Alternatively, run `dsh plugin --profile <name> add <spec>`. Confirm that `mindie-agent-dsh` is enabled on the Plugins page afterwards. Do not hand-edit the profile's `package.json` or `cordis.patch.yml`.
+
+Existing early `0.0.2` installations need the [explicit same-version refresh](docs/same-version-refresh.md) for both runtime and bundle, followed by a DSH process restart. The old updater does not detect a new commit with the same version. Refresh retains authorization, sharing choices and knowledge materials.
 
 Open a **new session** afterwards (existing sessions keep the composition they started with) and type `/mindie-agent`.
 
