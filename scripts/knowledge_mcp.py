@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 import traceback
+
+import dsh_diagnostics as diagnostics
 from pathlib import Path
 from typing import Any
 
@@ -167,6 +169,7 @@ def maybe_reexec() -> None:
 
 
 def ensure_service(engine_path: str) -> Any:
+    diagnostics.bind_environment()
     from mindie_knowledge.loop.cli import ensure_service as core_ensure
 
     return core_ensure(engine_path)
@@ -224,9 +227,14 @@ def dispatch(name: str, args: dict[str, Any]) -> Any:
     return call_knowledge(name, args, config)
 
 
-def failure(message: str) -> dict[str, Any]:
+def failure(message: str, *, error=None) -> dict[str, Any]:
     text = message if len(message) <= MAX_ERROR_CHARS else message[: MAX_ERROR_CHARS - 3] + "..."
-    return {"content": [{"type": "text", "text": "Unavailable: " + text}], "isError": True}
+    result = {"content": [{"type": "text", "text": "Unavailable: " + text}], "isError": True}
+    if error is not None:
+        result["diagnostic"] = diagnostics.failure(
+            "knowledge", "tool", error, reportable=not isinstance(error, (ConfigError, ValueError)),
+        )
+    return result
 
 
 def success(payload: Any) -> dict[str, Any]:
@@ -271,13 +279,13 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
             raise ValueError("unexpected tool arguments: " + ", ".join(sorted(unknown)))
         return {"jsonrpc": "2.0", "id": ident, "result": success(dispatch(name, arguments))}
     except ConfigError as exc:
-        return {"jsonrpc": "2.0", "id": ident, "result": failure(str(exc))}
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(str(exc), error=exc)}
     except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
         log("mindie-knowledge MCP error: " + "".join(traceback.format_exception_only(type(exc), exc)).strip())
-        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"{type(exc).__name__}: {exc}. Continue independently.")}
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"{type(exc).__name__}: {exc}. Continue independently.", error=exc)}
     except Exception as exc:  # noqa: BLE001
         log(traceback.format_exc())
-        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"internal error: {type(exc).__name__}: {exc}")}
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"internal error: {type(exc).__name__}: {exc}", error=exc)}
 
 
 def serve(once: bool = False) -> None:
@@ -306,6 +314,7 @@ def serve(once: bool = False) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    diagnostics.bind_environment()
     argv = list(sys.argv[1:] if argv is None else argv)
     once = "--once" in argv
     args = [item for item in argv if item != "--once"]

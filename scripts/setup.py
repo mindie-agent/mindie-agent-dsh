@@ -193,13 +193,14 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
         "redactor_executable": redactor,
         "summary_command": [str(mp.venv_python()), str(adapters / "dsh_organizer.py")],
         "community_config": str(mp.config_home() / "mindie-community.json"),
+        "service_launch_context": {"paths": {}, "environment": ["MINDIE_DIAGNOSTICS_CONFIG"]},
         "feeds": [dict(FEED)],
     }
 
 
 def install_updater() -> dict[str, Any]:
     directory = mp.data_home() / "update"
-    for name in ("updater.py", "mindie_paths.py", "setup_process.py"):
+    for name in ("updater.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:
@@ -252,6 +253,18 @@ def sync_feed(*, timeout: int) -> dict[str, Any]:
     return result
 
 
+def report_setup_failure(error: Exception) -> None:
+    if not mp.venv_python().is_file():
+        progress("diagnostic storage unavailable: runtime installation did not complete")
+        return
+    try:
+        result = run([str(mp.venv_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
+                      "record", "--operation", "setup", "--category", type(error).__name__], timeout=5)
+        progress("diagnostic: " + result.stdout.strip())
+    except (OSError, SetupError) as exc:
+        progress("diagnostic storage unavailable: " + type(exc).__name__)
+
+
 def main(argv: list[str] | None = None) -> int:
     global RUN_DEADLINE
     parser = argparse.ArgumentParser(description=__doc__)
@@ -267,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     RUN_DEADLINE = (time.monotonic() + args.total_timeout
                     if args.total_timeout is not None else None)
 
+    os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(mp.diagnostics_config())
     started = time.time()
     try:
         check_host()
@@ -318,13 +332,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         knowledge = {"status": "skipped"} if args.no_sync else sync_feed(timeout=args.sync_timeout)
         update = install_updater()
+        reporting_process = run(
+            [str(mp.venv_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
+            timeout=90,
+        )
+        if reporting_process.returncode:
+            raise SetupError("reporter activation failed: " + tail(reporting_process.stderr))
+        try:
+            reporting = json.loads(reporting_process.stdout)
+        except ValueError as exc:
+            raise SetupError("reporter activation did not return JSON") from exc
         status = "ready" if knowledge.get("status") in {"ready", "skipped"} else "partial"
+        if reporting.get("status") not in {"running", "disabled", "needs_choice"}:
+            status = "partial"
         summary = {
             "schema": SCHEMA, "status": status, "version": VERSION,
             "package_dir": str(mp.PACKAGE_DIR), "python": probe.get("python"),
             "sqlite": probe.get("sqlite"), "executable": probe.get("executable"),
             "components": probe.get("versions"), "paths": paths,
-            "knowledge": knowledge, "update": update,
+            "knowledge": knowledge, "update": update, "reporting": reporting,
+            "contribution_notice": "One contribution choice controls public knowledge sharing and sanitized fault reports. Existing choices are preserved; legacy choices require explicit confirmation before reporting.",
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (
                 "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager), "
@@ -338,9 +365,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except SetupError as exc:
         progress("failed: " + str(exc))
+        report_setup_failure(exc)
         return 1
     except OSError as exc:
         progress("failed: " + f"{type(exc).__name__}: {exc}")
+        report_setup_failure(exc)
         return 1
 
 

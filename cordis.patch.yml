@@ -54,6 +54,7 @@
           MINDIE_DSH_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configFile
           MINDIE_DSH_STATE_DIR: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir
           REMOTE_DEV_STATE_DIR: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir, 'remote')
+          MINDIE_DIAGNOSTICS_CONFIG: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configHome, 'diagnostics.json')
           REMOTE_DEV_SESSION_ID: dsh
         cwd: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().packageDir
         toolCallTimeoutMs: 600000

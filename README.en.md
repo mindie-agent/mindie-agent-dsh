@@ -29,7 +29,7 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the DSH-native adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), version `0.0.1`.
+**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the DSH-native adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), candidate version `0.0.2`.
 
 It brings two core capabilities into DSH:
 
@@ -168,7 +168,7 @@ flowchart TB
 - **No custom Cordis Host plugin** — the knowledge bridge is an MCP server, and remote-dev uses the component's official server entry point.
 - The package declares only an optional exact peer on `@deepseek-ai/dsh@0.2.0-rc.2`, so installing it does not pull a second DSH runtime into the profile.
 
-## 0.0.1 Scope and Known Limits
+## Historical 0.0.1 Scope (Superseded by 0.0.2)
 
 - **Read-only knowledge**: `knowledge_query`, `knowledge_explain`, plus explicit `knowledge_sync`. There is **no** `knowledge_feedback` in 0.0.1.
 - **No Session-Stop capture, community contribution, or automatic fault reporting**: DSH session logs are zstd JSONL; this version does not implement a parser and never pretends a capture succeeded. The configured capture adapter fails loudly if invoked.
@@ -197,3 +197,7 @@ Paired release mapping and acceptance evidence: [`docs/verification.md`](docs/ve
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Contribution and diagnostics in 0.0.2
+
+The contribution switch controls both public knowledge sharing and sanitized product-fault reports. `contribute` enables both; `disabled` disables both. Existing choices are preserved. Legacy choices require one explicit confirmation before fault uploads; startup never grants consent. Inspect `reporting-status` for real worker and queue state. See [the contribution notice](skills/mindie-agent/references/user-notice.md). Restart the entire DSH process after upgrading the bundle.

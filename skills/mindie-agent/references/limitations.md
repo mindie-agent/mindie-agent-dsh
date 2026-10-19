@@ -1,3 +1,9 @@
+# Current 0.0.2 scope
+
+0.0.2 supports native task admission, zstd transcript Stop capture, scoped public knowledge contribution, and automatic sanitized fault reporting under one explicit contribution choice. See [the user notice](user-notice.md) and the committed runtime lock for component identities. Legacy choices are preserved and require explicit confirmation before fault uploads. Restart the entire DSH process after a bundle/runtime refresh.
+
+The section below describes the original 0.0.1 boundary for historical comparison.
+
 # 0.0.1 scope, paths, and limits
 
 ## What 0.0.1 is

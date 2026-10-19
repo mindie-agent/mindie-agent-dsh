@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[Role] Long-lived JSON-line sidecar serving DSH Host-plugin entry, admission, and knowledge RPCs.
 [Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs.
-[Timeouts & Locks] Knowledge RPCs bounded at 30.0s, feed sync 120.0s, gh CLI fork operations 90.0s, reporting worker ensure 120.0s.
+[Timeouts & Locks] Knowledge RPCs bounded at 30.0s, feed sync 120.0s, gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup.
 [Side-Effect Policy] Mutates admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations.
 """
 
@@ -19,6 +19,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import mindie_paths as mp  # noqa: E402
+import dsh_diagnostics as diagnostics  # noqa: E402
 
 MAX_LINE = 256 * 1024
 ADAPTER_VERSION = "0.0.2"
@@ -92,7 +93,8 @@ def public_settings() -> dict[str, Any]:
         "project_roots": [str(item) for item in community.project_roots],
         "consent": consent.get("state"),
         "choice": consent.get("choice"),
-        "reporting": consent.get("reporting"),
+        "reporting": diagnostics.status(),
+        "choice_revision": consent.get("choice_revision"),
         "capture_block": community.capture_block_kind(),
     }
 
@@ -111,8 +113,9 @@ def ensure_default_sharing() -> None:
 
     consent = consent_path()
     community = community_path()
-    if consent_store.read(str(consent)).get("state") != "ok":
-        consent_store.record_choice(str(consent), "later")
+    authority = consent_store.read(str(consent))
+    if authority["state"] in {"corrupt", "unreadable"}:
+        raise consent_store.ConsentError(authority["error"], state=authority["state"])
     if settings_mod.load(str(community)).state not in {"enabled", "disabled"}:
         _configure_community(
             {
@@ -141,12 +144,13 @@ def op_activate(args: dict[str, Any]) -> dict[str, Any]:
     prepare()
     lease = admission().activate(session, project_root=cwd)
     ensure_default_sharing()
+    reporting = diagnostics.activate()
     return {
         "session": lease["session"],
         "token": lease["token"],
         "activated_at": lease["activated_at"],
         "project_root": lease["project_root"],
-        "sharing": public_settings(),
+        "sharing": {**public_settings(), "reporting_activation": reporting},
     }
 
 
@@ -264,52 +268,20 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
             "consent_config": str(consent),
         }
     )
-    return {"state": state.state, "sharing": public_settings()}
+    reporting = diagnostics.activate()
+    return {"state": state.state, "sharing": {**public_settings(), "reporting_activation": reporting}}
 
 
 def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
-    from mindie_knowledge import consent_store
-
-    config = mp.config_home() / "diagnostics.json"
-    value = args.get("reporting")
-    try:
-        from mindie_diagnostics.integration import configure_reporting, reporting_status
-
-        if value is None:
-            result = reporting_status(config=config)
-        else:
-            if value not in consent_store.REPORTING:
-                raise SidecarError("reporting must be enabled, disabled or later")
-            result = configure_reporting(
-                value == "enabled", repository="mindie-agent/mindie-agent", config=config
-            )
-            consent = consent_path()
-            consent_store.record_reporting(str(consent), value)
-            if value == "enabled":
-                try:
-                    worker = subprocess.run(
-                        [sys.executable, "-m", "mindie_diagnostics.cli", "reporting", "ensure", "--config", str(config)],
-                        capture_output=True, text=True, timeout=120, check=False,
-                    )
-                    result = {
-                        **result,
-                        "worker": {
-                            "status": "ensured" if worker.returncode == 0 else "failed",
-                            "detail": (worker.stderr or worker.stdout or "")[-500:],
-                        },
-                    }
-                except (OSError, subprocess.SubprocessError) as exc:
-                    result = {**result, "worker": {"status": "failed", "detail": type(exc).__name__}}
-        return {"reporting": value, "diagnostics": result}
-    except SidecarError:
-        raise
-    except Exception as exc:
-        raise SidecarError(f"diagnostics reporting is unavailable: {type(exc).__name__}: {exc}") from exc
+    if args.get("reporting") is not None:
+        raise SidecarError("Use the contribution choice; independent reporting switches were removed")
+    return diagnostics.status()
 
 
 def connection():
     from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service
 
+    diagnostics.bind_environment()
     engine = engine_path()
     try:
         return ensure_service(engine)
@@ -350,20 +322,8 @@ OPS = {
 }
 
 
-def diagnostic(operation: str, error: Exception) -> dict[str, Any] | None:
-    try:
-        from mindie_diagnostics.integration import record_failure
-
-        receipt = record_failure(
-            "mindie-agent-dsh", operation, stage="tool",
-            category=type(error).__name__, exception=error,
-            host="dsh", version=ADAPTER_VERSION, reportable=not isinstance(error, SidecarError),
-        )
-        if isinstance(receipt, dict) and receipt.get("incident_id"):
-            return {"incident_id": receipt.get("incident_id"), "record_ref": receipt.get("record_ref")}
-    except Exception:
-        pass
-    return None
+def diagnostic(operation: str, error: Exception) -> dict[str, Any]:
+    return diagnostics.failure(operation, "tool", error, reportable=not isinstance(error, SidecarError))
 
 
 def response(identifier: Any, *, ok: bool, result: Any = None, error: Exception | None = None) -> dict[str, Any]:
@@ -382,6 +342,7 @@ def response(identifier: Any, *, ok: bool, result: Any = None, error: Exception 
 
 
 def main() -> int:
+    diagnostics.bind_environment()
     stdin = sys.stdin
     while line := stdin.readline(MAX_LINE + 1):
         if len(line) > MAX_LINE:

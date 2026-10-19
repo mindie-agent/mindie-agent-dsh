@@ -48,6 +48,10 @@ def engine_config() -> Path:
     return Path(override).expanduser().resolve() if override else config_home() / "engine.json"
 
 
+def diagnostics_config() -> Path:
+    return config_home() / "diagnostics.json"
+
+
 def state_dir() -> Path:
     override = _env("MINDIE_DSH_STATE_DIR")
     return Path(override).expanduser().resolve() if override else data_home() / "state"

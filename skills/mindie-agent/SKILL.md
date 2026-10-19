@@ -37,7 +37,7 @@ session mode.
   change it later only by explicitly saying so in a `/mindie-agent` task.
 - `mindie_entry(op="status")` is read-only. `op="deactivate"` revokes this
   task's capture lease. Reporting is opt-in and independent:
-  `reporting-status` / `reporting-enable` / `reporting-disable`.
+  `reporting-status` (read-only). The contribution choice controls both knowledge sharing and sanitized fault reports. Show the user [the contribution notice](references/user-notice.md) during first setup.
 
 ## Knowledge tools
 

@@ -346,6 +346,9 @@ def main() -> int:
             "schema": SCHEMA, "state": "failed", "current": args.current_version,
             "checked_at": time.time(), "detail": f"{type(exc).__name__}: {str(exc)[:800]}",
         }
+        from dsh_diagnostics import failure
+
+        result["diagnostic"] = failure("update", "update", exc)
         atomic_json(status_path(), result)
         if not args.silent:
             print(json.dumps(result, ensure_ascii=False))

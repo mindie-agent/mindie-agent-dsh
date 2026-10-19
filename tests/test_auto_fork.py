@@ -7,6 +7,7 @@ import os
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,11 +73,13 @@ class ForkTests(unittest.TestCase):
                 import mindie_sidecar
 
                 mindie_sidecar.ensure_default_sharing()
-                self.assertEqual(mindie_sidecar.public_settings()["consent"], "ok")
+                self.assertEqual(mindie_sidecar.public_settings()["consent"], "missing")
 
-                result = mindie_sidecar.op_configure(
-                    {"choice": "contribute", "cwd": str(root), "account": "testuser"}
-                )
+                with patch("mindie_diagnostics.reporting_commands.ensure",
+                           return_value={"status": "degraded", "category": "test_no_native_service"}):
+                    result = mindie_sidecar.op_configure(
+                        {"choice": "contribute", "cwd": str(root), "account": "testuser"}
+                    )
             finally:
                 for key, value in old.items():
                     if value is None:

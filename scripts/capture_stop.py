@@ -18,6 +18,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import mindie_paths as mp  # noqa: E402
+import dsh_diagnostics as diagnostics  # noqa: E402
 
 MAX_INPUT = 256 * 1024
 LOG_LIMIT = 1024 * 1024
@@ -39,22 +40,12 @@ def append_log(value: dict) -> None:
         pass
 
 
-def diagnose(stage: str, error: Exception) -> dict | None:
-    try:
-        from mindie_diagnostics.integration import record_failure
-
-        result = record_failure(
-            "mindie-agent-dsh", "capture", stage=stage,
-            category=type(error).__name__, exception=error, host="dsh", version="0.0.2",
-        )
-        if isinstance(result, dict) and result.get("incident_id"):
-            return {"incident_id": result["incident_id"]}
-    except Exception:
-        pass
-    return None
+def diagnose(stage: str, error: Exception) -> dict:
+    return diagnostics.failure("capture", stage, error)
 
 
 def main() -> int:
+    diagnostics.bind_environment()
     started = time.time()
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT + 1)
@@ -72,7 +63,7 @@ def main() -> int:
         if isinstance(receipt, dict):
             receipt = {k: receipt.get(k) for k in ("stage", "reason", "capture_id", "duplicate")}
         entry = {"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": receipt}
-        if isinstance(receipt, dict) and receipt.get("stage") not in {"accepted-local", "accepted-runtime"}:
+        if isinstance(receipt, dict) and receipt.get("stage") in {"failed", "error"}:
             if projected := diagnose(
                 str(receipt.get("stage") or "capture"),
                 RuntimeError(str(receipt.get("reason") or "capture not accepted")),
