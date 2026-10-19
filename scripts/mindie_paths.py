@@ -1,12 +1,13 @@
 """[Role] Canonical filesystem path authority for the DSH adapter (mirrors paths.cjs).
 [Invariants] Must stay byte-for-byte consistent with paths.cjs across POSIX and Windows.
-[Timeouts & Locks] Pure path resolution; zero locks, zero subprocesses, zero I/O waits.
+[Timeouts & Locks] One local adapter read per installed path; no subprocesses or locks.
 [Side-Effect Policy] Read-only except ensure_private_dir(), which creates target directories.
 """
 
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
@@ -45,7 +46,9 @@ def config_file() -> Path:
 
 def engine_config() -> Path:
     override = _env("MINDIE_DSH_ENGINE_CONFIG")
-    return Path(override).expanduser().resolve() if override else config_home() / "engine.json"
+    if override:
+        return Path(override).expanduser().resolve()
+    return _installed_path('engine_config') or config_home() / 'engine.json'
 
 
 def diagnostics_config() -> Path:
@@ -58,11 +61,27 @@ def state_dir() -> Path:
 
 
 def venv_dir() -> Path:
-    return data_home() / "venv"
+    return _installed_path('venv_dir') or data_home() / "venv"
 
 
 def venv_python() -> Path:
-    return venv_dir() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return _installed_path('python') or venv_dir() / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def _installed_path(name: str) -> Path | None:
+    """Resolve the one published adapter binding, preserving legacy bootstrap paths."""
+    try:
+        value = json.loads(config_file().read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError('DSH adapter configuration must be an object')
+    path = value.get(name)
+    if path is None:
+        return None
+    if not isinstance(path, str) or not Path(path).is_absolute():
+        raise ValueError('DSH adapter ' + name + ' must be an absolute path')
+    return Path(path)
 
 
 def skills_dir() -> Path:

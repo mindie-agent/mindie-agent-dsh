@@ -14,13 +14,14 @@ import time
 CLEANUP_SECONDS = 5.0
 
 
-def run(command, *, timeout, cwd=None, env=None):
+def run(command, *, timeout, cwd=None, env=None, input_text=None):
     process = subprocess.Popen(
         command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, start_new_session=os.name == "posix",
+        text=True, stdin=subprocess.PIPE if input_text is not None else None,
+        start_new_session=os.name == "posix",
     )
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired as error:
         deadline = time.monotonic() + CLEANUP_SECONDS
         if os.name == "posix":
