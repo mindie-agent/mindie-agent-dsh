@@ -3,9 +3,9 @@
 # Each pin is the exact commit the published Release tag resolves to:
 #   mindie-agent/diagnostics v0.4.2 -> 7da7f66d119098e0515f8f37bfd5e7cf8cc32fee
 #   mindie-agent/remote-dev  v0.10.0 -> d9ac0a45db39c9e73e0ed38e797bc4fb2306cc3f
-#   mindie-agent/knowledge   v0.12.1 -> 8d9eab180ebed190a0ae11c733acf825c7636a4a
+#   mindie-agent/knowledge   v0.12.1 -> d236a3aa1aeb4c8f402b47366b369ea72b7ff117
 #
 # The authoritative transitive lock is uv.lock; this file mirrors its two
 # direct dependencies for humans and for the release checklist.
-mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@8d9eab180ebed190a0ae11c733acf825c7636a4a
+mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@d236a3aa1aeb4c8f402b47366b369ea72b7ff117
 remote-dev @ git+https://github.com/mindie-agent/remote-dev@d9ac0a45db39c9e73e0ed38e797bc4fb2306cc3f
