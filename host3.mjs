@@ -60,6 +60,7 @@ class Sidecar {
         MINDIE_DSH_CONFIG: p.configFile,
         MINDIE_DSH_ENGINE_CONFIG: p.engineConfig,
         MINDIE_DSH_STATE_DIR: p.stateDir,
+        MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -108,6 +109,7 @@ class Sidecar {
         const error = new Error(message.error?.message || 'MindIE operation failed')
         if (message.error?.code) error.code = message.error.code
         error.type = message.error?.type
+        if (message.error?.diagnostic) error.diagnostic = message.error.diagnostic
         entry.reject(error)
       }
     }
@@ -120,7 +122,7 @@ class Sidecar {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error(`MindIE ${op} timed out`))
-      }, CALL_TIMEOUT_MS)
+      }, op === 'configure' ? 600000 : CALL_TIMEOUT_MS)
       const abort = () => {
         this.pending.delete(id)
         clearTimeout(timer)
@@ -239,15 +241,18 @@ export async function summarizeWithLlm(llm, route, request, prompt) {
       }
     }
     if (!text.trim()) throw new Error('model returned no text')
+    const usageKnown = ['inputTokens', 'cacheReadTokens', 'outputTokens'].every(
+      key => Number.isSafeInteger(usage?.[key]) && usage[key] >= 0,
+    )
     return {
       text,
       provider: route.provider,
       model: route.model,
-      usage: {
-        input_tokens: Number(usage?.inputTokens) || 0,
-        cached_input_tokens: Number(usage?.cacheReadTokens) || 0,
-        output_tokens: Number(usage?.outputTokens) || 0,
-      },
+      usage: usageKnown ? {
+        input_tokens: usage.inputTokens,
+        cached_input_tokens: usage.cacheReadTokens,
+        output_tokens: usage.outputTokens,
+      } : null,
     }
   }
 
@@ -449,7 +454,7 @@ export function apply(ctx) {
     'MindIE Agent entry. Use only after the user explicitly invokes `/mindie-agent`. ' +
     'op=init activates this task and reports the saved contribution choice; ' +
     'op=status is read-only; op=choose records the install-level contribution ' +
-    'choice (contribute or disabled); op=deactivate revokes this task.'
+    'choice (contribute or disabled) for public knowledge sharing and sanitized fault reports; op=deactivate revokes this task.'
 
   const entryParameters = {
     type: 'object',
@@ -465,8 +470,6 @@ export function apply(ctx) {
           'sharing-disable',
           'sharing-status',
           'reporting-status',
-          'reporting-enable',
-          'reporting-disable',
           'update-status',
           'update-check',
           'update-enable',
@@ -545,12 +548,6 @@ export function apply(ctx) {
       }
       if (op === 'reporting-status') {
         const result = await sidecar.call('reporting', {})
-        return text(result)
-      }
-      if (op === 'reporting-enable' || op === 'reporting-disable') {
-        const result = await sidecar.call('reporting', {
-          reporting: op === 'reporting-enable' ? 'enabled' : 'disabled',
-        })
         return text(result)
       }
       throw new Error(`unsupported mindie_entry op: ${String(op)}`)
@@ -686,6 +683,7 @@ export function apply(ctx) {
           ...process.env,
           MINDIE_DSH_CONFIG: p.configFile,
           MINDIE_DSH_STATE_DIR: p.stateDir,
+          MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
         },
         detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
@@ -723,15 +721,17 @@ function entryView(kind, sharing, state) {
     activated: Boolean(state?.token),
     sharing,
   }
-  if (!sharing?.configured || sharing?.choice === 'later') {
+  if (!sharing?.choice) {
     base.next =
       'Contribution is not decided. Ask the user once whether to enable public ' +
-      'contribution; if yes, call mindie_entry(op="choose", choice="contribute", ' +
+      'knowledge sharing and sanitized product fault reports; if yes, call mindie_entry(op="choose", choice="contribute", ' +
       'account="<public GitHub account>"). The default upstream is ' +
       'mindie-agent/knowledge-vllm-ascend and the tool creates the fork. Otherwise call ' +
       'mindie_entry(op="choose", choice="disabled"). Read-only knowledge works now.'
+  } else if (sharing.choice === 'contribute' && !sharing.choice_revision) {
+    base.next = 'Legacy contribution choice is preserved. Explicitly choose contribute again to authorize both knowledge sharing and sanitized fault reports; no diagnostics upload is authorized yet.'
   } else if (sharing.enabled) {
-    base.next = 'Contribution is enabled for the configured project scope.'
+    base.next = 'Contribution is enabled for knowledge sharing and sanitized fault reports. Inspect reporting_activation for actual worker readiness.'
   } else {
     base.next =
       'Contribution is off. The task can still query knowledge and use remote-dev. ' +

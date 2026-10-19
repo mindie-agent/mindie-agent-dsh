@@ -1,30 +1,19 @@
 #!/usr/bin/env python3
-"""DSH-native summary worker for mindie-knowledge block indexing.
-
-The Host plugin exposes a loopback-only summary endpoint backed by the DSH
-model route of the active agent. This worker implements the shared
-``mindie-summary-outcome/1`` contract exactly: one identity request, one model
-request, one outcome envelope. It never retries and never substitutes a
-fallback index.
+"""[Role] DSH-native summary worker implementing the mindie-summary-outcome/1 contract.
+[Invariants] Calls the loopback summary endpoint once per batch; never retries uncertain model calls or fabricates fallback indexes.
+[Timeouts & Locks] HTTP POST uses the parent's remaining budget, capped at 300s with cleanup reserve; request/response bytes are capped at 256 KiB.
+[Side-Effect Policy] Stateless HTTP client to local DSH summary endpoint; emits a single JSON outcome envelope to stdout.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-
-for _stream in (sys.stdin, sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        try:
-            _stream.reconfigure(encoding="utf-8", errors="strict")
-        except (AttributeError, OSError, ValueError):
-            pass
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -60,18 +49,10 @@ def endpoint() -> dict:
     if not isinstance(value, dict):
         raise ConfigurationError("the DSH summary endpoint file is invalid")
     url = value.get("url")
-    token = value.get("token")
-    model = value.get("model")
-    provider = value.get("provider")
     if (
         not isinstance(url, str)
         or not url.startswith("http://127.0.0.1:")
-        or not isinstance(token, str)
-        or not token
-        or not isinstance(model, str)
-        or not model
-        or not isinstance(provider, str)
-        or not provider
+        or not all(isinstance(value.get(k), str) and value.get(k) for k in ("token", "model", "provider"))
     ):
         raise ConfigurationError("the DSH summary endpoint has no active model route")
     return value
@@ -80,44 +61,40 @@ def endpoint() -> dict:
 def identity() -> dict:
     from mindie_knowledge.materials import summarizer
 
+    worker_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     try:
         value = endpoint()
         model = value["model"]
-        provider = value["provider"]
         implementation = {
-            "worker": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "worker": worker_hash,
             "summarizer": hashlib.sha256(Path(summarizer.__file__).read_bytes()).hexdigest(),
-            "provider": provider,
+            "provider": value["provider"],
         }
     except ConfigurationError:
         model = "dsh/unavailable"
-        implementation = {
-            "worker": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "provider": "unavailable",
-        }
+        implementation = {"worker": worker_hash, "provider": "unavailable"}
     return summarizer.policy_identity(model=model, effort="off", implementation=implementation)
 
 
 def _post(value: dict) -> tuple[str, dict]:
+    from mindie_knowledge.loop.summary_budget import native_timeout
+
     body = json.dumps(value, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         value["url"],
         data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + value["token"],
-        },
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + value["token"]},
         method="POST",
     )
+    timeout = native_timeout(DEADLINE_SECONDS)
     try:
-        with urllib.request.urlopen(request, timeout=DEADLINE_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
-        detail = ""
         try:
             detail = exc.read(2000).decode("utf-8", "replace")
         except OSError:
-            pass
+            detail = ""
         if exc.code == 409:
             raise ConfigurationError("the DSH session has no active model route") from exc
         raise UncertainError(f"summary endpoint HTTP {exc.code}: {detail[:500]}") from exc
@@ -134,9 +111,7 @@ def _post(value: dict) -> tuple[str, dict]:
     if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
         raise UncertainError("summary endpoint returned no text")
     usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
-    return payload["text"], usage
+    return payload["text"], usage if isinstance(usage, dict) else {}
 
 
 def _extract_json(text: str) -> dict:
@@ -148,36 +123,26 @@ def _extract_json(text: str) -> dict:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         stripped = "\n".join(lines).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
+    start, end = stripped.find("{"), stripped.rfind("}")
     if start < 0 or end <= start:
         raise ValueError("model returned no JSON object")
     value = json.loads(stripped[start : end + 1])
     if not isinstance(value, dict):
         raise ValueError("model returned a non-object")
-    # The model may naturally use the old LangMem key name or a plain
-    # navigation string. Map only these two unambiguous aliases; everything
-    # else must match the shared result contract exactly.
     if "blocks" not in value and isinstance(value.get("block_indexes"), list):
         value["blocks"] = value.pop("block_indexes")
-    navigation = value.get("navigation")
-    if isinstance(navigation, str):
-        text = navigation.strip()
-        first = text.splitlines()[0].strip() if text else "Task navigation"
-        value["navigation"] = {"title": first[:120] or "Task navigation", "summary": text[:1000]}
+    if isinstance(navigation := value.get("navigation"), str):
+        nav_text = navigation.strip()
+        first = nav_text.splitlines()[0].strip() if nav_text else "Task navigation"
+        value["navigation"] = {"title": first[:120] or "Task navigation", "summary": nav_text[:1000]}
     return value
 
 
-def _usage(raw: dict) -> dict:
-    def number(key):
-        value = raw.get(key)
-        return value if type(value) is int and value >= 0 else 0
-
-    return {
-        "input_tokens": number("input_tokens"),
-        "cached_input_tokens": number("cached_input_tokens"),
-        "output_tokens": number("output_tokens"),
-    }
+def _usage(raw: dict) -> dict | None:
+    keys = ("input_tokens", "cached_input_tokens", "output_tokens")
+    if any(type(raw.get(key)) is not int or raw[key] < 0 for key in keys):
+        return None
+    return {key: raw[key] for key in keys}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -193,58 +158,51 @@ def main(argv: list[str] | None = None) -> int:
         raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
         if len(raw) > MAX_REQUEST_BYTES:
             raise ValueError("summary request exceeds the limit")
-        request = json.loads(raw)
-        request = summarizer.validate_request(request)
-        point = endpoint()
-        payload = dict(point)
-        payload["request"] = request
-        payload["prompt"] = summarizer.PROMPT
+        request = summarizer.validate_request(json.loads(raw))
+        payload = {**endpoint(), "request": request, "prompt": summarizer.PROMPT}
         text, usage = _post(payload)
+        reported_usage = _usage(usage)
+        usage_known = reported_usage is not None
+        raw_result = text if len(text.encode("utf-8")) <= summarizer.MAX_RESPONSE_BYTES else None
+        elapsed_ms = int((time.monotonic() - started) * 1000)
         try:
-            parsed = _extract_json(text)
-            result = summarizer.validate_result(parsed, [b["block_id"] for b in request["blocks"]])
-        except Exception as exc:  # noqa: BLE001
+            result = summarizer.validate_result(
+                _extract_json(text), [b["block_id"] for b in request["blocks"]]
+            )
+        except Exception:  # noqa: BLE001
             envelope = summarizer.outcome(
-                request,
-                status="failed",
-                raw_result=text if len(text.encode("utf-8")) <= summarizer.MAX_RESPONSE_BYTES else None,
-                usage=_usage(usage),
-                usage_known=True,
-                model_calls=1,
-                elapsed_ms=int((time.monotonic() - started) * 1000),
-                error="invalid_result",
-                error_reason="result_contract_invalid",
-                billing_status="reported",
+                request, status="failed", raw_result=raw_result, usage=reported_usage,
+                usage_known=usage_known, model_calls=1, elapsed_ms=elapsed_ms,
+                error="invalid_result", error_reason="result_contract_invalid",
             )
             print(json.dumps(envelope, ensure_ascii=True))
             return 0
         envelope = summarizer.outcome(
-            request,
-            status="returned",
-            result=result,
-            raw_result=text if len(text.encode("utf-8")) <= summarizer.MAX_RESPONSE_BYTES else None,
-            usage=_usage(usage),
-            usage_known=True,
-            model_calls=1,
+            request, status="returned", result=result, raw_result=raw_result,
+            usage=reported_usage, usage_known=usage_known, model_calls=1,
+            elapsed_ms=elapsed_ms,
+        )
+        print(json.dumps(envelope, ensure_ascii=True))
+        return 0
+    except TimeoutError:
+        envelope = summarizer.outcome(
+            request, status="failed", usage=None, usage_known=False, model_calls=0,
             elapsed_ms=int((time.monotonic() - started) * 1000),
-            billing_status="reported",
+            error="deadline", error_reason="native_deadline", billing_status="not_called",
         )
         print(json.dumps(envelope, ensure_ascii=True))
         return 0
     except ConfigurationError as exc:
         if request is None:
-            request = {"task_id": "", "body_version": "", "batch_id": "", "input_digest": "",
-                       "policy_identity": identity(), "blocks": []}
+            request = {
+                "task_id": "", "body_version": "", "batch_id": "", "input_digest": "",
+                "policy_identity": identity(), "blocks": [],
+            }
         try:
             envelope = summarizer.outcome(
-                request,
-                status="failed",
-                usage=None,
-                usage_known=False,
-                model_calls=0,
+                request, status="failed", usage=None, usage_known=False, model_calls=0,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
-                error="configuration",
-                error_reason="configuration_invalid",
+                error="configuration", error_reason="configuration_invalid",
                 billing_status="not_called",
             )
             print(json.dumps(envelope, ensure_ascii=True))
@@ -256,15 +214,9 @@ def main(argv: list[str] | None = None) -> int:
     except UncertainError as exc:
         if request is not None:
             envelope = summarizer.outcome(
-                request,
-                status="outcome_unknown",
-                usage=None,
-                usage_known=False,
-                model_calls=1,
-                elapsed_ms=int((time.monotonic() - started) * 1000),
-                error="unknown",
-                error_reason="unknown_failure",
-                billing_status="unknown",
+                request, status="outcome_unknown", usage=None, usage_known=False,
+                model_calls=1, elapsed_ms=int((time.monotonic() - started) * 1000),
+                error="unknown", error_reason="unknown_failure", billing_status="unknown",
             )
             print(json.dumps(envelope, ensure_ascii=True))
             return 0

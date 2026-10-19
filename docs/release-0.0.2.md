@@ -1,5 +1,10 @@
 # MindIE Agent for DeepSeek Harness `0.0.2`
 
+For an existing installation of the original `0.0.2`, follow
+[the explicit same-version refresh](same-version-refresh.md). The historical
+acceptance below describes the original October 18 release; it does not replace
+the new candidate's benchmark and platform acceptance.
+
 Released 2026-10-18. GitHub Release:
 `mindie-agent/mindie-agent-dsh@v0.0.2` (`draft=false`, `prerelease=false`).
 

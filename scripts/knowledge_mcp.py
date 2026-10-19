@@ -1,17 +1,8 @@
 #!/usr/bin/env python3
-"""MindIE knowledge MCP server for DeepSeek Harness.
-
-This is a deliberately thin stdio MCP server:
-
-* it starts under ``uv run --no-project --python 3.11`` so the tool list is
-  available even before the pinned runtime is installed;
-* when a setup-generated adapter configuration exists it re-executes itself
-  with the pinned runtime interpreter;
-* it forwards the two read-only knowledge operations and the explicit feed
-  sync to the published mindie-knowledge local service.
-
-It never invents identity, never activates a task, and never writes knowledge
-on its own. The native Host tools supersede this legacy bridge.
+"""[Role] Thin stdio MCP bridge exposing read-only MindIE knowledge tools for DeepSeek Harness.
+[Invariants] Re-executes into the configured venv interpreter when available; never activates tasks or mutates corpus rows directly.
+[Timeouts & Locks] RPC calls bounded at 30.0s (query/explain) and 120.0s (sync).
+[Side-Effect Policy] Read-only query/explain RPCs plus explicit on-demand feed sync; writes JSON-RPC responses to stdout and diagnostics to stderr.
 """
 
 from __future__ import annotations
@@ -21,6 +12,8 @@ import os
 import subprocess
 import sys
 import traceback
+
+import dsh_diagnostics as diagnostics
 from pathlib import Path
 from typing import Any
 
@@ -61,24 +54,10 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Concise task query. Omit when continuing a previous page.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 20,
-                    "description": "Maximum citation groups to return (1-20).",
-                },
-                "conditions": {
-                    "type": "object",
-                    "description": "Optional exact-match filters supplied by the corpus.",
-                },
-                "continuation": {
-                    "type": "string",
-                    "description": "Opaque continuation token from a previous query.",
-                },
+                "query": {"type": "string", "description": "Concise task query. Omit when continuing a previous page."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Maximum citation groups to return (1-20)."},
+                "conditions": {"type": "object", "description": "Optional exact-match filters supplied by the corpus."},
+                "continuation": {"type": "string", "description": "Opaque continuation token from a previous query."},
             },
             "additionalProperties": False,
         },
@@ -95,10 +74,7 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "ref": {
-                    "type": "string",
-                    "description": "A task ref or block ref returned by knowledge_query.",
-                }
+                "ref": {"type": "string", "description": "A task ref or block ref returned by knowledge_query."}
             },
             "required": ["ref"],
             "additionalProperties": False,
@@ -114,11 +90,7 @@ TOOLS: list[dict[str, Any]] = [
             "or stale, or when the user explicitly asks for the latest knowledge. "
             "Never call it in a retry loop."
         ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
 ]
 
@@ -145,31 +117,20 @@ def log(message: str) -> None:
 def read_config() -> dict[str, Any]:
     path = config_file()
     if not path.is_file():
-        raise ConfigError(
-            "MindIE runtime is not initialized; run: " + setup_command()
-        )
+        raise ConfigError("MindIE runtime is not initialized; run: " + setup_command())
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise ConfigError(
-            f"cannot read the MindIE runtime configuration at {path}: "
-            f"{type(exc).__name__}: {exc}. Re-run: {setup_command()}"
+            f"cannot read the MindIE runtime configuration at {path}: {type(exc).__name__}: {exc}. Re-run: {setup_command()}"
         ) from exc
     if not isinstance(data, dict):
-        raise ConfigError(
-            f"invalid MindIE runtime configuration at {path}. Re-run: {setup_command()}"
-        )
-    engine = data.get("engine_config")
-    python = data.get("python")
+        raise ConfigError(f"invalid MindIE runtime configuration at {path}. Re-run: {setup_command()}")
+    engine, python = data.get("engine_config"), data.get("python")
     if not isinstance(engine, str) or not Path(engine).is_file():
-        raise ConfigError(
-            "MindIE runtime configuration has no usable engine_config; re-run: "
-            + setup_command()
-        )
+        raise ConfigError("MindIE runtime configuration has no usable engine_config; re-run: " + setup_command())
     if not isinstance(python, str) or not Path(python).is_file():
-        raise ConfigError(
-            "MindIE runtime interpreter is missing; re-run: " + setup_command()
-        )
+        raise ConfigError("MindIE runtime interpreter is missing; re-run: " + setup_command())
     return data
 
 
@@ -184,8 +145,6 @@ def running_in_configured_venv(config: dict[str, Any]) -> bool:
 
 
 def maybe_reexec() -> None:
-    """Switch from the bootstrap interpreter to the pinned runtime interpreter."""
-
     if os.environ.get("MINDIE_DSH_NO_REEXEC") == "1":
         return
     try:
@@ -201,30 +160,16 @@ def maybe_reexec() -> None:
     if os.name != "nt":
         os.execv(python, argv)
         return
-    # Windows: replace the process image through a thin stdio proxy instead of
-    # relying on exec semantics for inherited handles.
     sys.stdout.flush()
     sys.stderr.flush()
     child = subprocess.Popen(
-        argv,
-        stdin=sys.stdin.buffer,
-        stdout=sys.stdout.buffer,
-        stderr=sys.stderr.buffer,
-        close_fds=False,
+        argv, stdin=sys.stdin.buffer, stdout=sys.stdout.buffer, stderr=sys.stderr.buffer, close_fds=False
     )
     raise SystemExit(child.wait())
 
 
-def existing_service(engine_path: str) -> Any:
-    from mindie_knowledge.loop.cli import config_at, connect, rpc
-
-    config = config_at(engine_path)
-    connection = connect(config, config_path=engine_path)
-    rpc(connection, "status", timeout=0.4)
-    return connection
-
-
 def ensure_service(engine_path: str) -> Any:
+    diagnostics.bind_environment()
     from mindie_knowledge.loop.cli import ensure_service as core_ensure
 
     return core_ensure(engine_path)
@@ -233,24 +178,18 @@ def ensure_service(engine_path: str) -> Any:
 def knowledge_connection(config: dict[str, Any]) -> Any:
     engine_path = str(Path(config["engine_config"]).resolve())
     try:
-        return existing_service(engine_path)
-    except Exception:
-        try:
-            return ensure_service(engine_path)
-        except Exception as exc:
-            raise RuntimeError(
-                "the local knowledge service could not be started: "
-                f"{type(exc).__name__}: {exc}. Inspect "
-                f"`{Path(config['python']).resolve()} -m mindie_knowledge.loop.cli status "
-                f"--config {engine_path}`"
-            ) from exc
+        return ensure_service(engine_path)
+    except Exception as exc:
+        raise RuntimeError(
+            "the local knowledge service could not be started: "
+            f"{type(exc).__name__}: {exc}. Inspect "
+            f"`{Path(config['python']).resolve()} -m mindie_knowledge.loop.cli status --config {engine_path}`"
+        ) from exc
 
 
 def session_identity() -> str:
     value = os.environ.get("MINDIE_DSH_SESSION_ID")
-    if isinstance(value, str) and value.strip() and len(value) <= 256:
-        return value.strip()
-    return "dsh"
+    return value.strip() if isinstance(value, str) and value.strip() and len(value) <= 256 else "dsh"
 
 
 def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> Any:
@@ -259,27 +198,23 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     connection = knowledge_connection(config)
     session = session_identity()
     if name == "knowledge_sync":
-        return rpc(connection, "sync", {}, timeout=None)
+        return rpc(connection, "sync", {}, timeout=120.0)
     if name == "knowledge_query":
-        payload = dict(args)
-        if not payload.get("query") and not payload.get("continuation"):
+        if not args.get("query") and not args.get("continuation"):
             raise ValueError("knowledge_query requires `query` or `continuation`")
-        payload.update({"_session_id": session, "_session_verified": True})
+        payload = {**args, "_session_id": session, "_session_verified": True}
         try:
-            return rpc(connection, "query", payload, timeout=None)
+            return rpc(connection, "query", payload, timeout=30.0)
         except FeedUnavailableError as exc:
             raise RuntimeError(
-                f"{exc} The configured feed has no installed snapshot. "
-                "Call knowledge_sync once, then retry the query."
+                f"{exc} The configured feed has no installed snapshot. Call knowledge_sync once, then retry the query."
             ) from exc
     if name == "knowledge_explain":
         payload = {"ref": args.get("ref"), "_session_id": session, "_session_verified": True}
         try:
-            return rpc(connection, "explain", payload, timeout=None)
+            return rpc(connection, "explain", payload, timeout=30.0)
         except FeedUnavailableError as exc:
-            raise RuntimeError(
-                f"{exc} Call knowledge_sync once, then retry."
-            ) from exc
+            raise RuntimeError(f"{exc} Call knowledge_sync once, then retry.") from exc
     raise ValueError(f"unknown knowledge tool: {name}")
 
 
@@ -287,18 +222,19 @@ def dispatch(name: str, args: dict[str, Any]) -> Any:
     config = read_config()
     if not running_in_configured_venv(config):
         raise ConfigError(
-            "the MCP server is not running on the configured runtime interpreter; "
-            "re-run: " + setup_command()
+            "the MCP server is not running on the configured runtime interpreter; re-run: " + setup_command()
         )
     return call_knowledge(name, args, config)
 
 
-def failure(message: str) -> dict[str, Any]:
+def failure(message: str, *, error=None) -> dict[str, Any]:
     text = message if len(message) <= MAX_ERROR_CHARS else message[: MAX_ERROR_CHARS - 3] + "..."
-    return {
-        "content": [{"type": "text", "text": "Unavailable: " + text}],
-        "isError": True,
-    }
+    result = {"content": [{"type": "text", "text": "Unavailable: " + text}], "isError": True}
+    if error is not None:
+        result["diagnostic"] = diagnostics.failure(
+            "knowledge", "tool", error, reportable=not isinstance(error, (ConfigError, ValueError)),
+        )
+    return result
 
 
 def success(payload: Any) -> dict[str, Any]:
@@ -310,9 +246,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     ident = message.get("id")
     method = message.get("method")
-    params = message.get("params") or {}
-    if not isinstance(params, dict):
-        params = {}
+    params = message.get("params") if isinstance(message.get("params"), dict) else {}
     if method == "initialize":
         requested = params.get("protocolVersion")
         version = requested if isinstance(requested, str) and requested else PROTOCOL_FALLBACK
@@ -332,11 +266,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": ident, "result": {"tools": TOOLS}}
     if method != "tools/call":
-        return {
-            "jsonrpc": "2.0",
-            "id": ident,
-            "error": {"code": -32601, "message": "Method not found"},
-        }
+        return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not found"}}
     name = params.get("name")
     arguments = params.get("arguments") or {}
     try:
@@ -344,29 +274,18 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
             raise ValueError("unknown tool name")
         if not isinstance(arguments, dict):
             raise ValueError("tool arguments must be an object")
-        unknown = set(arguments) - set(
-            (next(tool for tool in TOOLS if tool["name"] == name))["inputSchema"].get("properties", {})
-        )
-        if unknown:
+        allowed = set((next(t for t in TOOLS if t["name"] == name))["inputSchema"].get("properties", {}))
+        if unknown := set(arguments) - allowed:
             raise ValueError("unexpected tool arguments: " + ", ".join(sorted(unknown)))
-        payload = dispatch(name, arguments)
-        return {"jsonrpc": "2.0", "id": ident, "result": success(payload)}
+        return {"jsonrpc": "2.0", "id": ident, "result": success(dispatch(name, arguments))}
     except ConfigError as exc:
-        return {"jsonrpc": "2.0", "id": ident, "result": failure(str(exc))}
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(str(exc), error=exc)}
     except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
         log("mindie-knowledge MCP error: " + "".join(traceback.format_exception_only(type(exc), exc)).strip())
-        return {
-            "jsonrpc": "2.0",
-            "id": ident,
-            "result": failure(f"{type(exc).__name__}: {exc}. Continue independently."),
-        }
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"{type(exc).__name__}: {exc}. Continue independently.", error=exc)}
     except Exception as exc:  # noqa: BLE001
         log(traceback.format_exc())
-        return {
-            "jsonrpc": "2.0",
-            "id": ident,
-            "result": failure(f"internal error: {type(exc).__name__}: {exc}"),
-        }
+        return {"jsonrpc": "2.0", "id": ident, "result": failure(f"internal error: {type(exc).__name__}: {exc}", error=exc)}
 
 
 def serve(once: bool = False) -> None:
@@ -375,20 +294,14 @@ def serve(once: bool = False) -> None:
         raw = stdin.read()
         if not raw:
             return
-        line = raw.split(b"\n", 1)[0]
         try:
-            message = json.loads(line)
+            message = json.loads(raw.split(b"\n", 1)[0])
         except ValueError:
             return
-        if isinstance(message, dict):
-            response = handle(message)
-            if response is not None:
-                send(response)
+        if isinstance(message, dict) and (response := handle(message)) is not None:
+            send(response)
         return
-    while True:
-        line = stdin.readline()
-        if not line:
-            return
+    while line := stdin.readline():
         line = line.rstrip(b"\r\n")
         if not line.strip():
             continue
@@ -396,19 +309,17 @@ def serve(once: bool = False) -> None:
             message = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(message, dict):
-            continue
-        response = handle(message)
-        if response is not None:
+        if isinstance(message, dict) and (response := handle(message)) is not None:
             send(response)
 
 
 def main(argv: list[str] | None = None) -> int:
+    diagnostics.bind_environment()
     argv = list(sys.argv[1:] if argv is None else argv)
     once = "--once" in argv
     args = [item for item in argv if item != "--once"]
     surface = args[0] if args else "knowledge"
-    if surface not in {"knowledge"}:
+    if surface != "knowledge":
         print("surface must be knowledge", file=sys.stderr)
         return 2
     ensure_private_dir(state_dir())

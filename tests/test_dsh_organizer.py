@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 ORGANIZER = ROOT / "scripts" / "dsh_organizer.py"
@@ -24,8 +28,11 @@ except Exception:  # pragma: no cover - CI without the pinned runtime
 class _Handler(BaseHTTPRequestHandler):
     token = "test-token"
     text = ""
+    usage = {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 20}
+    calls = 0
 
     def do_POST(self):
+        type(self).calls += 1
         if self.headers.get("Authorization") != "Bearer " + self.token:
             self.send_response(403)
             self.end_headers()
@@ -35,7 +42,7 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.dumps(
             {
                 "text": self.text,
-                "usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 20},
+                "usage": self.usage,
             }
         ).encode()
         self.send_response(200)
@@ -54,7 +61,7 @@ class OrganizerTests(unittest.TestCase):
         if summarizer is None:
             raise unittest.SkipTest("mindie-knowledge runtime is unavailable")
 
-    def test_returned_outcome_validates(self) -> None:
+    def _run_with_endpoint(self, usage, *, expired=False, organizer=ORGANIZER):
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)
             block_id = "a" * 64
@@ -63,6 +70,8 @@ class OrganizerTests(unittest.TestCase):
                 "navigation": {"title": "Task", "summary": "Navigation"},
             }
             _Handler.text = json.dumps(result)
+            _Handler.usage = usage
+            _Handler.calls = 0
             server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -75,8 +84,10 @@ class OrganizerTests(unittest.TestCase):
                 }
                 (state / "summary-endpoint.json").write_text(json.dumps(endpoint))
                 env = dict(os.environ, MINDIE_DSH_STATE_DIR=str(state))
+                if expired:
+                    env["MINDIE_SUMMARY_WORKER_DEADLINE"] = str(time.monotonic() - 1)
                 identity_run = subprocess.run(
-                    [sys.executable, str(ORGANIZER), "--identity"],
+                    [sys.executable, str(organizer), "--identity"],
                     env=env,
                     capture_output=True,
                     text=True,
@@ -98,7 +109,7 @@ class OrganizerTests(unittest.TestCase):
                     identity=identity,
                 )
                 completed = subprocess.run(
-                    [sys.executable, str(ORGANIZER)],
+                    [sys.executable, str(organizer)],
                     input=json.dumps(request),
                     env=env,
                     capture_output=True,
@@ -108,12 +119,58 @@ class OrganizerTests(unittest.TestCase):
                 )
                 envelope = json.loads(completed.stdout)
                 summarizer.validate_outcome(envelope, request)
-                self.assertEqual(envelope["status"], "returned")
-                self.assertEqual(envelope["billing_status"], "reported")
-                self.assertEqual(envelope["usage"]["output_tokens"], 20)
+                return envelope, _Handler.calls
             finally:
                 server.shutdown()
                 server.server_close()
+
+    def test_returned_outcome_validates(self) -> None:
+        envelope, calls = self._run_with_endpoint(
+            {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 20}
+        )
+        self.assertEqual(calls, 1)
+        self.assertEqual(envelope["status"], "returned")
+        self.assertEqual(envelope["billing_status"], "reported")
+        self.assertEqual(envelope["usage"]["output_tokens"], 20)
+
+    def test_installed_worker_survives_removing_setup_checkout(self) -> None:
+        spec = importlib.util.spec_from_file_location("dsh_setup_persistence", ROOT / "scripts" / "setup.py")
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "checkout"
+            shutil.copytree(ROOT / "scripts", source / "scripts")
+            with mock.patch.object(setup.mp, "PACKAGE_DIR", source), mock.patch.dict(
+                os.environ,
+                MINDIE_DSH_DATA_HOME=str(directory / "data"),
+                MINDIE_DSH_CONFIG_HOME=str(directory / "config"),
+            ):
+                config = setup.engine_configuration(str(directory / "unused-redactor"))
+            shutil.rmtree(source)
+            envelope, calls = self._run_with_endpoint(
+                {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 20},
+                organizer=Path(config["summary_command"][1]),
+            )
+            self.assertEqual(calls, 1)
+            self.assertEqual(envelope["status"], "returned")
+            self.assertEqual(envelope["result"]["navigation"]["summary"], "Navigation")
+
+    def test_missing_usage_does_not_become_zero_cost(self) -> None:
+        envelope, calls = self._run_with_endpoint({"output_tokens": 20})
+        self.assertEqual(calls, 1)
+        self.assertEqual(envelope["status"], "returned")
+        self.assertFalse(envelope["usage_known"])
+        self.assertIsNone(envelope["usage"])
+        self.assertEqual(envelope["billing_status"], "unknown")
+
+    def test_expired_budget_never_posts_a_model_request(self) -> None:
+        envelope, calls = self._run_with_endpoint({}, expired=True)
+        self.assertEqual(calls, 0)
+        self.assertEqual(envelope["status"], "failed")
+        self.assertEqual(envelope["error"], "deadline")
+        self.assertEqual(envelope["model_calls"], 0)
+        self.assertEqual(envelope["billing_status"], "not_called")
 
     def test_missing_endpoint_is_a_configuration_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

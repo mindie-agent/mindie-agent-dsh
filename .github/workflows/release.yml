@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@f65b6bbe39e6d72110341476a2066e30b2adbf77
+    with:
+      version-files: |
+        package.json
+        pyproject.toml
+      setup-command: |
+        uv sync --locked && uv pip install -r requirements-dev.txt pytest
+      test-command: |
+        .venv/bin/python -m pytest -q -m "not live_npu"
+        node --check paths.cjs
+      node: true
+      build-command: |
+        npm pack --pack-destination "$RELEASE_ASSETS_DIR"

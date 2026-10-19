@@ -103,7 +103,7 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIn("setup.py", text)
         self.assertIn("--python 3.11", text)
 
-    def test_unknown_tool_is_not_a_silent_success(self) -> None:
+    def test_invalid_tool_calls_return_errors(self) -> None:
         responses = exchange(
             [
                 {
@@ -111,32 +111,23 @@ class BridgeProtocolTests(unittest.TestCase):
                     "id": 1,
                     "method": "tools/call",
                     "params": {"name": "knowledge_feedback", "arguments": {}},
-                }
-            ],
-            self._env(),
-        )
-        result = responses[0]["result"]
-        self.assertIs(result["isError"], True)
-        self.assertIn("unknown tool", result["content"][0]["text"])
-
-    def test_unexpected_arguments_are_rejected(self) -> None:
-        responses = exchange(
-            [
+                },
                 {
                     "jsonrpc": "2.0",
-                    "id": 1,
+                    "id": 2,
                     "method": "tools/call",
                     "params": {
                         "name": "knowledge_query",
                         "arguments": {"query": "x", "session_id": "forged"},
                     },
-                }
+                },
             ],
             self._env(),
         )
-        result = responses[0]["result"]
-        self.assertIs(result["isError"], True)
-        self.assertIn("unexpected tool arguments", result["content"][0]["text"])
+        self.assertIs(responses[0]["result"]["isError"], True)
+        self.assertIn("unknown tool", responses[0]["result"]["content"][0]["text"])
+        self.assertIs(responses[1]["result"]["isError"], True)
+        self.assertIn("unexpected tool arguments", responses[1]["result"]["content"][0]["text"])
 
 
 if __name__ == "__main__":

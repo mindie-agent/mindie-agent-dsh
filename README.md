@@ -29,7 +29,7 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 的 DSH 原生适配器，`0.0.1` 首发版本。
+**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 的 DSH 原生适配器，当前候选版本为 `0.0.2`。
 
 它把 MindIE Agent 的两项核心能力接入 DSH：
 
@@ -96,7 +96,9 @@ plugin_manager(action="install_bundle",
                target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")
 ```
 
-> 说明：`dsh plugin --profile <name> add <spec>` 只负责 pnpm 安装，不会替用户勾选 bundle。安装后在 **Plugins** 页面启用 `mindie-agent-dsh` 即可；不要手改 profile 的 `package.json` 或 `cordis.patch.yml`。
+> 也可以运行 `dsh plugin --profile <name> add <spec>`。安装后在 **Plugins** 页面确认 `mindie-agent-dsh` 已启用；不要手改 profile 的 `package.json` 或 `cordis.patch.yml`。
+
+已安装早期 `0.0.2` 的用户需要按[同版本显式刷新步骤](docs/same-version-refresh.md)更新运行时与 bundle，并重启 DSH 进程。旧更新器不会发现同版本的新提交。刷新会保留原有授权、共享选择和知识材料。
 
 启用后打开**新会话**（已有会话保留其启动时的组合），输入 `/mindie-agent` 即可使用。
 
@@ -166,7 +168,7 @@ flowchart TB
 - **不引入**自定义 Cordis Host 插件；知识桥只是 MCP server，`remote-dev` 直接使用组件官方 server 入口。
 - `package.json` 只声明精确的 `@deepseek-ai/dsh@0.2.0-rc.2` 可选 peer，安装时不会把另一个 DSH 运行时拖进 profile。
 
-## 0.0.1 范围与已知限制
+## 0.0.1 历史范围（不代表当前 0.0.2）
 
 - **知识检索是只读的**：`knowledge_query`、`knowledge_explain`，外加显式 `knowledge_sync`。0.0.1 **没有** `knowledge_feedback`。
 - **无会话结束采集、无社区贡献、无自动故障上报**：DSH 的公开会话格式是 zstd JSONL，本版本不实现解析，也不假装采集成功；引擎配置里的采集适配器会在被调用时明确报错。
@@ -195,3 +197,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。
+
+## 0.0.2 的贡献与故障上报
+
+贡献开关同时控制公开知识共享和经过筛选的产品故障报告；`contribute` 同时开启，`disabled` 同时关闭。已有选择保持不变。旧版授权需要明确再次选择后才允许故障上传，普通启动不会自动授权。通过 `reporting-status` 查看真实 worker 和队列状态，详见[用户须知](skills/mindie-agent/references/user-notice.md)。升级 bundle 后需要重启整个 DSH 进程。
