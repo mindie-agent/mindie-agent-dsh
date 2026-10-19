@@ -39,7 +39,7 @@ This document summarizes the verification scope and acceptance evidence for `min
 ## 4. `mindie-bench` Harness & Release Benchmark Evidence
 
 - **Release CPU Microbenchmark (`benchmarks/release.json`)**:
-  - Executes `benchmarks/release.py` (`public-transcript` / `public_100_message_parse_latency` in `us/op`) alongside `plugin-manifest-hygiene` checks, publishing `benchmark-results.json`, `benchmark-results.md` with every formal release.
+  - Executes `benchmarks/release.py` (`public-transcript` / `public_100_message_parse_latency` in `us/op`), publishing `benchmark-results.json`, `benchmark-results.md` with every formal release.
 - **`mindie-bench` L2 Canary (`cpu-rope-rotary-dim-64`)**:
   - `mindie-bench` PR #2 integrates DSH as a native headless evaluation harness (`dsh --profile bench --json`):
     - **G0**: `completed_pass` (11 turns, native bash/read/glob tools, real verifier).

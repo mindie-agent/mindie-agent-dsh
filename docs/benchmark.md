@@ -8,9 +8,8 @@ Every formal GitHub Release publishes `benchmark-results.json`, `benchmark-resul
 
 - **Workload Measured**:
   - `public-transcript` (`public_100_message_parse_latency`, `us/op`): measures deterministic per-operation latency for decompressing a 100-message DSH v4 `session.v4.jsonl.zstd` stream via `dsh_transcript.read_material`, extracting visible user/assistant text, and filtering non-public `reasoning` blocks.
-  - `plugin-manifest-hygiene`: verifies bundle manifest, `cordis.patch.yml` Host row invariants, and locked release pin consistency (`us/op`).
 - **What Release Microbenchmarks Prove vs. Do Not Prove**:
-  - **Proves**: local CPU parser throughput, zstd frame boundary handling, reasoning-exclusion invariants, and release manifest integrity before an asset is published.
+  - **Proves**: local CPU parser latency and reasoning-exclusion invariants for the declared synthetic input.
   - **Does Not Prove**: standing Ascend A2/A3 NPU hardware integration (`@pytest.mark.live_npu`) or end-to-end Agent task productivity on real engineering problems.
 
 ## 2. End-to-End `mindie-bench` Evaluation Harness
