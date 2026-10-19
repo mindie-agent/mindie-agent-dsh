@@ -38,7 +38,7 @@ FEED = {
     "interval_seconds": 300,
 }
 COMPONENTS = {
-    "mindie-knowledge": "0.12.0",
+    "mindie-knowledge": "0.12.1",
     "remote-dev": "0.10.0",
     "mindie-diagnostics": "0.4.2",
 }
