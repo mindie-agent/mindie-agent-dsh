@@ -1,5 +1,6 @@
 """Actual DSH producers share one profile authority and reporter queue."""
 import json
+import io
 import os
 from pathlib import Path
 import sys
@@ -17,6 +18,43 @@ from mindie_diagnostics.outbox import Outbox
 
 
 class ContributionReportingTests(unittest.TestCase):
+    def test_real_rejected_stop_is_recorded_but_disabled_capture_is_not_a_fault(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            logs = root / "logs"
+            engine = root / "engine.json"
+            engine.write_text(json.dumps({
+                "root": str(root / "data"), "domain": "vllm-ascend",
+                "community_config": str(root / "mindie-community.json"),
+                "transcript_adapter": str(Path(mindie_sidecar.__file__).with_name("dsh_transcript.py")),
+                # Rejection occurs before scanning; no redactor process is invoked.
+                "redactor_executable": sys.executable,
+            }))
+            with patch.dict(os.environ, MINDIE_DSH_CONFIG_HOME=str(root),
+                            MINDIE_DSH_STATE_DIR=str(root / "state"), MINDIE_DIAGNOSTICS_ROOT=str(logs)):
+                consent_store.record_choice(root / "mindie-consent.json", "contribute")
+                mindie_sidecar._configure_community({
+                    "enabled": True, "repository": "account/knowledge", "account": "account",
+                    "project_roots": [str(root)], "visibility": "public",
+                    "consent_config": str(root / "mindie-consent.json"),
+                })
+                dsh_diagnostics.activate(ensure=False)
+                # The real shared handoff rejects a native Stop without turn identity.
+                envelope = json.dumps({"hook_event_name": "Stop", "session_id": "session"}).encode()
+                for choice in ("contribute", "disabled"):
+                    consent_store.record_choice(root / "mindie-consent.json", choice)
+                    with patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(envelope))):
+                        self.assertEqual(capture_stop.main(), 0)
+                rows = [json.loads(line) for line in capture_stop.log_path().read_text().splitlines()]
+                self.assertEqual(rows[0]["receipt"]["stage"], "rejected")
+                self.assertIn("incident_id", rows[0]["diagnostic"])
+                self.assertEqual(rows[1]["receipt"]["stage"], "inert")
+                self.assertNotIn("diagnostic", rows[1])
+                from mindie_diagnostics import logging
+                for (_component, location), recorder in list(logging._FAILURE_RECORDERS.items()):
+                    if Path(location) == logs:
+                        recorder.close()
+
     def test_explicit_choice_activates_worker_and_real_faults_reach_its_queue(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()

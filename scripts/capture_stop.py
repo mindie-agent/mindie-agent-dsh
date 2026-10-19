@@ -61,9 +61,13 @@ def main() -> int:
 
         receipt = capture_hook(str(config), event)
         if isinstance(receipt, dict):
-            receipt = {k: receipt.get(k) for k in ("stage", "reason", "capture_id", "duplicate")}
+            receipt = {k: receipt.get(k) for k in ("stage", "reason", "cause", "capture_id", "duplicate")}
         entry = {"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": receipt}
-        if isinstance(receipt, dict) and receipt.get("stage") in {"failed", "error"}:
+        if isinstance(receipt, dict) and (
+            receipt.get("stage") in {"unavailable", "failed", "error"}
+            or receipt.get("stage") == "rejected" and receipt.get("reason") != "no-capturable-material"
+            or receipt.get("cause") == "wake-failed"
+        ):
             if projected := diagnose(
                 str(receipt.get("stage") or "capture"),
                 RuntimeError(str(receipt.get("reason") or "capture not accepted")),
