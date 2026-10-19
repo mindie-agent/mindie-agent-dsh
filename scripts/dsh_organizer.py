@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[Role] DSH-native summary worker implementing the mindie-summary-outcome/1 contract.
 [Invariants] Calls the loopback summary endpoint once per batch; never retries uncertain model calls or fabricates fallback indexes.
-[Timeouts & Locks] HTTP POST bounded by DEADLINE_SECONDS=300 and MAX_REQUEST_BYTES/MAX_RESPONSE_BYTES=256 KiB.
+[Timeouts & Locks] HTTP POST uses the parent's remaining budget, capped at 300s with cleanup reserve; request/response bytes are capped at 256 KiB.
 [Side-Effect Policy] Stateless HTTP client to local DSH summary endpoint; emits a single JSON outcome envelope to stdout.
 """
 
@@ -77,6 +77,8 @@ def identity() -> dict:
 
 
 def _post(value: dict) -> tuple[str, dict]:
+    from mindie_knowledge.loop.summary_budget import native_timeout
+
     body = json.dumps(value, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         value["url"],
@@ -84,8 +86,9 @@ def _post(value: dict) -> tuple[str, dict]:
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + value["token"]},
         method="POST",
     )
+    timeout = native_timeout(DEADLINE_SECONDS)
     try:
-        with urllib.request.urlopen(request, timeout=DEADLINE_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         try:
@@ -135,11 +138,11 @@ def _extract_json(text: str) -> dict:
     return value
 
 
-def _usage(raw: dict) -> dict:
-    return {
-        key: val if type(val := raw.get(key)) is int and val >= 0 else 0
-        for key in ("input_tokens", "cached_input_tokens", "output_tokens")
-    }
+def _usage(raw: dict) -> dict | None:
+    keys = ("input_tokens", "cached_input_tokens", "output_tokens")
+    if any(type(raw.get(key)) is not int or raw[key] < 0 for key in keys):
+        return None
+    return {key: raw[key] for key in keys}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -158,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         request = summarizer.validate_request(json.loads(raw))
         payload = {**endpoint(), "request": request, "prompt": summarizer.PROMPT}
         text, usage = _post(payload)
+        reported_usage = _usage(usage)
+        usage_known = reported_usage is not None
         raw_result = text if len(text.encode("utf-8")) <= summarizer.MAX_RESPONSE_BYTES else None
         elapsed_ms = int((time.monotonic() - started) * 1000)
         try:
@@ -166,17 +171,24 @@ def main(argv: list[str] | None = None) -> int:
             )
         except Exception:  # noqa: BLE001
             envelope = summarizer.outcome(
-                request, status="failed", raw_result=raw_result, usage=_usage(usage),
-                usage_known=True, model_calls=1, elapsed_ms=elapsed_ms,
+                request, status="failed", raw_result=raw_result, usage=reported_usage,
+                usage_known=usage_known, model_calls=1, elapsed_ms=elapsed_ms,
                 error="invalid_result", error_reason="result_contract_invalid",
-                billing_status="reported",
             )
             print(json.dumps(envelope, ensure_ascii=True))
             return 0
         envelope = summarizer.outcome(
             request, status="returned", result=result, raw_result=raw_result,
-            usage=_usage(usage), usage_known=True, model_calls=1,
-            elapsed_ms=elapsed_ms, billing_status="reported",
+            usage=reported_usage, usage_known=usage_known, model_calls=1,
+            elapsed_ms=elapsed_ms,
+        )
+        print(json.dumps(envelope, ensure_ascii=True))
+        return 0
+    except TimeoutError:
+        envelope = summarizer.outcome(
+            request, status="failed", usage=None, usage_known=False, model_calls=0,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            error="deadline", error_reason="native_deadline", billing_status="not_called",
         )
         print(json.dumps(envelope, ensure_ascii=True))
         return 0

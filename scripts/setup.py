@@ -28,6 +28,7 @@ SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
 VERSION = "0.0.2"
+RUN_DEADLINE: float | None = None
 DOMAIN = "vllm-ascend"
 FEED = {
     "repository": "mindie-agent/knowledge-vllm-ascend",
@@ -57,6 +58,11 @@ def run(
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if RUN_DEADLINE is not None:
+        remaining = RUN_DEADLINE - time.monotonic()
+        if remaining <= 0:
+            raise SetupError("setup exceeded its total time budget")
+        timeout = min(timeout, remaining)
     try:
         return subprocess.run(
             argv, cwd=str(cwd) if cwd else None, env=env,
@@ -243,6 +249,7 @@ def sync_feed(*, timeout: int) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global RUN_DEADLINE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", default=None, help="interpreter to pass to uv sync (default 3.11)")
     parser.add_argument("--no-sync", action="store_true", help="do not synchronize the knowledge feed")
@@ -250,7 +257,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="validate prerequisites and print the plan only")
     parser.add_argument("--sync-timeout", type=int, default=900, help="seconds allowed for one feed sync")
     parser.add_argument("--install-timeout", type=int, default=900, help="seconds allowed for uv sync")
+    parser.add_argument("--total-timeout", type=float, default=None,
+                        help="shared budget for all setup subprocesses")
     args = parser.parse_args(argv)
+    RUN_DEADLINE = (time.monotonic() + args.total_timeout
+                    if args.total_timeout is not None else None)
 
     started = time.time()
     try:

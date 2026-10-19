@@ -214,11 +214,12 @@ def setup_candidate(package: Path, python: str) -> None:
     if updater is None:
         raise UpdateError("uv is not available to provision the candidate")
     command = [
-        updater, "run", "--quiet", "--no-project", "--python", "3.11",
+        sys.executable,
         str(package / "scripts" / "setup.py"), "--python", python,
         *os.environ.get("MINDIE_DSH_UPDATE_SETUP_ARGS", "").split(),
+        "--total-timeout", str(INSTALL_TIMEOUT),
     ]
-    code, detail = run(command, timeout=INSTALL_TIMEOUT, cwd=package)
+    code, detail = run(command, timeout=INSTALL_TIMEOUT + 10, cwd=package)
     if code != 0:
         raise UpdateError("candidate setup failed: " + detail[-800:])
 
