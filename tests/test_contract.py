@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -44,7 +45,8 @@ class PackageContractTests(unittest.TestCase):
     def test_package_manifest(self) -> None:
         package = json.loads(PACKAGE.read_text(encoding="utf-8"))
         self.assertEqual(package["name"], "mindie-agent-dsh")
-        self.assertEqual(package["version"], "0.0.2")
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        self.assertEqual(package["version"], project["version"])
         self.assertEqual(package["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
         self.assertEqual(package["peerDependencies"]["@deepseek-ai/dsh"], "0.2.0-rc.2")
         self.assertTrue(package["peerDependenciesMeta"]["@deepseek-ai/dsh"]["optional"])

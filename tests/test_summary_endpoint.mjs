@@ -30,6 +30,30 @@ const result = await summarizeWithLlm(
 assert.equal(result.text, '{"blocks":[]}')
 assert.deepEqual(result.usage, { input_tokens: 12, cached_input_tokens: 5, output_tokens: 34 })
 
+const missingUsage = {
+  async *stream() {
+    yield { type: 'text-delta', index: 0, text: '{"blocks":[]}' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  },
+}
+const unmetered = await summarizeWithLlm(
+  missingUsage, { provider: 'p', model: 'm' }, request, 'prompt',
+)
+assert.equal(unmetered.text, '{"blocks":[]}')
+assert.equal(unmetered.usage, null)
+
+const partialUsage = {
+  async *stream() {
+    yield { type: 'text-delta', index: 0, text: '{"blocks":[]}' }
+    yield { type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  },
+}
+const partiallyMetered = await summarizeWithLlm(
+  partialUsage, { provider: 'p', model: 'm' }, request, 'prompt',
+)
+assert.equal(partiallyMetered.usage, null)
+
 await assert.rejects(
   () => summarizeWithLlm(llm, undefined, request, 'prompt'),
   (error) => error.statusCode === 409,

@@ -239,15 +239,18 @@ export async function summarizeWithLlm(llm, route, request, prompt) {
       }
     }
     if (!text.trim()) throw new Error('model returned no text')
+    const usageKnown = ['inputTokens', 'cacheReadTokens', 'outputTokens'].every(
+      key => Number.isSafeInteger(usage?.[key]) && usage[key] >= 0,
+    )
     return {
       text,
       provider: route.provider,
       model: route.model,
-      usage: {
-        input_tokens: Number(usage?.inputTokens) || 0,
-        cached_input_tokens: Number(usage?.cacheReadTokens) || 0,
-        output_tokens: Number(usage?.outputTokens) || 0,
-      },
+      usage: usageKnown ? {
+        input_tokens: usage.inputTokens,
+        cached_input_tokens: usage.cacheReadTokens,
+        output_tokens: usage.outputTokens,
+      } : null,
     }
   }
 
