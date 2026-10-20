@@ -4,7 +4,7 @@ version = "0.0.3"
 description = "Pinned component runtime for the MindIE Agent DeepSeek Harness adapter"
 requires-python = ">=3.11"
 dependencies = [
-  "mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@8e4377bacdb0d5ff529217c5963a68f989e0fe5d",
+  "mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a",
   "remote-dev @ git+https://github.com/mindie-agent/remote-dev@293045f87193fbe749dd161f3fa4bd6a8fbff37f",
 ]
 

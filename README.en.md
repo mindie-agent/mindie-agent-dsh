@@ -178,7 +178,7 @@ flowchart TB
 
 ## `0.0.3` Scope and Known Limits
 
-- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`8e4377bacdb0d5ff529217c5963a68f989e0fe5d`), `remote-dev 0.10.3` (`293045f87193fbe749dd161f3fa4bd6a8fbff37f`), and `mindie-diagnostics 0.5.0` (`57ae6487391ffcd0e5342345dbeb7fd859c4f7d5`).
+- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a`), `remote-dev 0.10.3` (`293045f87193fbe749dd161f3fa4bd6a8fbff37f`), and `mindie-diagnostics 0.5.0` (`57ae6487391ffcd0e5342345dbeb7fd859c4f7d5`).
 - **Historical Same-Version Refresh**: `0.0.2` replaced the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Installations staying on `0.0.2` must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
 - **Shared Host-Level `remote-dev` State**: Remote job records live under `~/.local/share/mindie-agent/dsh/state/remote` and are visible across sessions on the same Host.
 - **Background Auto-Update Scope**: The stable launcher `host.mjs` checks for formal releases and swaps child plugin generations while the DSH Host process is running; no OS-level scheduler runs when DSH is stopped.
