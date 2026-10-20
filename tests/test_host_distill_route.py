@@ -13,6 +13,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 ORGANIZER = ROOT / "scripts" / "dsh_organizer.py"
@@ -305,6 +306,51 @@ class HostDistillRouteTests(unittest.TestCase):
         })
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "invalid distillation payload")
+
+    def test_mcp_explain_forwards_batch_closure_arguments(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import knowledge_mcp
+        from mindie_knowledge.loop import transport
+
+        arguments = {
+            "refs": ["mindie://vllm-ascend/units/unit-a@1"],
+            "conditions": {"soc": "Ascend910B"},
+            "known_refs": ["unit-b@1"],
+            "token_budget": 2048,
+        }
+        captured = {}
+
+        def fake_rpc(connection, method, payload, timeout=None):
+            captured.update({
+                "connection": connection,
+                "method": method,
+                "payload": payload,
+                "timeout": timeout,
+            })
+            return {"units": [], "usage": {}}
+
+        route = mock.Mock()
+        route.selected_path = str(self.state / "knowledge")
+        route.cross_domain = False
+        route.forward_domain = None
+        connection = object()
+        config = {"engine_config": str(self.state / "engine.json")}
+        with mock.patch.object(knowledge_mcp, "_route", return_value=route), \
+                mock.patch.object(
+                    knowledge_mcp, "knowledge_connection", return_value=connection,
+                ), \
+                mock.patch.object(transport, "rpc", side_effect=fake_rpc):
+            result = knowledge_mcp.call_knowledge("knowledge_explain", arguments, config)
+
+        self.assertEqual(result, {"units": [], "usage": {}})
+        self.assertEqual(captured["method"], "explain")
+        self.assertEqual(captured["connection"], connection)
+        self.assertEqual(captured["timeout"], 30.0)
+        payload = captured["payload"]
+        self.assertEqual(payload["refs"], arguments["refs"])
+        self.assertEqual(payload["conditions"], arguments["conditions"])
+        self.assertEqual(payload["known_refs"], arguments["known_refs"])
+        self.assertEqual(payload["token_budget"], arguments["token_budget"])
 
 
 if __name__ == "__main__":

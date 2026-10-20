@@ -59,8 +59,9 @@ TOOLS: list[dict[str, Any]] = [
             "Pass known task conditions to filter graded rules. For related task blocks, pass "
             "`continuation` without `query` for the next page. Pass `domain` to search one configured "
             "independent domain; omit it for the default domain. Archived or superseded units stay out "
-            "of ordinary discovery unless `include_archived` is true. If the corpus is reported unavailable, call "
-            "knowledge_sync once and retry."
+            "of ordinary discovery unless `include_archived` is true. `navigation_only` returns navigation "
+            "cards without inline bodies; `run_id` records deduplicated delivery events for an existing run. "
+            "If the corpus is reported unavailable, call knowledge_sync once and retry."
         ),
         "inputSchema": {
             "type": "object",
@@ -74,6 +75,8 @@ TOOLS: list[dict[str, Any]] = [
                 "token_budget": {"type": "integer", "minimum": 1, "description": "Optional token budget for the returned navigation/body."},
                 "include_unknown": {"type": "boolean", "description": "Include entries whose condition applicability is unknown."},
                 "include_archived": {"type": "boolean"},
+                "navigation_only": {"type": "boolean", "description": "Return navigation cards without inline bodies."},
+                "run_id": {"type": "string", "maxLength": 256, "description": "Existing run ID used to record deduplicated delivery events."},
             },
             "additionalProperties": False,
         },
@@ -86,7 +89,8 @@ TOOLS: list[dict[str, Any]] = [
             "closure once: complete unit bodies are never truncated, shared prerequisites appear once, "
             "`known_refs` names complete `id@revision` units still visible after compaction, and "
             "`token_budget` (1-16000) bounds the whole response. `conditions` evaluates applicability and "
-            "reports unresolved reasons. A `mindie://DOMAIN/...` ref reads its own configured domain; "
+            "reports unresolved reasons. `run_id` binds the delivered units to an existing run. "
+            "A `mindie://DOMAIN/...` ref reads its own configured domain; "
             "conflicting domain authorities across refs are rejected. "
             + GATED
             + " The content is a reference slice, not a verified report."
@@ -99,6 +103,7 @@ TOOLS: list[dict[str, Any]] = [
                 "conditions": {"type": "object"},
                 "known_refs": {"type": "array", "items": {"type": "string"}},
                 "token_budget": {"type": "integer", "minimum": 1, "maximum": 16000},
+                "run_id": {"type": "string", "maxLength": 256, "description": "Existing run ID used to attribute delivered units."},
             },
             "required": [],
             "additionalProperties": False,

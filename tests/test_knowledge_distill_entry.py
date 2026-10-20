@@ -223,14 +223,14 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
     def test_registered_tool_parameters_expose_progressive_and_flywheel_fields(self) -> None:
         payload = self._run_harness()
         schemas = payload["schemas"]
-        self.assertEqual(
-            schemas["knowledge_query"]["properties"]["include_archived"]["type"],
-            "boolean",
-        )
+        query = schemas["knowledge_query"]["properties"]
+        self.assertEqual(query["include_archived"]["type"], "boolean")
+        self.assertEqual(query["navigation_only"]["type"], "boolean")
+        self.assertEqual(query["run_id"]["type"], "string")
         explain = schemas["knowledge_explain"]
         self.assertEqual(
             set(explain["properties"]),
-            {"ref", "refs", "conditions", "known_refs", "token_budget"},
+            {"ref", "refs", "conditions", "known_refs", "token_budget", "run_id"},
         )
         self.assertEqual(explain["required"], [])
         distill = schemas["knowledge_distill"]
@@ -250,6 +250,10 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.assertEqual(
             set(feedback["properties"]["outcome"]["enum"]),
             {"supported", "refuted", "inconclusive"},
+        )
+        self.assertEqual(
+            set(feedback["properties"]["evidence_source"]["enum"]),
+            {"agent_declared", "run_manifest_verified", "ablation_verified"},
         )
 
     def test_registered_distill_accepts_related_refs_and_foreground_proposal(self) -> None:

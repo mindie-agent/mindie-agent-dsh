@@ -83,14 +83,22 @@ class BridgeProtocolTests(unittest.TestCase):
         by_name = {tool["name"]: tool for tool in tools}
         query = by_name["knowledge_query"]["inputSchema"]["properties"]
         self.assertTrue(
-            {"domain", "domain_path", "token_budget", "include_unknown", "include_archived"}
+            {
+                "domain", "domain_path", "token_budget", "include_unknown",
+                "include_archived", "navigation_only", "run_id",
+            }
             <= set(query)
         )
         self.assertEqual(query["include_archived"]["type"], "boolean")
+        self.assertEqual(
+            query["navigation_only"],
+            {"type": "boolean", "description": "Return navigation cards without inline bodies."},
+        )
+        self.assertEqual(query["run_id"]["type"], "string")
         explain = by_name["knowledge_explain"]["inputSchema"]
         self.assertEqual(
             set(explain["properties"]),
-            {"ref", "refs", "conditions", "known_refs", "token_budget"},
+            {"ref", "refs", "conditions", "known_refs", "token_budget", "run_id"},
         )
         self.assertEqual(explain["required"], [])
         self.assertEqual(
@@ -104,6 +112,7 @@ class BridgeProtocolTests(unittest.TestCase):
             explain["properties"]["token_budget"],
             {"type": "integer", "minimum": 1, "maximum": 16000},
         )
+        self.assertEqual(explain["properties"]["run_id"]["type"], "string")
         distill = by_name["knowledge_distill"]["inputSchema"]
         self.assertEqual(
             set(distill["properties"]),
@@ -141,6 +150,7 @@ class BridgeProtocolTests(unittest.TestCase):
                             "conditions": {"soc": "Ascend910B"},
                             "known_refs": ["mindie://vllm-ascend/units/unit-a@1"],
                             "token_budget": 4096,
+                            "run_id": "run-explain-fixture",
                         },
                     },
                 },
@@ -172,6 +182,19 @@ class BridgeProtocolTests(unittest.TestCase):
                             "task_state": "verified_milestone",
                             "related_refs": ["unit-fixture-probe"],
                             "proposal": {"schema_version": "mindie-distill-decision/1"},
+                        },
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "knowledge_query",
+                        "arguments": {
+                            "query": "fixture",
+                            "navigation_only": True,
+                            "run_id": "run-query-fixture",
                         },
                     },
                 },
