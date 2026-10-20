@@ -62,7 +62,7 @@
 MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
 rm -rf "$MINDIE_TMP"
 git clone --depth 1 --branch v0.0.3 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
-uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
+uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
 验证标准：命令最终输出的 JSON 中报告锁定组件版本与就绪状态：
@@ -193,7 +193,7 @@ pytest -q
 node --test tests/test_summary_endpoint.mjs
 
 # 只检查前置条件与路径，不构建运行时
-uv run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
+uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
 ```
 
 ### `0.0.3` 发布基准测试（Release Benchmark）
