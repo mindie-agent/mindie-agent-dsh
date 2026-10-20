@@ -188,15 +188,20 @@ def read_material(
             return result
         result["identity"] = current.serialize()
         result["snapshot_size"] = current.size
-        if expected is not None and (
-            expected.path != current.path
-            or expected.dev != current.dev
-            or expected.ino != current.ino
-            or not expected.anchor_len
-            or current.anchor_digest != expected.anchor_digest
-        ):
-            result.update(status="replaced", coverage_note="transcript changed before read")
-            return result
+        if expected is not None:
+            # Appending may grow a short initial anchor; compare only the bytes
+            # that belonged to the saved identity, as the other host adapters do.
+            with open(path, "rb") as stream:
+                same_prefix = hashlib.sha256(stream.read(expected.anchor_len)).hexdigest()
+            if (
+                expected.path != current.path
+                or expected.dev != current.dev
+                or expected.ino != current.ino
+                or not expected.anchor_len
+                or same_prefix != expected.anchor_digest
+            ):
+                result.update(status="replaced", coverage_note="transcript changed before read")
+                return result
         owner = _session_in_path(path)
         if owner:
             result["session_match"] = not session_id or owner == session_id

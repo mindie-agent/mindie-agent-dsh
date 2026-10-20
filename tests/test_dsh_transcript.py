@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import sys
 import tempfile
@@ -162,6 +163,46 @@ class DshTranscriptTests(unittest.TestCase):
             )
             self.assertEqual(out["status"], "ok")
             self.assertFalse(out["more"])
+
+    def test_short_identity_survives_repeated_append_across_anchor_limit(self) -> None:
+        def event(text):
+            return {"type": "assistant/message", "data": {
+                "message": {"content": [{"type": "text", "text": text}]},
+            }}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_session(Path(temporary), "short", [event("first")])
+            identity = self.adapter.identify(path)
+            self.assertLess(identity.anchor_len, self.adapter.ANCHOR_BYTES)
+            first = self.adapter.read_material(path, 0, session_id="short")
+            cursor = first["end"]
+            for text in ("second", "".join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(40))):
+                with self.subTest(text_length=len(text)):
+                    with path.open("ab") as stream:
+                        stream.write(zstandard.ZstdCompressor().compress(
+                            (json.dumps(event(text)) + "\n").encode()))
+                    result = self.adapter.read_material(
+                        path, cursor, session_id="short", expected=identity)
+                    self.assertEqual(result["status"], "ok")
+                    self.assertEqual(result["text"], "### assistant\n" + text)
+                    self.assertGreater(result["end"], cursor)
+                    cursor = result["end"]
+            self.assertGreater(path.stat().st_size, self.adapter.ANCHOR_BYTES)
+            self.assertEqual(self.adapter.read_material(
+                path, cursor, session_id="short", expected=identity)["status"], "unchanged")
+
+    def test_short_identity_rejects_rewritten_prefix_and_truncation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_session(Path(temporary), "short", base_events("short")[:1])
+            identity = self.adapter.identify(path)
+            original = path.read_bytes()
+            for payload in (original[:10], b"changed" + original[7:]):
+                with self.subTest(size=len(payload)):
+                    path.write_bytes(payload)
+                    result = self.adapter.read_material(path, 0, expected=identity)
+                    self.assertEqual(result["status"], "replaced")
+                    self.assertEqual(result["text"], "")
+                    self.assertEqual(result["end"], 0)
 
 
 if __name__ == "__main__":
