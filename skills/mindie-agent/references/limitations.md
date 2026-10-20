@@ -33,11 +33,11 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 `scripts/setup.py` is idempotent: it runs `uv sync --frozen` against `uv.lock`, installs persistent worker scripts under `state_dir/bin/`, updates `engine.json` and `diagnostics.json`, and performs an incremental knowledge feed sync.
 
-The `0.0.3` runtime pins:
+Current development runtime pins:
 
-- `mindie-knowledge` `0.13.0` — release commit `d18e64f4e79e003c1fb898ca91ecf7587b1e0d32`
-- `remote-dev` `0.10.3` — release commit `f441d52f8dcb227ad31adeeeb1d66da4a28915bb`
-- `mindie-diagnostics` `0.5.0` — release commit `6460cde3a50a7f91c9ded38557a7f921654f0c6a`
+- `mindie-knowledge` `0.13.0` — integration commit `426ef41d2d754d717cca60255dedcad462700dfe`
+- `remote-dev` `0.10.3` — integration commit `0b84ac8a9e2fdccb66107bab21b59cdf59748aec`
+- `mindie-diagnostics` `0.5.0` — integration commit `c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6`
 
 **Upgrade Boundary**: `0.0.3` is a normal semantic-version upgrade selected by the updater. The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.0.3` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
 

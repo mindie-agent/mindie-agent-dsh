@@ -61,7 +61,7 @@ Designed for the Ascend NPU AI Infra design, development, and testing lifecycle,
 MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
 rm -rf "$MINDIE_TMP"
 git clone --depth 1 --branch v0.0.3 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
-uv run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
+uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
 Verify that the final JSON reports the `0.0.3` pinned components and ready status:
@@ -178,7 +178,7 @@ flowchart TB
 
 ## `0.0.3` Scope and Known Limits
 
-- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`d18e64f4e79e003c1fb898ca91ecf7587b1e0d32`), `remote-dev 0.10.3` (`f441d52f8dcb227ad31adeeeb1d66da4a28915bb`), and `mindie-diagnostics 0.5.0` (`6460cde3a50a7f91c9ded38557a7f921654f0c6a`).
+- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`426ef41d2d754d717cca60255dedcad462700dfe`), `remote-dev 0.10.3` (`0b84ac8a9e2fdccb66107bab21b59cdf59748aec`), and `mindie-diagnostics 0.5.0` (`c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6`).
 - **Historical Same-Version Refresh**: `0.0.2` replaced the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Installations staying on `0.0.2` must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
 - **Shared Host-Level `remote-dev` State**: Remote job records live under `~/.local/share/mindie-agent/dsh/state/remote` and are visible across sessions on the same Host.
 - **Background Auto-Update Scope**: The stable launcher `host.mjs` checks for formal releases and swaps child plugin generations while the DSH Host process is running; no OS-level scheduler runs when DSH is stopped.
@@ -192,7 +192,7 @@ pytest -q
 node --test tests/test_summary_endpoint.mjs
 
 # Prerequisite and path check only (no runtime build)
-uv run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
+uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
 ```
 
 ### `0.0.3` Release Benchmarks

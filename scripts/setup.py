@@ -179,6 +179,8 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
     mp.ensure_private_dir(mp.data_home())
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
     env.setdefault("UV_NO_PROGRESS", "1")
+    if "UV_SYSTEM_CERTS" not in env:
+        env.setdefault("UV_NATIVE_TLS", "true")
     argv = [
         "uv", "sync", "--frozen", "--quiet", "--no-dev",
         "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
