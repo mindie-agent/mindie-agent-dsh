@@ -85,8 +85,11 @@ def public_settings() -> dict[str, Any]:
     engine = engine_path()
     try:
         data = json.loads(Path(engine).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    except (OSError, ValueError) as exc:
+        raise SidecarError(
+            f"cannot read engine configuration {engine}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     community = settings_mod.load(data.get("community_config"))
     consent = consent_store.read(str(consent_path()))
     return {
@@ -564,9 +567,14 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
     ):
         try:
             admission().check(session, token)
-        except Exception as exc:
+        except ValueError as exc:
             raise SidecarError(
                 "this task is not activated; invoke /mindie-agent first"
+            ) from exc
+        except Exception as exc:
+            raise SidecarError(
+                f"admission check failed: {type(exc).__name__}: {exc}. "
+                "Do not re-activate until the admission store is readable."
             ) from exc
     route_payload = payload
     if method == "explain":

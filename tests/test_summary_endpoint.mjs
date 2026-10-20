@@ -96,6 +96,19 @@ await assert.rejects(
   /model finish: AUTH/,
 )
 
+const hanging = {
+  async *stream(options) {
+    await new Promise((_, reject) => {
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    })
+    yield { type: 'text-delta', index: 0, text: 'never' }
+  },
+}
+await assert.rejects(
+  () => summarizeWithLlm(hanging, { provider: 'p', model: 'm' }, request, 'prompt', { timeoutMs: 20 }),
+  /model stream exceeded the 300s deadline/,
+)
+
 // C6 routing: the original prompt carries the shared decision schema in text;
 // the SDK has no constrained-JSON option, so llm.stream receives no schema field.
 let distillOptions

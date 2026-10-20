@@ -81,6 +81,7 @@ def identity() -> dict:
     from mindie_knowledge.materials import summarizer
 
     worker_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    available = True
     try:
         value = endpoint()
         model = value["model"]
@@ -90,11 +91,12 @@ def identity() -> dict:
             "provider": value["provider"],
         }
     except ConfigurationError:
+        available = False
         model = "dsh/unavailable"
         implementation = {"worker": worker_hash, "provider": "unavailable"}
     value = summarizer.policy_identity(model=model, effort="off", implementation=implementation)
     capabilities = list(value.get("capabilities", []))
-    if DISTILL_REQUEST_SCHEMA not in capabilities and distill_capability():
+    if available and DISTILL_REQUEST_SCHEMA not in capabilities and distill_capability():
         capabilities.append(DISTILL_REQUEST_SCHEMA)
         value.pop("fingerprint", None)
         value["capabilities"] = capabilities
@@ -301,7 +303,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if len(raw) > MAX_REQUEST_BYTES:
             raise ValueError("summary request exceeds the limit")
-        request = summarizer.validate_request(value)
+        try:
+            request = summarizer.validate_request(value)
+        except (KeyError, TypeError, ValueError):
+            print(json.dumps({
+                "schema": "mindie-summary-error/1",
+                "error": "invalid_summary_request",
+            }, ensure_ascii=True))
+            return 1
         payload = {**endpoint(), "request": request, "prompt": summarizer.PROMPT}
         text, usage = _post(payload)
         reported_usage = _usage(usage)

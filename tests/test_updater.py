@@ -74,6 +74,17 @@ class UpdaterTests(unittest.TestCase):
             with self.assertRaises(updater.UpdateError):
                 updater.extract(archive, root / "out")
 
+    def test_corrupt_update_config_raises_update_error(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.dict("os.environ", {"MINDIE_DSH_CONFIG_HOME": str(root)}):
+                self.assertEqual(updater.update_config()["enabled"], True)
+                (root / "update.json").write_text("{corrupt", encoding="utf-8")
+                with self.assertRaises(updater.UpdateError):
+                    updater.update_config()
+
 
 if __name__ == "__main__":
     unittest.main()

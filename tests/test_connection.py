@@ -53,3 +53,27 @@ class ConnectionTests(unittest.TestCase):
                 patch.object(mindie_sidecar.diagnostics, "bind_environment"), \
                 patch.object(cli, "ensure_service", return_value=ready):
             self.assertIs(mindie_sidecar.connection(), ready)
+
+    def test_corrupt_engine_config_and_unreadable_admission_fail_explicitly(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            engine = root / "engine.json"
+            engine.write_text("{corrupt", encoding="utf-8")
+            config = root / "config.json"
+            config.write_text(json.dumps({
+                "python": sys.executable, "engine_config": str(engine),
+                "state_dir": str(root / "state"), "venv_dir": str(root / "venv"),
+            }))
+            (root / "admission.sqlite3").write_bytes(b"corrupt-sqlite")
+            with patch.dict(os.environ, MINDIE_DSH_CONFIG=str(config),
+                            MINDIE_DSH_CONFIG_HOME=str(root),
+                            MINDIE_DSH_DATA_HOME=str(root)):
+                with self.assertRaises(mindie_sidecar.SidecarError) as bad_engine:
+                    mindie_sidecar.public_settings()
+                self.assertIn("cannot read engine configuration", str(bad_engine.exception))
+                with self.assertRaises(mindie_sidecar.SidecarError) as bad_admission:
+                    mindie_sidecar.op_rpc({
+                        "session": "s1", "token": "t1", "method": "query",
+                        "arguments": {"query": "x", "domain": "vllm-ascend"},
+                    })
+                self.assertIn("admission check failed", str(bad_admission.exception))

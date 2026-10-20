@@ -308,6 +308,10 @@ class BridgeProtocolTests(unittest.TestCase):
         pack = shaped["exploration_context"]["subagent_fact_pack"]
         self.assertEqual(pack["schema_version"], "mindie-rsi-subagent-pack/1")
         self.assertEqual(pack["isolation_mode"], "native_subcontext")
+        from unittest import mock
+        with mock.patch.object(rsi_explore, "_load_builder", return_value=None):
+            with self.assertRaises(RuntimeError):
+                rsi_explore.attach({"cards": [{"id": "u-l1", "tier": "L1"}]}, args)
 
 
 if __name__ == "__main__":

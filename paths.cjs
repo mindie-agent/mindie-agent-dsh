@@ -1,5 +1,13 @@
 'use strict'
 
+// [Role] Resolves MindIE-owned DSH data, config, state, and runtime paths.
+// [Invariants] JavaScript and Python (`mindie_paths.py`) resolve identical
+// paths; adapter overrides in `config.json` must be absolute paths.
+// [Timeouts & Locks] Synchronous local environment and `config.json` read; no
+// locks, child processes, or network I/O.
+// [Side-Effect Policy] Read-only path resolution and `config.json` inspection;
+// never creates or mutates files.
+//
 // MindIE-owned DSH paths. The bundle patch and the Python scripts resolve the
 // same locations; tests assert JavaScript/Python agreement.
 //

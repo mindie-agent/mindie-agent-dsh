@@ -98,7 +98,7 @@ class HostDistillRouteTests(unittest.TestCase):
             redactor_executable=str(self.scanner),
             redaction_key=b"k" * 32,
         )
-        return distill.with_worker_identity(prepared, self._identity())
+        return prepared
 
     def _decision(self, request: dict) -> dict:
         item = request["sanitized_inputs"][0]
