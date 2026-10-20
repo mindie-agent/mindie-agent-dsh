@@ -63,8 +63,10 @@ MCP connection; inspect its original record before starting another one.
 - Never automatically replay a write, edit, patch, artifact push, or bash
   mutation after an uncertain result.
 - **Pre-Compile Parallelism vs. Physical NPU Timing Mutual Exclusion**:
-  CPU/cross-compile jobs (`bisheng` / `ascendc` / `triton` compilation) and log
-  analysis may run in parallel using per-slot `MINDIE_SLOT_ID` cache paths, but
+  Only confirmed device-free compilation and log analysis may run in parallel
+  using per-slot `MINDIE_SLOT_ID` caches. Compiler names do not prove device
+  independence; device probing, JIT and warmup need the existing lease and
+  actual allocation. In addition,
   any performance benchmark or profiler capture on the same physical NPU cards
   (including dual-Die `Phy-ID` sibling mappings on Ascend A3 910C) must hold an
   exclusive `coordinator` lease and pass pre/post `environment_fingerprint`

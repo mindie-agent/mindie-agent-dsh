@@ -20,6 +20,14 @@ export const knowledgeDomainProperty = {
   description: 'Optional configured knowledge domain; omit to use the default domain.',
 }
 
+export const rsiExploreProperties = {
+  mode: { type: 'string', enum: ['reuse', 'diagnose', 'explore'] },
+  ledger_entries: { type: 'array', items: { type: 'object' } },
+  bottleneck_summary: { type: 'object' },
+  native_subcontext: { type: 'boolean' },
+  goal: { type: 'string' },
+}
+
 export const knowledgeQueryExtraProperties = {
   domain: knowledgeDomainProperty,
   domain_path: { type: 'string' },
@@ -28,6 +36,7 @@ export const knowledgeQueryExtraProperties = {
   include_archived: { type: 'boolean' },
   navigation_only: { type: 'boolean' },
   run_id: { type: 'string', maxLength: 256 },
+  ...rsiExploreProperties,
 }
 
 export const knowledgeExplainParameters = {
@@ -39,6 +48,7 @@ export const knowledgeExplainParameters = {
     known_refs: { type: 'array', items: { type: 'string' } },
     token_budget: { type: 'integer', minimum: 1, maximum: 16000 },
     run_id: { type: 'string', maxLength: 256 },
+    ...rsiExploreProperties,
   },
   required: [],
   additionalProperties: false,

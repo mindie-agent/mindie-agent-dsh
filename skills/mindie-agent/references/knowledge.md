@@ -147,104 +147,25 @@ This is the second step of progressive loading: use the cards from
 - Reading a reference does not establish applicability; compare its `conditions`
   with observed task facts.
 
-## Layered execution loops (`L1`–`L4`)
+## Diagnosis and exploration
 
-Functional `tier` and `evidence_strength` are independent: an `L1` axiom can be
-`hardware_spec`, while an `L3` workflow can be `single_observation`. Execute the
-layers in order and keep the evidence honest. A verified milestone is
-`task_state: "verified_milestone"` (or `"completed"`); `"in_flight"` is a
-zero-call no-op for distillation.
+Knowledge tiers describe use, not a mandatory execution order. Apply complete,
+condition-matched prerequisites; select L3 branches from observations. Hermes
+can revise any tier, and an exploration finding may be L1, L2, L3 or L4.
 
-### L1 + L2 Foundation Baseline
+Read [Diagnostic Reasoning](diagnostic-reasoning.md) when the routine path no
+longer explains the evidence, accuracy depends on state/observation, or a
+milestone challenges existing knowledge. It covers discriminating experiments,
+first divergence, observer controls, sequence reproducers, independent oracles,
+and preserving corrections. Keep evidence validity, goal attainment and
+reusable information distinct. Repeated no-information attempts prompt review;
+new facts are progress even without a performance improvement.
 
-- A query with observed `conditions` mounts the shared `_common` baseline
-  alongside the lexical matches: `L1` hardware/runtime axioms and measurement
-  gates (`category: axiom` or `measurement`) plus `L2` bottleneck/triage SOPs
-  (`category: sop`). Read the returned `cards`/`foundation_cards` first; they
-  are the bounded discovery layer.
-- Then load the selected closure once with
-  `knowledge_explain(refs=[...], conditions=<observed facts>,
-  known_refs=[<exact id@revision still visible>], token_budget=...)`. Shared
-  prerequisites are emitted once and bodies are never truncated. If
-  `unresolved` reports `budget_excluded`, increase the budget or narrow the
-  question; do not accept a partial procedure.
-- Consume `inherited_rules` / required bodies before the first experiment. If a
-  result carries `route: 'foundation_baseline'`, execute that baseline path
-  first and record the outcome. Each inherited rule must independently match;
-  an omitted `inheritance_excluded` entry is not permission to ignore its
-  premise.
-- `L1` constrains the environment and the measurement (supported SOC,
-  CANN/framework pairing, profiler/clock discipline, validity gates). `L2`
-  provides the bottleneck/triage procedure. `condition_unknown` is not a match:
-  verify the missing fact and query again.
-
-### L3 Hermes Mode (Heuristic Convergence & Skill Self-Evolution)
-
-- Run `L3` staged convergence workflows (`category: workflow`) on top of the
-  Foundation baseline: decompose the goal into ordered probes, change one
-  factor at a time, and record each structured probe (hypothesis, factors,
-  observed metric, `run_id`/`job_id`, receipt path, judgment) in
-  `experiment-ledger.jsonl`.
-- At verified milestones (`task_state="verified_milestone"` with
-  `outcome: "verified"` evidence, or `task_state="completed"`), call
-  `knowledge_distill(inputs, task_state=..., domain=..., related_refs=...,
-  proposal=...)`. A verified milestone inside a still-`in_flight` task may
-  distill when the selected inputs contain verified outcomes; all-`in_flight`
-  inputs remain a zero-call no-op. Only caller-selected, already-authorized
-  evidence is eligible; `reproduced_empirical` requires repeated `verified`
-  evidence and `L4` requires a verified `mindie-bench-ablation/1` receipt.
-  Distillation is a local C6 admission, never an automatic external
-  publication.
-- Prefer an incremental delta. Pass `related_refs` (existing stable unit IDs or
-  graded refs) so the organizer can compare `related_units` and revise/merge
-  rather than duplicate. When the foreground Agent has already formed a
-  `mindie-distill-decision/1`, pass `proposal` for deterministic validation and
-  application with `model_calls=0`; do not also invoke a redundant organizer
-  call. Omit both when neither is available.
-- Close the experience flywheel with the actual returned `feedback_ref`:
-  `discovered` (query returned the card), `loaded` (complete body entered
-  visible context), `applied` (the decision uses it; bind `run_id`/`step_id`),
-  and `evaluated` (real result; nonempty `run_id` plus `outcome`
-  supported/refuted/inconclusive). An optional `up`/`down` vote can accompany
-  the event. Feedback is never required.
-
-### L4 RSI Mode (Recursive Self-Improvement De-biased Exploration)
-
-- Escalate from `L3` only after 2 stalled routine attempts (no metric movement,
-  repeated null result, or the same bottleneck). Strip the `L3` routine
-  workflow's inherited ordering and confirmation bias.
-- Keep only `Goal` + `L1` foundation + `L2` bottleneck data + `L4` mutators
-  (`category: mutator`) + the `experiment-ledger.jsonl` `conditional_avoid`
-  set as negative constraints. A familiar `L3` assumption is not evidence.
-- Execute parallel CPU compile (`npu_count=0`) and serial, exclusive NPU timing
-  (`devices=[0]`) under a `coordinator` lease. Physical-NPU measurements never
-  overlap; verify the environment fingerprint before and after.
-- Judge every candidate on three independent axes:
-  - **Performance** — a valid measured change against the effective baseline and
-    the stated target; record the comparison basis and noise margin.
-  - **Correctness/Invariants** — compile, oracle, numerical equivalence, and
-    invariant checks; an invalid measurement or failed oracle is not
-    performance evidence.
-  - **Diagnostic Information Gain** — a new fact, an excluded hypothesis, a
-    narrowed condition, an identified divergent layer, or a reusable method.
-  A valid subtarget gain (for example 1.04× against a 1.05× target) stays
-  `subtarget_valid`/reusable evidence rather than `refuted`; a diagnostic result
-  can be valuable even without a speedup.
-- Gate 1–4:
-  1. `OracleFreezer` freezes the oracle/reference output and baseline `run_id`
-     before any mutation.
-  2. `MeasurementGuard` requires exclusive `devices=[0]`, a fixed measurement
-     window, a clean environment fingerprint, and a valid measurement;
-     `measurement_invalid` is not evidence.
-  3. `AblationGate` requires a baseline-bound verified final-combination
-     ablation receipt; LOO pruning stays a candidate until
-     `pruned_combination_verified` is true.
-  4. `Distill/Refute` distills only verified evidence at
-     `task_state: "verified_milestone"` or `"completed"` (an L4 mutator still
-     needs the verified ablation receipt); append `supported` or `refuted` with
-     `conditional_avoid` to `experiment-ledger.jsonl` and update `PROGRESS.md`.
-- Refuted mutations are retained as condition-scoped negative knowledge; never
-  relabel them as supported or silently replay them.
+Use `task_state="verified_milestone"` for a finished sub-result in a continuing
+task. `in_flight` and all-pending inputs remain no-op; Stop is not completion.
+Keep supported/refuted/inconclusive judgments with their scope and source.
+Only L4 transformation admission requires the verified final-combination
+ablation receipt; diagnostic findings need the evidence appropriate to their claim.
 
 ## Distill (`knowledge_distill`) & Paired-Runtime Boundary
 

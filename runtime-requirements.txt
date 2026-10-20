@@ -7,5 +7,5 @@
 #
 # The authoritative transitive lock is uv.lock; this file mirrors its two
 # direct dependencies for humans and for the release checklist.
-mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@532c4367be7c72c493c4d04e86e53ee5a2d1ee5f
+mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@924788e423adcfde04d52d05a405c071d6ac1769
 remote-dev @ git+https://github.com/mindie-agent/remote-dev@0b84ac8a9e2fdccb66107bab21b59cdf59748aec

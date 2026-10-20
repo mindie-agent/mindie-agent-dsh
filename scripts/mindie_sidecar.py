@@ -21,6 +21,7 @@ if str(HERE) not in sys.path:
 import mindie_paths as mp  # noqa: E402
 import dsh_diagnostics as diagnostics  # noqa: E402
 import knowledge_domain_routing as routing  # noqa: E402
+import rsi_explore  # noqa: E402
 
 MAX_LINE = 256 * 1024
 ADAPTER_VERSION = "0.0.3"
@@ -553,6 +554,11 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         _require_distill_runtime()
         timeout = _distill_timeout()
     else:
+        if method in {"query", "explain"}:
+            try:
+                payload = rsi_explore.forwarded(payload)
+            except ValueError as exc:
+                raise SidecarError(str(exc)) from exc
         timeout = 30.0
     if (
         payload.get("domain") is not None
@@ -585,6 +591,8 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         from mindie_knowledge.graded.distill import result_view
         result, is_error = result_view(result)
         return {**result, "_tool_error": is_error}
+    if method in {"query", "explain"}:
+        return rsi_explore.attach(result, payload)
     return result
 
 

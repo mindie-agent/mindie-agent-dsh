@@ -692,7 +692,7 @@ export function apply(ctx) {
       'knowledge_query',
       'Search graded rules and task material in one local MindIE domain. ' +
         'Returns bounded navigation `cards` and deduplicated `foundation_cards` alongside ' +
-        'compatible `results`; pass known task conditions and inspect each card before loading a body. ' +
+        'compatible `results`; pass known task conditions (or `include_unknown: true` during initial discovery to inspect `condition_unknown` cards and their `missing_conditions`) and inspect each card before loading a body. ' +
         'Pass `domain` to search a configured domain; omit it for the default domain. ' +
         'Archived or superseded units stay out of ordinary discovery unless `include_archived` is true. ' +
         '`navigation_only` returns cards without inline bodies; `run_id` records deduplicated delivery ' +
