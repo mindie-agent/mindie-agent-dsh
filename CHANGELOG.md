@@ -3,7 +3,7 @@
 ## 0.0.3 — 2026-10-20
 
 - Upgrade the pinned shared runtime to `mindie-knowledge 0.13.0`
-  (`b900f11ef6be1edfe54e3d739b10588bc0cb0fce`), `remote-dev 0.10.3`
+  (`d18e64f4e79e003c1fb898ca91ecf7587b1e0d32`), `remote-dev 0.10.3`
   (`f441d52f8dcb227ad31adeeeb1d66da4a28915bb`), and `mindie-diagnostics 0.5.0`
   (`6460cde3a50a7f91c9ded38557a7f921654f0c6a`).
 - Adopt the single-line `mindie://<domain>/units/<id>@<revision>` graded

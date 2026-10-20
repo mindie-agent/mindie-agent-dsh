@@ -35,7 +35,7 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 The `0.0.3` runtime pins:
 
-- `mindie-knowledge` `0.13.0` — release commit `b900f11ef6be1edfe54e3d739b10588bc0cb0fce`
+- `mindie-knowledge` `0.13.0` — release commit `d18e64f4e79e003c1fb898ca91ecf7587b1e0d32`
 - `remote-dev` `0.10.3` — release commit `f441d52f8dcb227ad31adeeeb1d66da4a28915bb`
 - `mindie-diagnostics` `0.5.0` — release commit `6460cde3a50a7f91c9ded38557a7f921654f0c6a`
 
