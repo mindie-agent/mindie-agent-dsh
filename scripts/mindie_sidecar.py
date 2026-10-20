@@ -406,15 +406,12 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def connection(engine: str | None = None):
-    from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service
+    from mindie_knowledge.loop.cli import ensure_service
 
     diagnostics.bind_environment()
-    engine = engine or engine_path()
-    try:
-        return ensure_service(engine)
-    except Exception:
-        connection_path(config_at(engine)).unlink(missing_ok=True)
-        return ensure_service(engine)
+    # The shared runtime owns recovery and the start lock. An unknown service
+    # state must remain visible instead of discarding another process's endpoint.
+    return ensure_service(engine or engine_path())
 
 
 def _require_distill_runtime() -> None:
