@@ -179,7 +179,7 @@ flowchart TB
 
 ## `0.0.3` 范围与已知限制
 
-- **锁定运行时版本**：`mindie-knowledge 0.13.0`（`704f75375210dccb034b8827959c028c25149061`）、`remote-dev 0.10.3`（`0b84ac8a9e2fdccb66107bab21b59cdf59748aec`）、`mindie-diagnostics 0.5.0`（`c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6`）。
+- **锁定运行时版本**：`mindie-knowledge 0.13.0`（`426ef41d2d754d717cca60255dedcad462700dfe`）、`remote-dev 0.10.3`（`0b84ac8a9e2fdccb66107bab21b59cdf59748aec`）、`mindie-diagnostics 0.5.0`（`c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6`）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
 - **`remote-dev` 状态跨会话共享**：远端作业记录位于 `~/.local/share/mindie-agent/dsh/state/remote`，在当前 Host 下跨会话可见。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活期间定时检查正式 Release 并切换子插件代数；DSH 停止期间不依赖操作系统级后台常驻计划任务。
