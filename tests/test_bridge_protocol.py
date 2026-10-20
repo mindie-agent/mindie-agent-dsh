@@ -82,10 +82,39 @@ class BridgeProtocolTests(unittest.TestCase):
             self.assertIn("additionalProperties", tool["inputSchema"])
         by_name = {tool["name"]: tool for tool in tools}
         query = by_name["knowledge_query"]["inputSchema"]["properties"]
-        self.assertTrue({"domain", "domain_path", "token_budget", "include_unknown"} <= set(query))
+        self.assertTrue(
+            {"domain", "domain_path", "token_budget", "include_unknown", "include_archived"}
+            <= set(query)
+        )
+        self.assertEqual(query["include_archived"]["type"], "boolean")
+        explain = by_name["knowledge_explain"]["inputSchema"]
+        self.assertEqual(
+            set(explain["properties"]),
+            {"ref", "refs", "conditions", "known_refs", "token_budget"},
+        )
+        self.assertEqual(explain["required"], [])
+        self.assertEqual(
+            explain["properties"]["refs"], {"type": "array", "items": {"type": "string"}}
+        )
+        self.assertEqual(
+            explain["properties"]["known_refs"],
+            {"type": "array", "items": {"type": "string"}},
+        )
+        self.assertEqual(
+            explain["properties"]["token_budget"],
+            {"type": "integer", "minimum": 1, "maximum": 16000},
+        )
         distill = by_name["knowledge_distill"]["inputSchema"]
-        self.assertEqual(set(distill["properties"]), {"domain", "inputs", "task_state"})
+        self.assertEqual(
+            set(distill["properties"]),
+            {"domain", "inputs", "task_state", "related_refs", "proposal"},
+        )
         self.assertEqual(set(distill["required"]), {"inputs", "task_state"})
+        self.assertEqual(
+            distill["properties"]["related_refs"],
+            {"type": "array", "items": {"type": "string"}},
+        )
+        self.assertEqual(distill["properties"]["proposal"], {"type": "object"})
         item = distill["properties"]["inputs"]["items"]
         self.assertEqual(
             set(item["properties"]),
@@ -94,6 +123,67 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertNotIn("_session_id", str(distill))
         self.assertNotIn("_activation", str(distill))
         self.assertNotIn("knowledge_feedback", {tool["name"] for tool in tools})
+
+    def test_expanded_optional_arguments_pass_argument_validation(self) -> None:
+        responses = exchange(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "knowledge_explain",
+                        "arguments": {
+                            "refs": [
+                                "mindie://vllm-ascend/units/unit-a@1",
+                                "mindie://vllm-ascend/units/unit-b@1",
+                            ],
+                            "conditions": {"soc": "Ascend910B"},
+                            "known_refs": ["mindie://vllm-ascend/units/unit-a@1"],
+                            "token_budget": 4096,
+                        },
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "knowledge_explain",
+                        "arguments": {"conditions": {"soc": "Ascend910B"}},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "knowledge_distill",
+                        "arguments": {
+                            "inputs": [
+                                {
+                                    "kind": "authorized_transcript",
+                                    "outcome": "verified",
+                                    "source_locator": "fixture",
+                                    "content": "fixture",
+                                    "evidence_refs": [],
+                                }
+                            ],
+                            "task_state": "verified_milestone",
+                            "related_refs": ["unit-fixture-probe"],
+                            "proposal": {"schema_version": "mindie-distill-decision/1"},
+                        },
+                    },
+                },
+            ],
+            self._env(),
+        )
+        for response in responses:
+            result = response["result"]
+            self.assertIs(result["isError"], True)
+            text = result["content"][0]["text"]
+            self.assertNotIn("unexpected tool arguments", text)
+            self.assertIn("Unavailable:", text)
 
     def test_missing_runtime_returns_actionable_error(self) -> None:
         responses = exchange(

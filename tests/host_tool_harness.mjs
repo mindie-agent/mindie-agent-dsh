@@ -11,6 +11,8 @@ const decision = process.env.DISTILL_DECISION
 const inputs = JSON.parse(process.env.DISTILL_INPUTS || '[]')
 const cwd = process.env.DISTILL_CWD
 const domain = process.env.DISTILL_DOMAIN
+const relatedRefs = process.env.DISTILL_RELATED_REFS
+const proposal = process.env.DISTILL_PROPOSAL
 if (!decision) throw new Error('DISTILL_DECISION is required')
 if (!cwd) throw new Error('DISTILL_CWD is required')
 
@@ -63,6 +65,8 @@ if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
 }
 const arguments_ = { inputs, task_state: 'verified_milestone' }
 if (domain) arguments_.domain = domain
+if (relatedRefs) arguments_.related_refs = JSON.parse(relatedRefs)
+if (proposal) arguments_.proposal = JSON.parse(proposal)
 let result = null
 let error = null
 try {
@@ -70,9 +74,10 @@ try {
 } catch (caught) {
   error = String(caught?.message || caught)
 }
+const schemas = Object.fromEntries([...tools].map(([name, tool]) => [name, tool.parameters]))
 console.log(JSON.stringify({
   activated: Boolean(activated.activated), result, error, llmCalls, promptHasDecisionSchema,
-  toolTimeoutMs: distillCallTimeoutMs(),
+  toolTimeoutMs: distillCallTimeoutMs(), schemas,
 }))
 for (const dispose of disposers.reverse()) {
   try { dispose() } catch { /* process is exiting */ }

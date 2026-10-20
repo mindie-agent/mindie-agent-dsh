@@ -58,32 +58,59 @@ session mode.
 
 ## Knowledge tools
 
+Use the two-step progressive flow: discover with bounded navigation, then load
+only the selected body closure. These fields are additive; omitting them keeps
+the previous single-query/single-ref/`rating` behavior.
+
 - `knowledge_query` — one concise query; `limit` 1–20; optional `domain`
   (selecting the default domain or a registered `domain_configs` Engine/Feed
   such as `"vllm-ascend"` or `"operators"`), `conditions`, `continuation`,
-  `domain_path`, `token_budget`, and `include_unknown`.
-- `knowledge_explain` — pass the actual returned single-line `ref`
-  (`mindie://<domain>/units/<id>@<revision>`, a positive integer revision) or
-  `unit_ref` for a `graded_unit` (which also returns `feedback_ref`), or a
-  legacy task/block `ref` (routed by the `mindie://<domain>/...` URI
-  authority—never pass a bare `id` or rewrite the returned revision URI) before
-  relying on it.
+  `domain_path`, `token_budget`, `include_unknown`, and `include_archived`.
+  A graded query returns bounded `cards` and deduplicated `foundation_cards`
+  alongside compatible `results` and `usage`; read the cards first instead of
+  expanding every body. `include_archived` defaults to `false` so
+  archived/superseded units stay out of ordinary discovery; use `true` only to
+  investigate an old or replaced conclusion.
+- `knowledge_explain` — the second step. Pass one actual returned single-line
+  `ref` (`mindie://<domain>/units/<id>@<revision>`, a positive integer revision)
+  or `unit_ref` for a compatible single read, or pass `refs=[...]` with
+  `conditions`, `known_refs`, and `token_budget` (1–16000) to assemble a batch
+  dependency closure. Shared prerequisites appear once, complete bodies are
+  never truncated, and `unresolved` distinguishes `condition_unknown`,
+  `condition_mismatch`, `budget_excluded`, `removed_or_superseded` (with
+  `superseded_by`), and `not_found`. `known_refs` means exact `id@revision`
+  bodies still fully visible in the current context—not everything ever
+  read—so clear it after native compaction. Route by the `mindie://<domain>/...`
+  authority; conflicting authorities across `refs` are rejected. Never pass a
+  bare `id` or rewrite the returned revision URI.
 - `knowledge_distill` — explicitly distill caller-selected, already-authorized
-  evidence (`inputs`, `task_state`, optional `domain`) into local C5 graded
-  units at `task_state="verified_milestone"` or `"completed"` (`completed` or
-  `verified_milestone` with `observed` or fault/environment/build evidence
-  [`compile_failed` / `infra_failed` / `measurement_invalid`] is allowed and can
-  yield `single_observation` or `hypothesis` without elevating unverified faults
-  to `hardware_spec` or `reproduced_empirical`, while `reproduced_empirical`
-  requires repeated `verified` evidence and `L4` requires a valid ablation
-  receipt); only `task_state="in_flight"` (or all-`in_flight` / empty inputs) is
-  a zero-call no-op and an ordinary `Stop` is not completion.
+  evidence (`inputs`, `task_state`, optional `domain`, `related_refs`,
+  `proposal`) into local C5 graded units at `task_state="verified_milestone"` or
+  `"completed"` (`completed` or `verified_milestone` with `observed` or
+  fault/environment/build evidence [`compile_failed` / `infra_failed` /
+  `measurement_invalid`] is allowed and can yield `single_observation` or
+  `hypothesis` without elevating unverified faults to `hardware_spec` or
+  `reproduced_empirical`, while `reproduced_empirical` requires repeated
+  `verified` evidence and `L4` requires a valid ablation receipt). Prefer a
+  delta over a duplicate: `related_refs` lets the organizer compare same-topic
+  existing units (`related_units`) before proposing a revision/merge. When the
+  foreground Agent has already formed a valid `mindie-distill-decision/1`,
+  pass `proposal` for deterministic validation and application with
+  `model_calls=0`. A verified milestone inside an `in_flight` task may distill
+  when the selected inputs contain verified outcomes; an ordinary `Stop` is not
+  completion, and all-`in_flight` / empty inputs remain a zero-call no-op.
 - `knowledge_feedback` — optional `up`/`down` after actual use by copying the
   actual returned `feedback_ref` (routed by the `mindie://<domain>/...` URI
   authority; for graded units `ref` and `feedback_ref` share the same revision
   URI `/units/<id>@<revision>`, and the vote is keyed by `unit_id` + integer
   `revision`, whereas legacy material keeps `ref` and `feedback_ref` distinct;
-  never pass a bare `id`); never required.
+  never pass a bare `id`). It also records one optional four-stage usage event:
+  `event_type` is `discovered`, `loaded`, `applied`, or `evaluated`;
+  `applied` may bind `run_id`/`step_id`; `evaluated` requires a nonempty
+  `run_id` and `outcome` `supported`/`refuted`/`inconclusive`. A pure
+  `discovered`/`loaded` event needs no rating. Events are idempotent per
+  root/unit/revision/event/run, so replays do not inflate counts. Never
+  required.
 - `knowledge_sync` — one explicit feed sync, only when the corpus is
   unavailable/stale or the user asks for the latest knowledge.
 
@@ -100,12 +127,13 @@ unconstrained `matched`, and historical `required: "unknown"` is never
 backfilled by later machine versions—never treat `condition_unknown` as a match;
 verify whichever fact is missing/unknown, such as source `repository`/`revision`
 for an `L2` source SOP or runtime environment for an NPU rule). Graded
-query options, multi-domain routing, and `knowledge_distill` depend on the
-paired `mindie-knowledge 0.13.0` runtime. The graded corpus uses the single-line
-`ID@revision` reference contract on each content repository's `main` branch.
-Check the selected feed revision and installed runtime identity separately when
-diagnosing a mismatch. If the corpus is unavailable, sync once and retry once;
-otherwise continue without knowledge and say so.
+query/explain options, multi-domain routing, `related_refs`/`proposal`
+distillation, and usage events depend on the paired `mindie-knowledge 0.13.0`
+runtime. The graded corpus uses the single-line `ID@revision` reference contract
+on each content repository's `main` branch. Check the selected feed revision and
+installed runtime identity separately when diagnosing a mismatch. If the corpus
+is unavailable, sync once and retry once; otherwise continue without knowledge
+and say so.
 
 ## Remote-dev
 
@@ -131,10 +159,20 @@ stalled routine workflow into exploration without the `L4` gates.
   `dtype`, `input_shape`, `workload_case_sha256`; never invent values) before
   changing code. A graded query mounts the shared `_common` baseline: `L1`
   hardware/runtime axioms and measurement gates (`category: axiom` or
-  `measurement`) plus `L2` bottleneck/triage SOPs (`category: sop`).
-- Apply every returned `inherited_rules` entry before the first experiment. When
-  a result carries `route: 'foundation_baseline'`, execute that baseline path
-  first and record its result; do not start tuning from an unverified guess.
+  `measurement`) plus `L2` bottleneck/triage SOPs (`category: sop`). Read the
+  bounded `cards`/`foundation_cards` first; this is the discovery half of the
+  progressive flow.
+- Load bodies only for the selected units with one batch
+  `knowledge_explain(refs=[...], conditions=<observed facts>,
+  known_refs=[<exact id@revision still visible>], token_budget=...)`. Shared
+  prerequisites are emitted once and complete bodies are never truncated; when
+  `unresolved` reports `budget_excluded`, raise the budget or narrow the
+  question rather than accepting a partial procedure. This is the second half
+  of the progressive flow and keeps the context bounded.
+- Apply every returned `inherited_rules` / required body before the first
+  experiment. When a result carries `route: 'foundation_baseline'`, execute that
+  baseline path first and record its result; do not start tuning from an
+  unverified guess.
 - `L1` bounds the environment and the measurement itself (supported SOC,
   CANN/framework pairing, profiler/clock discipline, validity gates). `L2`
   supplies the bottleneck/triage procedure. `condition_unknown` is not a match:
@@ -149,15 +187,28 @@ stalled routine workflow into exploration without the `L4` gates.
   `experiment-ledger.jsonl`.
 - At every verified milestone (`task_state: "verified_milestone"` with
   `outcome: "verified"` evidence, or `task_state: "completed"`), call
-  `knowledge_distill` with caller-selected, already-authorized evidence;
-  `"in_flight"` is a zero-call no-op.
+  `knowledge_distill` with caller-selected, already-authorized evidence. A
+  verified milestone inside a still-`in_flight` task may distill when the
+  selected inputs themselves contain verified outcomes; all-`in_flight` / empty
+  inputs remain a zero-call no-op.
   Keep `single_observation` and `hypothesis` honest: `reproduced_empirical`
   needs repeated `verified` evidence, and `L4` needs a verified ablation
   receipt.
-- After actually using a unit, call `knowledge_feedback` with the returned
-  `feedback_ref` (`unit_id` + integer `revision`, encoded as
-  `mindie://<domain>/units/<id>@<revision>`) and `up`/`down` to close the P3
-  reuse flywheel. Feedback is optional and is never a completion requirement.
+- Distill a delta, not a duplicate. Pass `related_refs` (existing stable unit
+  IDs or graded refs) so the organizer compares same-topic units through
+  `related_units` and can prefer a revision/merge. If you have already formed a
+  valid `mindie-distill-decision/1`, pass `proposal` to validate and apply it
+  deterministically (`model_calls=0`); do not also trigger a redundant model
+  call. Otherwise omit both and let the configured organizer propose the
+  change.
+- Close the experience flywheel in stages: `discovered` when a query returned
+  the card, `loaded` when the complete body entered visible context, `applied`
+  when the decision actually uses the unit (bind `run_id`/`step_id`), and
+  `evaluated` when a real result exists (`outcome` supported/refuted/
+  inconclusive and a nonempty `run_id`). Copy the actual returned
+  `feedback_ref` (`mindie://<domain>/units/<id>@<revision>` for a graded unit)
+  for every event/vote. The optional `up`/`down` vote remains separate from
+  these usage events; feedback is never a completion requirement.
 
 ### L4 RSI Mode (Recursive Self-Improvement De-biased Exploration)
 
@@ -173,6 +224,16 @@ stalled routine workflow into exploration without the `L4` gates.
 - Run parallel CPU compile (`npu_count=0`) and serial, exclusive NPU timing
   (`devices=[0]`) under a `coordinator` lease. Never overlap two physical-NPU
   measurements, and verify the environment fingerprint before and after.
+- Judge each exploration candidate on three independent axes: **Performance**
+  (a valid measured change against the effective baseline and the stated
+  target), **Correctness/Invariants** (compile, oracle, numerical, and
+  invariance checks), and **Diagnostic Information Gain** (a new fact, an
+  excluded hypothesis, a narrowed condition, or a reusable method). These axes
+  do not collapse into one verdict: an invalid measurement is not evidence, a
+  valid 1.04× below a 1.05× target is `subtarget_valid` rather than refuted,
+  and a diagnostic result can be useful even when performance does not improve.
+  A refuted mutation is condition-scoped negative evidence, not a permanent
+  ban.
 - Enforce Gate 1–4 before accepting a result:
   1. `OracleFreezer` — freeze the oracle/reference output and baseline `run_id`
      before mutating; a moving oracle invalidates the comparison.
@@ -183,7 +244,8 @@ stalled routine workflow into exploration without the `L4` gates.
      and final-combination verification before claiming an `L4` mutator; LOO
      pruning is only a candidate until verified.
   4. `Distill/Refute` — distill only verified evidence at
-     `task_state: "completed"`; append `supported` or `refuted`
+     `task_state: "verified_milestone"` or `"completed"` (an L4 mutator still
+     needs the verified ablation receipt); append `supported` or `refuted`
      (`conditional_avoid`) to `experiment-ledger.jsonl` and update
      `PROGRESS.md` with fact references and the next minimal experiment.
 - A refuted mutation is a result, not a failure: record the scope conditions

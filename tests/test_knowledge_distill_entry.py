@@ -196,7 +196,8 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
             }],
         }
 
-    def _run_harness(self, *, skip_activation: bool = False, model_mode: str = "returned") -> dict:
+    def _run_harness(self, *, skip_activation: bool = False, model_mode: str = "returned",
+                     **extra: str) -> dict:
         env = dict(os.environ)
         paths = [str(SHARED)]
         if existing := env.get("PYTHONPATH"):
@@ -208,6 +209,7 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
             "DISTILL_CWD": str(self.project),
             "DISTILL_MODEL_MODE": model_mode,
         })
+        env.update(extra)
         if skip_activation:
             env["DISTILL_SKIP_ACTIVATION"] = "1"
         completed = subprocess.run(
@@ -217,6 +219,53 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         if completed.returncode != 0:
             self.fail(f"host tool harness failed: {completed.stderr or completed.stdout}")
         return json.loads(completed.stdout.strip().splitlines()[-1])
+
+    def test_registered_tool_parameters_expose_progressive_and_flywheel_fields(self) -> None:
+        payload = self._run_harness()
+        schemas = payload["schemas"]
+        self.assertEqual(
+            schemas["knowledge_query"]["properties"]["include_archived"]["type"],
+            "boolean",
+        )
+        explain = schemas["knowledge_explain"]
+        self.assertEqual(
+            set(explain["properties"]),
+            {"ref", "refs", "conditions", "known_refs", "token_budget"},
+        )
+        self.assertEqual(explain["required"], [])
+        distill = schemas["knowledge_distill"]
+        self.assertEqual(
+            set(distill["properties"]),
+            {"domain", "inputs", "task_state", "related_refs", "proposal"},
+        )
+        feedback = schemas["knowledge_feedback"]
+        self.assertTrue(
+            {"event_type", "run_id", "step_id", "outcome"} <= set(feedback["properties"])
+        )
+        self.assertEqual(feedback["required"], ["ref"])
+        self.assertEqual(
+            set(feedback["properties"]["event_type"]["enum"]),
+            {"discovered", "loaded", "applied", "evaluated"},
+        )
+        self.assertEqual(
+            set(feedback["properties"]["outcome"]["enum"]),
+            {"supported", "refuted", "inconclusive"},
+        )
+
+    def test_registered_distill_accepts_related_refs_and_foreground_proposal(self) -> None:
+        payload = self._run_harness(
+            DISTILL_RELATED_REFS=json.dumps(["unit-host-entry-related"]),
+            DISTILL_PROPOSAL=json.dumps(self.decision),
+        )
+        self.assertTrue(payload["activated"])
+        self.assertIsNone(payload["error"])
+        result = payload["result"]
+        self.assertEqual(result["status"], "applied")
+        self.assertEqual(result["admitted_unit_ids"], ["unit-host-entry-distill"])
+        self.assertEqual(result["model_calls"], 0)
+        self.assertEqual(result["model_execution"], "foreground_proposal")
+        self.assertEqual(payload["llmCalls"], 0)
+        self.assertFalse(payload["promptHasDecisionSchema"])
 
     def test_registered_tool_uses_native_lease_service_and_organizer(self) -> None:
         from mindie_knowledge.loop.summary_budget import distill_rpc_timeout

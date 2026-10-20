@@ -54,10 +54,12 @@ TOOLS: list[dict[str, Any]] = [
             "Search the local MindIE Ascend knowledge corpus (vLLM-Ascend, "
             "AscendC/Triton, testing and tuning experience). "
             + GATED
-            + " Returns graded rules or task citation groups, each with a readable ref and observed feedback_ref. "
+            + " Returns graded rules or task citation groups, each with a readable ref and observed feedback_ref, "
+            "plus bounded navigation `cards` and deduplicated `foundation_cards` when the graded corpus is installed. "
             "Pass known task conditions to filter graded rules. For related task blocks, pass "
             "`continuation` without `query` for the next page. Pass `domain` to search one configured "
-            "independent domain; omit it for the default domain. If the corpus is reported unavailable, call "
+            "independent domain; omit it for the default domain. Archived or superseded units stay out "
+            "of ordinary discovery unless `include_archived` is true. If the corpus is reported unavailable, call "
             "knowledge_sync once and retry."
         ),
         "inputSchema": {
@@ -71,6 +73,7 @@ TOOLS: list[dict[str, Any]] = [
                 "domain_path": {"type": "string", "description": "Optional graded-domain path filter."},
                 "token_budget": {"type": "integer", "minimum": 1, "description": "Optional token budget for the returned navigation/body."},
                 "include_unknown": {"type": "boolean", "description": "Include entries whose condition applicability is unknown."},
+                "include_archived": {"type": "boolean"},
             },
             "additionalProperties": False,
         },
@@ -78,20 +81,26 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "knowledge_explain",
         "description": (
-            "Read one knowledge reference. Pass a graded-unit ref for its exact current revision and conditions, "
-            "a task ref to get its navigation "
-            "outline and first block ref, or a block ref to get the immutable "
-            "block body plus previous/next refs. A `mindie://DOMAIN/...` ref reads "
-            "its own configured domain. "
+            "Read one knowledge reference or assemble a batch of graded units. Pass a single `ref` for the "
+            "compatible graded-unit, task or block read, or pass `refs` to compute the shared dependency "
+            "closure once: complete unit bodies are never truncated, shared prerequisites appear once, "
+            "`known_refs` names complete `id@revision` units still visible after compaction, and "
+            "`token_budget` (1-16000) bounds the whole response. `conditions` evaluates applicability and "
+            "reports unresolved reasons. A `mindie://DOMAIN/...` ref reads its own configured domain; "
+            "conflicting domain authorities across refs are rejected. "
             + GATED
             + " The content is a reference slice, not a verified report."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "ref": {"type": "string", "description": "A graded-unit, task or block ref returned by knowledge_query."}
+                "ref": {"type": "string", "description": "A graded-unit, task or block ref returned by knowledge_query."},
+                "refs": {"type": "array", "items": {"type": "string"}},
+                "conditions": {"type": "object"},
+                "known_refs": {"type": "array", "items": {"type": "string"}},
+                "token_budget": {"type": "integer", "minimum": 1, "maximum": 16000},
             },
-            "required": ["ref"],
+            "required": [],
             "additionalProperties": False,
         },
     },
@@ -101,8 +110,11 @@ TOOLS: list[dict[str, Any]] = [
             "Distill explicitly selected, already-sanitized evidence into the shared "
             "C6 graded-knowledge decision pipeline. Requires an activated task and a "
             "verified milestone/completion supplied by the caller; an ordinary Stop is "
-            "not completion. Only selected inputs, task_state and an optional configured "
-            "`domain` are accepted; identity and activation come from the native binding. "
+            "not completion. Pass optional `related_refs` to compare existing units for "
+            "an incremental revision, or a foreground `proposal` (mindie-distill-decision/1) "
+            "for deterministic validation without a model call. Only selected inputs, "
+            "task_state, related_refs, proposal and an optional configured `domain` are "
+            "accepted; identity and activation come from the native binding. "
             "Unavailable when the paired knowledge runtime has no C6 support. "
             + GATED
         ),
@@ -110,6 +122,8 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "domain": DOMAIN_PROPERTY,
+                "related_refs": {"type": "array", "items": {"type": "string"}},
+                "proposal": {"type": "object"},
                 "inputs": {
                     "type": "array",
                     "minItems": 1,
@@ -288,9 +302,42 @@ def activation_token(session: str) -> str:
     return token
 
 
+def _reference_text(value: Any, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"knowledge_explain `{label}` must be nonempty text")
+    return value
+
+
+def _explain_route_ref(args: dict[str, Any]) -> str | None:
+    """Route via ``ref`` or the first ``refs`` item, rejecting mixed domain authorities."""
+    ref = _reference_text(args.get("ref"), "ref")
+    raw_refs = args.get("refs")
+    if raw_refs is not None:
+        if not isinstance(raw_refs, list) or any(
+            not isinstance(item, str) or not item.strip() for item in raw_refs
+        ):
+            raise ValueError("knowledge_explain `refs` must be an array of nonempty strings")
+    refs = list(raw_refs or [])
+    authorities: list[str] = []
+    for item in ([ref] if ref is not None else []) + refs:
+        domain = routing.reference_domain(item)
+        if domain is not None and domain not in authorities:
+            authorities.append(domain)
+    if len(authorities) > 1:
+        raise ValueError(
+            "knowledge_explain refs have conflicting mindie:// domain authorities: "
+            + ", ".join(authorities)
+        )
+    return ref if ref is not None else (refs[0] if refs else None)
+
+
 def _distill_arguments(args: dict[str, Any]) -> None:
-    if set(args) - {"inputs", "task_state", "domain"}:
-        raise ValueError("knowledge_distill accepts only inputs, task_state and domain")
+    if set(args) - {"inputs", "task_state", "domain", "related_refs", "proposal"}:
+        raise ValueError(
+            "knowledge_distill accepts only inputs, task_state, domain, related_refs and proposal"
+        )
     inputs = args.get("inputs")
     if not isinstance(inputs, list) or not inputs:
         raise ValueError("knowledge_distill requires a nonempty inputs array")
@@ -303,6 +350,15 @@ def _distill_arguments(args: dict[str, Any]) -> None:
             raise ValueError("knowledge_distill inputs have unsupported or missing fields")
     if not isinstance(args.get("task_state"), str) or not args["task_state"]:
         raise ValueError("knowledge_distill requires an explicit task_state")
+    related_refs = args.get("related_refs")
+    if related_refs is not None and (
+        not isinstance(related_refs, list)
+        or any(not isinstance(item, str) or not item.strip() for item in related_refs)
+    ):
+        raise ValueError("knowledge_distill `related_refs` must be an array of nonempty strings")
+    proposal = args.get("proposal")
+    if proposal is not None and not isinstance(proposal, dict):
+        raise ValueError("knowledge_distill `proposal` must be an object")
 
 
 def _distill_timeout() -> float:
@@ -362,8 +418,9 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
                 f"{exc} The configured feed has no installed snapshot. Call knowledge_sync once, then retry the query."
             ) from exc
     if name == "knowledge_explain":
-        route = _route({"ref": args.get("ref")}, config)
-        payload = _payload({"ref": args.get("ref")}, route, {
+        route_ref = _explain_route_ref(args)
+        route = _route({"ref": route_ref}, config)
+        payload = _payload(args, route, {
             "_session_id": session, "_session_verified": True,
         })
         try:

@@ -142,16 +142,98 @@ class KnowledgeDistillToolTests(unittest.TestCase):
         }]
 
     def _call_sidecar(self, *, token: str | None = None, task_state: str = "verified_milestone",
-                      inputs: list[dict] | None = None):
+                      inputs: list[dict] | None = None, **extra):
+        arguments = {
+            "inputs": self._inputs() if inputs is None else inputs,
+            "task_state": task_state,
+            **extra,
+        }
         return mindie_sidecar.op_rpc({
             "session": "manual-A",
             "token": self.token if token is None else token,
             "method": "distill",
-            "arguments": {
-                "inputs": self._inputs() if inputs is None else inputs,
-                "task_state": task_state,
-            },
+            "arguments": arguments,
         })
+
+    def _call_sidecar_query(self, arguments: dict):
+        return mindie_sidecar.op_rpc({
+            "session": "manual-A", "token": self.token,
+            "method": "query", "arguments": arguments,
+        })
+
+    def _call_sidecar_explain(self, arguments: dict):
+        return mindie_sidecar.op_rpc({
+            "session": "manual-A", "token": self.token,
+            "method": "explain", "arguments": arguments,
+        })
+
+    def _graded_unit(self, ident: str, *, tier: str = "L2", category: str = "sop",
+                     body: str = "Fixture graph probe rule.\n", parents: tuple[str, ...] = (),
+                     evidence_strength: str | None = None):
+        from mindie_knowledge.graded.units import GradedUnit
+
+        metadata = {
+            "schema": "mindie-graded-unit/1",
+            "id": ident,
+            "tier": tier,
+            "category": category,
+            "evidence_strength": evidence_strength or (
+                "software_contract" if tier == "L1" else "single_observation"
+            ),
+            "domain_path": "_common" if tier == "L1" else "serving/graph",
+            "inherits_from": list(parents),
+            "title": f"Fixture rule {ident}",
+            "triggers": {"error_signatures": [], "keywords": ["graph", "fixture"]},
+            "conditions": {"soc": ["Ascend910B"]},
+            "provenance": {
+                "source_type": "session_distill",
+                "source_locator": "fixture@abcdef1:probe.txt",
+                "source_digest": "c" * 64,
+                "evidence_refs": ["fixture-observation"],
+                "supersedes": [],
+            },
+        }
+        return GradedUnit.from_parts(
+            metadata, body, f"{metadata['domain_path']}/{ident}.md",
+        )
+
+    def _proposal(self, ident: str = "unit-fixture-proposal"):
+        from mindie_knowledge.loop.store import session_key
+
+        return {
+            "schema_version": "mindie-distill-decision/1",
+            "session_digest": session_key("manual-A"),
+            "evidence_inputs": ["authorized_transcript"],
+            "action": "propose_graded_units",
+            "drop_reason": None,
+            "units": [{
+                "target_unit_id": ident,
+                "target_tier": "L2",
+                "category": "sop",
+                "evidence_strength": "single_observation",
+                "domain_path": "serving/graph",
+                "operation": "create",
+                "frontmatter": {
+                    "schema": "mindie-graded-unit/1",
+                    "id": ident,
+                    "tier": "L2",
+                    "category": "sop",
+                    "evidence_strength": "single_observation",
+                    "domain_path": "serving/graph",
+                    "inherits_from": [],
+                    "title": "Fixture foreground proposal",
+                    "triggers": {"error_signatures": [], "keywords": ["proposal", "graph"]},
+                    "conditions": {"soc": ["Ascend910B"]},
+                    "provenance": {
+                        "source_type": "session_distill",
+                        "source_locator": "fixture@abcdef1:probe.txt",
+                        "evidence_refs": ["fixture-observation"],
+                        "supersedes": [],
+                    },
+                },
+                "markdown_body": "Fixture foreground proposal; no hardware claim.\n",
+            }],
+        }
 
     def test_sidecar_routes_verified_milestone_to_service_and_engine(self) -> None:
         result = self._call_sidecar()
@@ -201,6 +283,149 @@ class KnowledgeDistillToolTests(unittest.TestCase):
         self.assertEqual(seen["domain_path"], "serving/graph")
         self.assertEqual(seen["token_budget"], 16)
         self.assertIs(seen["include_unknown"], True)
+
+    def test_sidecar_batch_explain_deduplicates_shared_closure(self) -> None:
+        premise = self._graded_unit(
+            "unit-fixture-shared-premise", tier="L1", category="axiom",
+            body="Shared premise body, returned once.\n",
+        )
+        left = self._graded_unit("unit-fixture-left", parents=(premise.id,))
+        right = self._graded_unit("unit-fixture-right", parents=(premise.id,))
+        self.store.graded.install([premise, left, right])
+        refs = [
+            f"mindie://{self.store.domain}/units/{unit.id}@{unit.revision}"
+            for unit in (left, right)
+        ]
+
+        result = self._call_sidecar_explain({
+            "refs": refs,
+            "conditions": {"soc": "Ascend910B"},
+            "known_refs": [],
+            "token_budget": 16000,
+        })
+        self.assertEqual([item["id"] for item in result["requires"]], [premise.id])
+        self.assertEqual([item["id"] for item in result["units"]], [left.id, right.id])
+        self.assertEqual(result["unresolved"], [])
+        self.assertEqual(
+            [item["content"] for item in result["requires"]],
+            [premise.body],
+        )
+        self.assertIn("usage", result)
+
+        visible = self._call_sidecar_explain({
+            "refs": refs,
+            "conditions": {"soc": "Ascend910B"},
+            "known_refs": [f"{premise.id}@{premise.revision}"],
+            "token_budget": 16000,
+        })
+        self.assertEqual(visible["requires"], [])
+        self.assertEqual([item["id"] for item in visible["units"]], [left.id, right.id])
+
+    def test_mcp_batch_explain_forwards_refs_conditions_known_refs(self) -> None:
+        premise = self._graded_unit(
+            "unit-fixture-mcp-premise", tier="L1", category="axiom",
+            body="MCP shared premise body, returned once.\n",
+        )
+        child = self._graded_unit("unit-fixture-mcp-child", parents=(premise.id,))
+        self.store.graded.install([premise, child])
+        ref = f"mindie://{self.store.domain}/units/{child.id}@{child.revision}"
+
+        response = knowledge_mcp.handle({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "knowledge_explain", "arguments": {
+                "refs": [ref],
+                "conditions": {"soc": "Ascend910B"},
+                "known_refs": [],
+                "token_budget": 16000,
+            }},
+        })["result"]
+        self.assertIs(response["isError"], False)
+        payload = json.loads(response["content"][0]["text"])
+        self.assertEqual([item["id"] for item in payload["requires"]], [premise.id])
+        self.assertEqual([item["id"] for item in payload["units"]], [child.id])
+
+    def test_explain_rejects_conflicting_reference_authorities(self) -> None:
+        refs = [
+            "mindie://vllm-ascend/units/unit-a@1",
+            "mindie://operators/units/unit-b@1",
+        ]
+        with self.assertRaises(mindie_sidecar.SidecarError) as conflict:
+            self._call_sidecar_explain({"refs": refs})
+        self.assertIn("conflict", str(conflict.exception))
+        with self.assertRaises(ValueError):
+            knowledge_mcp._explain_route_ref({"refs": refs})
+
+    def test_sidecar_distill_related_refs_reaches_related_units(self) -> None:
+        from mindie_knowledge.graded import worker as graded_worker
+
+        related = self._graded_unit(
+            "unit-fixture-related", body="Existing related graph rule.\n",
+        )
+        self.store.graded.install([related])
+        seen = {}
+        original = graded_worker.prepare_request
+
+        def spy(request_inputs, **kwargs):
+            request = original(request_inputs, **kwargs)
+            seen["request"] = request
+            return request
+
+        with mock.patch.object(graded_worker, "prepare_request", side_effect=spy):
+            result = self._call_sidecar(related_refs=[related.id])
+        self.assertEqual(result["status"], "applied")
+        self.assertIn("related_units", seen["request"])
+        self.assertEqual(
+            [item["id"] for item in seen["request"]["related_units"]],
+            [related.id],
+        )
+        self.assertEqual(self.calls.read_text(), "1")
+
+    def test_mcp_distill_foreground_proposal_applies_without_model(self) -> None:
+        proposal = self._proposal("unit-fixture-mcp-proposal")
+        response = knowledge_mcp.handle({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "knowledge_distill", "arguments": {
+                "inputs": self._inputs(),
+                "task_state": "verified_milestone",
+                "related_refs": ["unit-fixture-related"],
+                "proposal": proposal,
+            }},
+        })["result"]
+        self.assertIs(response["isError"], False)
+        payload = response["structuredContent"]
+        self.assertEqual(payload["status"], "applied")
+        self.assertEqual(payload["admitted_unit_ids"], ["unit-fixture-mcp-proposal"])
+        self.assertEqual(payload["model_calls"], 0)
+        self.assertEqual(payload["model_execution"], "foreground_proposal")
+        self.assertFalse(self.calls.exists())
+        found = self.store.query("graph", conditions={"soc": "Ascend910B"})
+        self.assertIn("unit-fixture-mcp-proposal", [row["id"] for row in found["results"]])
+
+    def test_sidecar_feedback_records_four_stage_usage_events(self) -> None:
+        unit = self._graded_unit("unit-fixture-feedback")
+        self.store.graded.install([unit])
+        hit = self._call_sidecar_query({
+            "query": "graph", "include_unknown": True, "limit": 5,
+        })["results"][0]
+        ref = hit["feedback_ref"]
+
+        def event(event_type: str, **extra):
+            return mindie_sidecar.op_rpc({
+                "session": "manual-A", "token": self.token,
+                "method": "feedback",
+                "arguments": {"ref": ref, "event_type": event_type, **extra},
+            })
+
+        self.assertEqual(event("discovered")["event_type"], "discovered")
+        self.assertEqual(event("loaded")["event_type"], "loaded")
+        applied = event("applied", run_id="run-1", step_id="step-3")
+        self.assertEqual(applied["run_id"], "run-1")
+        self.assertEqual(applied["step_id"], "step-3")
+        evaluated = event("evaluated", run_id="run-1", outcome="supported")
+        self.assertEqual(evaluated["outcome"], "supported")
+        self.assertFalse(evaluated["duplicate"])
+        duplicate = event("evaluated", run_id="run-1", outcome="supported")
+        self.assertTrue(duplicate["duplicate"])
 
     def test_mcp_bridge_distill_uses_active_lease_and_shared_engine(self) -> None:
         response = knowledge_mcp.handle({

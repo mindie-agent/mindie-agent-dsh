@@ -25,12 +25,28 @@ export const knowledgeQueryExtraProperties = {
   domain_path: { type: 'string' },
   token_budget: { type: 'integer', minimum: 1 },
   include_unknown: { type: 'boolean' },
+  include_archived: { type: 'boolean' },
+}
+
+export const knowledgeExplainParameters = {
+  type: 'object',
+  properties: {
+    ref: { type: 'string' },
+    refs: { type: 'array', items: { type: 'string' } },
+    conditions: { type: 'object' },
+    known_refs: { type: 'array', items: { type: 'string' } },
+    token_budget: { type: 'integer', minimum: 1, maximum: 16000 },
+  },
+  required: [],
+  additionalProperties: false,
 }
 
 export const knowledgeDistillParameters = {
   type: 'object',
   properties: {
     domain: knowledgeDomainProperty,
+    related_refs: { type: 'array', items: { type: 'string' } },
+    proposal: { type: 'object' },
     inputs: {
       type: 'array',
       minItems: 1,
@@ -72,8 +88,11 @@ export const knowledgeDistillDescription =
   'Distill explicitly selected, already-sanitized evidence through the shared C6 ' +
   'graded-knowledge pipeline. Requires an activated task and an explicit ' +
   'verified milestone/completion supplied by the caller; an ordinary Stop is not ' +
-  'completion. Only selected inputs, task_state and an optional configured domain ' +
-  'are accepted; activation comes from the native binding. Requires a live DSH host ' +
+  'completion. Pass optional `related_refs` to compare existing units for an ' +
+  'incremental revision, or a foreground `proposal` (mindie-distill-decision/1) ' +
+  'for deterministic validation without a model call. Only selected inputs, ' +
+  'task_state, related_refs, proposal and an optional configured domain are ' +
+  'accepted; activation comes from the native binding. Requires a live DSH host ' +
   'summary endpoint and a paired runtime with C6 support; otherwise unavailable.'
 
 export function registerKnowledgeDistill(ctx, {
