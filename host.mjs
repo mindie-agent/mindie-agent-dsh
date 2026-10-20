@@ -1,5 +1,13 @@
 // Stable Host launcher for mindie-agent-dsh.
 //
+// [Role] Mounts the committed `host3.mjs` generation and hot-swaps it when
+// `current.json` changes, without restarting DSH.
+// [Invariants] A missing/corrupt generation pointer falls back to the bundled
+// seed and never leaves the previous fiber unmounted.
+// [Timeouts & Locks] One 5s pointer poll; no network/model/child work.
+// [Side-Effect Policy] Reads `current.json`; mounts/disposes Cordis fibers and
+// writes only the launcher log.
+//
 // The profile points at this file. The updater writes an immutable generation
 // pointer; this launcher mounts the generation as a child Cordis plugin and
 // swaps it when the pointer changes, so an update does not require replacing
@@ -29,8 +37,10 @@ function entryFor() {
       const candidate = path.join(pointer.generation, 'host3.mjs')
       if (existsSync(candidate)) return candidate
     }
-  } catch {
-    // no committed generation; use the seed
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      log('generation pointer unreadable: ' + String(error?.message || error))
+    }
   }
   return path.join(paths.packageDir, 'host3.mjs')
 }

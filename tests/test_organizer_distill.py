@@ -180,11 +180,13 @@ class OrganizerDistillTests(unittest.TestCase):
         }
 
     def test_identity_declares_c6_capability(self) -> None:
+        self._serve()
         identity = self._identity()
         self.assertIn("mindie-distill-request/1", identity["capabilities"])
         summarizer.validate_identity(identity)
 
     def test_identity_does_not_claim_c6_without_runtime_api(self) -> None:
+        self._serve()
         with mock.patch.dict(os.environ, {"MINDIE_DSH_STATE_DIR": str(self.state)}), \
                 mock.patch.dict(sys.modules, {
                     "mindie_knowledge.graded": None,
@@ -193,6 +195,11 @@ class OrganizerDistillTests(unittest.TestCase):
             identity = dsh_organizer.identity()
         self.assertNotIn("mindie-distill-request/1", identity.get("capabilities", []))
         summarizer.validate_identity(identity)
+        (self.state / "summary-endpoint.json").unlink()
+        with mock.patch.dict(os.environ, {"MINDIE_DSH_STATE_DIR": str(self.state)}):
+            unavailable = dsh_organizer.identity()
+        self.assertNotIn("mindie-distill-request/1", unavailable.get("capabilities", []))
+        summarizer.validate_identity(unavailable)
 
     def test_native_protocol_returns_validated_decision(self) -> None:
         self._serve()
@@ -213,8 +220,8 @@ class OrganizerDistillTests(unittest.TestCase):
         self.assertEqual(posted["request"]["sanitized_inputs"], request["sanitized_inputs"])
 
     def test_in_flight_is_noop_without_model_call(self) -> None:
-        request = self._request(task_state="in_flight", outcome="in_flight")
         self._serve()
+        request = self._request(task_state="in_flight", outcome="in_flight")
         envelope = json.loads(self._run(request).stdout)
         summarizer.validate_outcome(envelope, request)
         self.assertEqual(envelope["status"], "returned")
@@ -227,7 +234,9 @@ class OrganizerDistillTests(unittest.TestCase):
         self.assertEqual(_Handler.calls, 0)
 
     def test_missing_endpoint_fails_before_send(self) -> None:
+        self._serve()
         request = self._request()
+        (self.state / "summary-endpoint.json").unlink()
         envelope = json.loads(self._run(request).stdout)
         summarizer.validate_outcome(envelope, request)
         self.assertEqual(envelope["status"], "failed")
@@ -296,11 +305,20 @@ class OrganizerDistillTests(unittest.TestCase):
         self.assertEqual(_Handler.calls, 0)
 
     def test_invalid_worker_request_fails_before_send(self) -> None:
+        self._serve()
         request = self._request()
         request["request_digest"] = "0" * 64
         completed = self._run(request, check=False)
         self.assertEqual(completed.returncode, 1)
         self.assertEqual(json.loads(completed.stdout)["error"], "invalid_distill_request")
+        self.assertEqual(_Handler.calls, 0)
+
+    def test_invalid_legacy_summary_request_emits_structured_error(self) -> None:
+        completed = self._run({"blocks": "not-a-list"}, check=False)
+        self.assertEqual(completed.returncode, 1)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["schema"], "mindie-summary-error/1")
+        self.assertEqual(payload["error"], "invalid_summary_request")
         self.assertEqual(_Handler.calls, 0)
 
     def test_unknown_schema_is_rejected_explicitly(self) -> None:

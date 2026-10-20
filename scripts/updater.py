@@ -30,7 +30,6 @@ import setup_process  # noqa: E402
 
 SCHEMA = "mindie-dsh-update-status/1"
 DEFAULT_API = "https://api.github.com/repos/mindie-agent/mindie-agent-dsh/releases"
-CHECK_TIMEOUT = 240
 INSTALL_TIMEOUT = 600
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
@@ -88,7 +87,15 @@ def atomic_json(path: Path, value) -> None:
 
 
 def update_config() -> dict:
-    value = read_json(config_path(), {})
+    if not config_path().is_file():
+        value = {}
+    else:
+        try:
+            value = json.loads(config_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise UpdateError(
+                f"update configuration is unreadable: {type(exc).__name__}"
+            ) from exc
     if not isinstance(value, dict):
         value = {}
     enabled = value.get("enabled", True)

@@ -85,8 +85,11 @@ def public_settings() -> dict[str, Any]:
     engine = engine_path()
     try:
         data = json.loads(Path(engine).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    except (OSError, ValueError) as exc:
+        raise SidecarError(
+            f"cannot read engine configuration {engine}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     community = settings_mod.load(data.get("community_config"))
     consent = consent_store.read(str(consent_path()))
     return {
@@ -406,15 +409,12 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def connection(engine: str | None = None):
-    from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service
+    from mindie_knowledge.loop.cli import ensure_service
 
     diagnostics.bind_environment()
-    engine = engine or engine_path()
-    try:
-        return ensure_service(engine)
-    except Exception:
-        connection_path(config_at(engine)).unlink(missing_ok=True)
-        return ensure_service(engine)
+    # The shared runtime owns recovery and the start lock. An unknown service
+    # state must remain visible instead of discarding another process's endpoint.
+    return ensure_service(engine or engine_path())
 
 
 def _require_distill_runtime() -> None:
@@ -567,9 +567,14 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
     ):
         try:
             admission().check(session, token)
-        except Exception as exc:
+        except ValueError as exc:
             raise SidecarError(
                 "this task is not activated; invoke /mindie-agent first"
+            ) from exc
+        except Exception as exc:
+            raise SidecarError(
+                f"admission check failed: {type(exc).__name__}: {exc}. "
+                "Do not re-activate until the admission store is readable."
             ) from exc
     route_payload = payload
     if method == "explain":

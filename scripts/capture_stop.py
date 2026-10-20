@@ -36,8 +36,11 @@ def append_log(value: dict) -> None:
             os.replace(path, path.with_suffix(".1"))
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
-    except OSError:
-        pass
+    except OSError as exc:
+        print(
+            f"MindIE capture receipt write failed: {type(exc).__name__}: {exc}"[:500],
+            file=sys.stderr,
+        )
 
 
 def diagnose(stage: str, error: Exception) -> dict:
