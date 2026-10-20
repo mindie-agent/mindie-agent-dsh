@@ -26,6 +26,8 @@ export const knowledgeQueryExtraProperties = {
   token_budget: { type: 'integer', minimum: 1 },
   include_unknown: { type: 'boolean' },
   include_archived: { type: 'boolean' },
+  navigation_only: { type: 'boolean' },
+  run_id: { type: 'string', maxLength: 256 },
 }
 
 export const knowledgeExplainParameters = {
@@ -36,6 +38,7 @@ export const knowledgeExplainParameters = {
     conditions: { type: 'object' },
     known_refs: { type: 'array', items: { type: 'string' } },
     token_budget: { type: 'integer', minimum: 1, maximum: 16000 },
+    run_id: { type: 'string', maxLength: 256 },
   },
   required: [],
   additionalProperties: false,
