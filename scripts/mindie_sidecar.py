@@ -434,8 +434,10 @@ def _require_distill_runtime() -> None:
 
 
 def _distill_arguments(payload: dict[str, Any]) -> None:
-    if set(payload) - {"inputs", "task_state", "domain"}:
-        raise SidecarError("distill accepts only inputs, task_state and domain")
+    if set(payload) - {"inputs", "task_state", "domain", "related_refs", "proposal"}:
+        raise SidecarError(
+            "distill accepts only inputs, task_state, domain, related_refs and proposal"
+        )
     inputs = payload.get("inputs")
     if not isinstance(inputs, list) or not inputs:
         raise SidecarError("distill requires a nonempty inputs array")
@@ -448,11 +450,45 @@ def _distill_arguments(payload: dict[str, Any]) -> None:
             raise SidecarError("distill inputs have unsupported or missing fields")
     if not isinstance(payload.get("task_state"), str) or not payload["task_state"]:
         raise SidecarError("distill requires an explicit task_state")
+    related_refs = payload.get("related_refs")
+    if related_refs is not None and (
+        not isinstance(related_refs, list)
+        or any(not isinstance(item, str) or not item.strip() for item in related_refs)
+    ):
+        raise SidecarError("distill `related_refs` must be an array of nonempty strings")
+    proposal = payload.get("proposal")
+    if proposal is not None and not isinstance(proposal, dict):
+        raise SidecarError("distill `proposal` must be an object")
 
 
 def _distill_timeout() -> float:
     from mindie_knowledge.loop import summary_budget
     return summary_budget.distill_rpc_timeout()
+
+
+def _explain_route_ref(payload: dict[str, Any]) -> str | None:
+    """Route explain via ``ref`` or the first ``refs`` item; reject mixed authorities."""
+    ref = payload.get("ref")
+    if ref is not None and (not isinstance(ref, str) or not ref.strip()):
+        raise SidecarError("explain `ref` must be nonempty text")
+    raw_refs = payload.get("refs")
+    if raw_refs is not None and (
+        not isinstance(raw_refs, list)
+        or any(not isinstance(item, str) or not item.strip() for item in raw_refs)
+    ):
+        raise SidecarError("explain `refs` must be an array of nonempty strings")
+    refs = list(raw_refs or [])
+    authorities: list[str] = []
+    for item in ([ref] if ref is not None else []) + refs:
+        domain = routing.reference_domain(item)
+        if domain is not None and domain not in authorities:
+            authorities.append(domain)
+    if len(authorities) > 1:
+        raise SidecarError(
+            "explain refs have conflicting mindie:// domain authorities: "
+            + ", ".join(authorities)
+        )
+    return ref if ref is not None else (refs[0] if refs else None)
 
 
 def _route(payload: dict[str, Any]) -> routing.Route:
@@ -518,14 +554,23 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         timeout = _distill_timeout()
     else:
         timeout = 30.0
-    if payload.get("domain") is not None or payload.get("ref") is not None:
+    if (
+        payload.get("domain") is not None
+        or payload.get("ref") is not None
+        or payload.get("refs") is not None
+    ):
         try:
             admission().check(session, token)
         except Exception as exc:
             raise SidecarError(
                 "this task is not activated; invoke /mindie-agent first"
             ) from exc
-    route = _route(payload)
+    route_payload = payload
+    if method == "explain":
+        route_ref = _explain_route_ref(payload)
+        if payload.get("ref") is None and route_ref is not None:
+            route_payload = {**payload, "ref": route_ref}
+    route = _route(route_payload)
     lease = None
     if route.cross_domain and method in {"feedback", "distill"}:
         try:
