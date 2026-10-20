@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """[Role] One-step runtime provisioner for the DeepSeek Harness adapter.
-[Invariants] Syncs locked uv runtime, verifies SQLite FTS5 + component imports, installs transcript redactor, and writes engine/adapter configs atomically.
+[Invariants] Prepares an independent pinned runtime and immutable engine paths. One adapter pointer selects all domains after their old owners confirm idle retirement.
 [Timeouts & Locks] Every subprocess receives the remaining shared setup budget; timeout cleanup has a separate five-second allowance.
-[Side-Effect Policy] Populates data_home()/venv, writes config_home()/engine.json and config.json via atomic os.replace, and stages updater scripts.
+[Side-Effect Policy] Populates data_home()/runtimes, prepares immutable engine JSON, publishes config.json atomically, and stages updater scripts. Saved consent remains unchanged.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +30,9 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.0.2"
+VERSION = "0.0.3"
 RUN_DEADLINE: float | None = None
+INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
 FEED = {
     "repository": "mindie-agent/knowledge-vllm-ascend",
@@ -37,15 +40,52 @@ FEED = {
     "domain": DOMAIN,
     "interval_seconds": 300,
 }
+PUBLIC_FEEDS = [
+    dict(FEED),
+    {
+        "repository": "mindie-agent/knowledge-operators",
+        "ref": "main",
+        "domain": "operators",
+        "interval_seconds": 300,
+    },
+]
 COMPONENTS = {
-    "mindie-knowledge": "0.12.2",
-    "remote-dev": "0.10.1",
-    "mindie-diagnostics": "0.4.3",
+    "mindie-knowledge": "0.13.0",
+    "remote-dev": "0.10.3",
+    "mindie-diagnostics": "0.5.0",
 }
 
 
 class SetupError(RuntimeError):
     pass
+
+
+def runtime_dir() -> Path:
+    return INSTALL_RUNTIME_DIR or mp.venv_dir()
+
+
+def runtime_python() -> Path:
+    return (runtime_dir() / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+            if INSTALL_RUNTIME_DIR is not None else mp.venv_python())
+
+
+def runtime_identity() -> str:
+    """Bind dependency pins and native Python code, including same-version repairs."""
+    files = [mp.PACKAGE_DIR / name for name in ('pyproject.toml', 'uv.lock', 'package.json')]
+    files.extend(sorted((mp.PACKAGE_DIR / 'scripts').glob('*.py')))
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(str(path.relative_to(mp.PACKAGE_DIR)).encode() + b'\0' + path.read_bytes() + b'\0')
+    return digest.hexdigest()
+
+
+def prepared_engine_path(engine=None) -> Path:
+    if INSTALL_RUNTIME_DIR is None:
+        return mp.engine_config()
+    directory = mp.config_home() / 'engines' / INSTALL_RUNTIME_DIR.parent.name
+    if engine is not None:
+        directory /= hashlib.sha256(json.dumps(engine, sort_keys=True).encode()).hexdigest()[:20]
+    return directory / 'engine.json'
 
 
 def progress(message: str) -> None:
@@ -58,6 +98,7 @@ def run(
     timeout: int,
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if RUN_DEADLINE is not None:
         remaining = RUN_DEADLINE - time.monotonic()
@@ -68,6 +109,7 @@ def run(
         return setup_process.run(
             argv, cwd=str(cwd) if cwd else None, env=env,
             timeout=timeout,
+            input_text=input_text,
         )
     except subprocess.TimeoutExpired as exc:
         raise SetupError(f"command exceeded {timeout}s: {' '.join(argv)}") from exc
@@ -98,6 +140,28 @@ def copy_private(source: Path, destination: Path) -> None:
     os.replace(tmp, destination)
 
 
+def adapter_configuration() -> dict[str, Any]:
+    """Refresh owned install fields without dropping explicitly registered domains."""
+    path = mp.config_file()
+    previous = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    if not isinstance(previous, dict):
+        raise SetupError("existing adapter configuration must be a JSON object")
+    config = {**previous,
+        "schema": ADAPTER_SCHEMA,
+        "version": VERSION,
+        "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
+        "python": str(runtime_python()),
+        "venv_dir": str(runtime_dir()),
+        "engine_config": str(prepared_engine_path()),
+        "state_dir": str(mp.state_dir()),
+        "domain": DOMAIN,
+        "components": COMPONENTS,
+    }
+    if "domain_configs" in previous:
+        config["domain_configs"] = previous["domain_configs"]
+    return config
+
+
 def check_host() -> None:
     if sys.version_info < (3, 11):
         raise SetupError(
@@ -111,7 +175,7 @@ def check_host() -> None:
 
 
 def sync_runtime(python: str | None, *, timeout: int) -> None:
-    venv = mp.venv_dir()
+    venv = runtime_dir()
     mp.ensure_private_dir(mp.data_home())
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
     env.setdefault("UV_NO_PROGRESS", "1")
@@ -123,8 +187,8 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
     completed = run(argv, timeout=timeout, env=env, cwd=mp.PACKAGE_DIR)
     if completed.returncode != 0:
         raise SetupError("uv sync failed. " + tail(completed.stderr or completed.stdout))
-    if not mp.venv_python().is_file():
-        raise SetupError(f"uv sync completed without creating {mp.venv_python()}")
+    if not runtime_python().is_file():
+        raise SetupError(f"uv sync completed without creating {runtime_python()}")
 
 
 def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
@@ -151,7 +215,7 @@ print(json.dumps({
     "versions": {k: version(k) for k in ("mindie-knowledge", "remote-dev", "mindie-diagnostics")},
 }))
 """
-    completed = run([str(mp.venv_python()), "-c", probe], timeout=timeout)
+    completed = run([str(runtime_python()), "-c", probe], timeout=timeout)
     if completed.returncode != 0:
         raise SetupError("runtime import/FTS5 probe failed. " + tail(completed.stderr or completed.stdout))
     try:
@@ -169,7 +233,7 @@ print(json.dumps({
 def install_redactor(*, timeout: int = 300) -> str:
     progress("installing the deterministic transcript redactor")
     completed = run(
-        [str(mp.venv_python()), "-m", "mindie_knowledge.loop.transcript_redaction"],
+        [str(runtime_python()), "-m", "mindie_knowledge.loop.transcript_redaction"],
         timeout=timeout,
     )
     if completed.returncode != 0:
@@ -181,21 +245,41 @@ def install_redactor(*, timeout: int = 300) -> str:
 
 
 def engine_configuration(redactor: str) -> dict[str, Any]:
-    adapters = mp.data_home() / "capture"
+    adapters = runtime_dir().parent / 'capture' if INSTALL_RUNTIME_DIR is not None else mp.data_home() / 'capture'
     for name in ("dsh_transcript.py", "dsh_organizer.py", "mindie_paths.py"):
         copy_private(mp.PACKAGE_DIR / "scripts" / name, adapters / name)
-    return {
+    value = {
         "root": str(mp.data_home()),
         "domain": DOMAIN,
         "admission_path": str(mp.data_home() / "admission.sqlite3"),
         "capture_mode": "public-transcript",
         "transcript_adapter": str(adapters / "dsh_transcript.py"),
         "redactor_executable": redactor,
-        "summary_command": [str(mp.venv_python()), str(adapters / "dsh_organizer.py")],
+        "summary_command": [str(runtime_python()), str(adapters / "dsh_organizer.py")],
         "community_config": str(mp.config_home() / "mindie-community.json"),
         "service_launch_context": {"paths": {}, "environment": ["MINDIE_DIAGNOSTICS_CONFIG"]},
         "feeds": [dict(FEED)],
     }
+    previous = json.loads(mp.config_file().read_text()) if mp.config_file().is_file() else {}
+    if previous.get('engine_config'):
+        original = json.loads(Path(previous['engine_config']).read_text())
+        for key in ('root', 'domain', 'admission_path', 'community_config', 'feeds'):
+            if key in original:
+                value[key] = original[key]
+    return value
+
+
+def prepare_domains(adapter, engine):
+    request = dict(adapter=adapter, engine=engine,
+                   config_directory=str(Path(adapter['engine_config']).parent / 'domains'),
+                   authority_directory=str(mp.config_home() / 'knowledge-domains'),
+                   consent_config=str(mp.config_home() / 'mindie-consent.json'),
+                   domains=PUBLIC_FEEDS)
+    completed = run([str(runtime_python()), '-m', 'mindie_knowledge.loop.domain_catalog'],
+                    input_text=json.dumps(request), timeout=90)
+    if completed.returncode:
+        raise SetupError('domain preparation failed: ' + tail(completed.stderr))
+    return json.loads(completed.stdout)['domain_configs']
 
 
 def install_updater() -> dict[str, Any]:
@@ -215,22 +299,31 @@ def install_updater() -> dict[str, Any]:
     return {"script": str(directory / "updater.py"), "enabled": True, "interval_hours": 6}
 
 
-def stop_existing_service() -> None:
-    engine = mp.engine_config()
-    if not engine.is_file() or not mp.venv_python().is_file():
-        return
-    completed = run(
-        [str(mp.venv_python()), "-m", "mindie_knowledge.loop.cli", "stop", "--config", str(engine)],
-        timeout=60,
-    )
-    if completed.returncode != 0:
-        progress("warning: an existing knowledge service could not be stopped: " + tail(completed.stderr or completed.stdout, 500))
+def publish_binding(previous, adapter, engine) -> dict:
+    path = Path(adapter['engine_config'])
+    if path.exists():
+        if json.loads(path.read_text()) != engine:
+            raise SetupError('prepared engine path contains different immutable config')
+    else:
+        write_private(path, engine)
+    outer = min(35, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 35
+    if outer <= 5:
+        raise SetupError('setup has no remaining idle handoff and cleanup budget')
+    completed = run([str(runtime_python()), str(HERE / 'install_binding.py')],
+                    input_text=json.dumps(dict(path=str(mp.config_file()), previous=previous,
+                                               candidate=adapter, timeout=outer - 5)), timeout=outer)
+    if completed.returncode:
+        raise SetupError('runtime activation failed: ' + tail(completed.stderr))
+    result = json.loads(completed.stdout)
+    if result['status'] != 'active':
+        raise SetupError('runtime activation did not complete: ' + json.dumps(result, sort_keys=True))
+    return result
 
 
 def sync_feed(*, timeout: int) -> dict[str, Any]:
     progress("synchronizing the public knowledge feed")
     completed = run(
-        [str(mp.venv_python()), "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(mp.engine_config())],
+        [str(runtime_python()), "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(mp.engine_config())],
         timeout=timeout,
     )
     if completed.returncode != 0:
@@ -254,11 +347,11 @@ def sync_feed(*, timeout: int) -> dict[str, Any]:
 
 
 def report_setup_failure(error: Exception) -> None:
-    if not mp.venv_python().is_file():
+    if not runtime_python().is_file():
         progress("diagnostic storage unavailable: runtime installation did not complete")
         return
     try:
-        result = run([str(mp.venv_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
+        result = run([str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
                       "record", "--operation", "setup", "--category", type(error).__name__], timeout=5)
         progress("diagnostic: " + result.stdout.strip())
     except (OSError, SetupError) as exc:
@@ -266,7 +359,7 @@ def report_setup_failure(error: Exception) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global RUN_DEADLINE
+    global RUN_DEADLINE, INSTALL_RUNTIME_DIR
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", default=None, help="interpreter to pass to uv sync (default 3.11)")
     parser.add_argument("--no-sync", action="store_true", help="do not synchronize the knowledge feed")
@@ -284,15 +377,16 @@ def main(argv: list[str] | None = None) -> int:
     started = time.time()
     try:
         check_host()
+        INSTALL_RUNTIME_DIR = mp.data_home() / 'runtimes' / runtime_identity() / 'venv'
         paths = {
             "package_dir": str(mp.PACKAGE_DIR),
             "data_home": str(mp.data_home()),
             "config_home": str(mp.config_home()),
             "config_file": str(mp.config_file()),
-            "engine_config": str(mp.engine_config()),
+            "engine_config": str(prepared_engine_path()),
             "state_dir": str(mp.state_dir()),
-            "venv_dir": str(mp.venv_dir()),
-            "venv_python": str(mp.venv_python()),
+            "venv_dir": str(runtime_dir()),
+            "venv_python": str(runtime_python()),
         }
         if args.dry_run:
             print(
@@ -310,30 +404,31 @@ def main(argv: list[str] | None = None) -> int:
 
         for d in (mp.data_home(), mp.config_home(), mp.state_dir()):
             mp.ensure_private_dir(d)
-        sync_runtime(args.python, timeout=args.install_timeout)
-        probe = probe_runtime()
+        previous = json.loads(mp.config_file().read_text()) if mp.config_file().is_file() else {}
+        probe = None
+        if previous.get('venv_dir') == str(runtime_dir()):
+            try:
+                probe = probe_runtime()
+            except SetupError:
+                # A repair builds separately so existing processes keep their
+                # original imports until the complete replacement is ready.
+                INSTALL_RUNTIME_DIR = INSTALL_RUNTIME_DIR.parent.with_name(
+                    INSTALL_RUNTIME_DIR.parent.name + '-repair-' + uuid.uuid4().hex[:8]) / 'venv'
+        if probe is None:
+            sync_runtime(args.python, timeout=args.install_timeout)
+            probe = probe_runtime()
+        adapter = adapter_configuration()
         redactor = install_redactor()
         engine = engine_configuration(redactor)
-        stop_existing_service()
-        write_private(mp.engine_config(), engine)
-        write_private(
-            mp.config_file(),
-            {
-                "schema": ADAPTER_SCHEMA,
-                "version": VERSION,
-                "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
-                "python": str(mp.venv_python()),
-                "venv_dir": str(mp.venv_dir()),
-                "engine_config": str(mp.engine_config()),
-                "state_dir": str(mp.state_dir()),
-                "domain": DOMAIN,
-                "components": COMPONENTS,
-            },
-        )
+        adapter['engine_config'] = str(prepared_engine_path(engine))
+        adapter['domain'] = engine['domain']
+        adapter['domain_configs'] = prepare_domains(adapter, engine)
+        publication = publish_binding(previous, adapter, engine)
+        paths.update(engine_config=adapter['engine_config'], venv_dir=adapter['venv_dir'], venv_python=adapter['python'])
         knowledge = {"status": "skipped"} if args.no_sync else sync_feed(timeout=args.sync_timeout)
         update = install_updater()
         reporting_process = run(
-            [str(mp.venv_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
+            [str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
             timeout=90,
         )
         if reporting_process.returncode:
@@ -350,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             "package_dir": str(mp.PACKAGE_DIR), "python": probe.get("python"),
             "sqlite": probe.get("sqlite"), "executable": probe.get("executable"),
             "components": probe.get("versions"), "paths": paths,
-            "knowledge": knowledge, "update": update, "reporting": reporting,
+            "knowledge": knowledge, "update": update, "reporting": reporting, "activation": publication,
             "contribution_notice": "One contribution choice controls public knowledge sharing and sanitized fault reports. Existing choices are preserved; legacy choices require explicit confirmation before reporting.",
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (

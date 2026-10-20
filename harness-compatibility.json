@@ -2,7 +2,7 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.0.2",
+  "plugin_version": "0.0.3",
   "verified": [
     {
       "dsh_version": "0.2.0-rc.2",
@@ -13,7 +13,22 @@
         "Ubuntu 24.04 WSL (4090)",
         "Windows 11 native (Lenovo)"
       ],
-      "evidence": "docs/verification.md"
+      "evidence": "docs/verification.md",
+      "plugin_version": "0.0.2",
+      "runtime_components": {
+        "mindie-knowledge": {
+          "version": "0.12.2",
+          "commit": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef"
+        },
+        "remote-dev": {
+          "version": "0.10.1",
+          "commit": "a6649222aae4851deec5774513f8319aece09051"
+        },
+        "mindie-diagnostics": {
+          "version": "0.4.3",
+          "commit": "1b5a0eeb79d498c39002fc1853271c17e0f26e66"
+        }
+      }
     }
   ],
   "interfaces": [
@@ -92,6 +107,7 @@
   ],
   "notes": [
     "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
-    "The bundle inserts Host rows and overrides no shipped row or shipped preset."
+    "The bundle inserts Host rows and overrides no shipped row or shipped preset.",
+    "The platform matrix in docs/verification.md records the 0.0.2 adapter and its pinned runtime. It establishes the referenced host interfaces, not cross-platform acceptance of the 0.0.3 component combination."
   ]
 }

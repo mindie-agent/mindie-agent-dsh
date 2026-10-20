@@ -307,7 +307,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("check", "status", "recover", "enable", "disable"))
     parser.add_argument("--profile", default=os.environ.get("DSH_PROFILE", "web"))
-    parser.add_argument("--current-version", default="0.0.2")
+    parser.add_argument("--current-version", default="0.0.3")
     parser.add_argument("--api", default=os.environ.get("MINDIE_DSH_UPDATE_API", DEFAULT_API))
     parser.add_argument("--silent", action="store_true")
     parser.add_argument("--stage-only", action="store_true")

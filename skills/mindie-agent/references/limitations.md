@@ -1,8 +1,8 @@
-# `0.0.2` Scope, Paths, and Operational Boundaries
+# `0.0.3` Scope, Paths, and Operational Boundaries
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.0.2`) is a thin DeepSeek Harness adapter that inserts three Host rows in `cordis.patch.yml` using only stable DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.0.3`) is a thin DeepSeek Harness adapter that inserts three Host rows in `cordis.patch.yml` using only stable DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
@@ -29,17 +29,17 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.0.2` Runtime Components & Same-Version Refresh
+## Pinned `0.0.3` Runtime Components
 
 `scripts/setup.py` is idempotent: it runs `uv sync --frozen` against `uv.lock`, installs persistent worker scripts under `state_dir/bin/`, updates `engine.json` and `diagnostics.json`, and performs an incremental knowledge feed sync.
 
-The `0.0.2` runtime pins:
+The `0.0.3` runtime pins:
 
-- `mindie-knowledge` `0.12.2` — release commit `4e328305323eafc7fd43ecc0c53eb3cc0541fdef`
-- `remote-dev` `0.10.1` — release commit `a6649222aae4851deec5774513f8319aece09051`
-- `mindie-diagnostics` `0.4.3` — release commit `1b5a0eeb79d498c39002fc1853271c17e0f26e66`
+- `mindie-knowledge` `0.13.0` — release commit `1bf5288fb4ff630aa081d77163e0772e6e302bb3`
+- `remote-dev` `0.10.3` — release commit `f441d52f8dcb227ad31adeeeb1d66da4a28915bb`
+- `mindie-diagnostics` `0.5.0` — release commit `6460cde3a50a7f91c9ded38557a7f921654f0c6a`
 
-**Same-Version Refresh Boundary**: `0.0.2` replaces the earlier `0.0.2` commit (`828c375d1f546ed653250526465b8075c1691390`). Because the legacy updater only selects versions strictly greater (`>`) than the installed version string, existing `0.0.2` installations must explicitly refresh both `scripts/setup.py` and the DSH bundle by exact SHA per `docs/same-version-refresh.md` and restart the full DSH process.
+**Upgrade Boundary**: `0.0.3` is a normal semantic-version upgrade selected by the updater. The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.0.3` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
 
 ## Unified Contribution Switch & Three-State Separation
 

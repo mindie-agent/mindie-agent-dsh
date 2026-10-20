@@ -16,6 +16,7 @@ SCRIPT = ROOT / "scripts" / "knowledge_mcp.py"
 EXPECTED_TOOLS = {
     "knowledge_query",
     "knowledge_explain",
+    "knowledge_distill",
     "knowledge_sync",
 }
 
@@ -79,6 +80,19 @@ class BridgeProtocolTests(unittest.TestCase):
         for tool in tools:
             self.assertEqual(tool["inputSchema"]["type"], "object")
             self.assertIn("additionalProperties", tool["inputSchema"])
+        by_name = {tool["name"]: tool for tool in tools}
+        query = by_name["knowledge_query"]["inputSchema"]["properties"]
+        self.assertTrue({"domain", "domain_path", "token_budget", "include_unknown"} <= set(query))
+        distill = by_name["knowledge_distill"]["inputSchema"]
+        self.assertEqual(set(distill["properties"]), {"domain", "inputs", "task_state"})
+        self.assertEqual(set(distill["required"]), {"inputs", "task_state"})
+        item = distill["properties"]["inputs"]["items"]
+        self.assertEqual(
+            set(item["properties"]),
+            {"kind", "outcome", "source_locator", "content", "evidence_refs", "repetitions"},
+        )
+        self.assertNotIn("_session_id", str(distill))
+        self.assertNotIn("_activation", str(distill))
         self.assertNotIn("knowledge_feedback", {tool["name"] for tool in tools})
 
     def test_missing_runtime_returns_actionable_error(self) -> None:
@@ -121,6 +135,27 @@ class BridgeProtocolTests(unittest.TestCase):
                         "arguments": {"query": "x", "session_id": "forged"},
                     },
                 },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "knowledge_distill",
+                        "arguments": {
+                            "inputs": [
+                                {
+                                    "kind": "authorized_transcript",
+                                    "outcome": "observed",
+                                    "source_locator": "fixture",
+                                    "content": "fixture",
+                                    "evidence_refs": [],
+                                }
+                            ],
+                            "task_state": "completed",
+                            "_activation": "forged",
+                        },
+                    },
+                },
             ],
             self._env(),
         )
@@ -128,6 +163,8 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIn("unknown tool", responses[0]["result"]["content"][0]["text"])
         self.assertIs(responses[1]["result"]["isError"], True)
         self.assertIn("unexpected tool arguments", responses[1]["result"]["content"][0]["text"])
+        self.assertIs(responses[2]["result"]["isError"], True)
+        self.assertIn("unexpected tool arguments", responses[2]["result"]["content"][0]["text"])
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """[Role] Long-lived JSON-line sidecar serving DSH Host-plugin entry, admission, and knowledge RPCs.
-[Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs.
-[Timeouts & Locks] Knowledge RPCs bounded at 30.0s, feed sync 120.0s, gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup.
-[Side-Effect Policy] Mutates admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations.
+[Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs. Optional target activation uses the shared domain helper and never replaces the default host token.
+[Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; target activation reuses Admission's 5s write budget; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
+[Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations.
 """
 
 from __future__ import annotations
@@ -20,10 +20,14 @@ if str(HERE) not in sys.path:
 
 import mindie_paths as mp  # noqa: E402
 import dsh_diagnostics as diagnostics  # noqa: E402
+import knowledge_domain_routing as routing  # noqa: E402
 
 MAX_LINE = 256 * 1024
-ADAPTER_VERSION = "0.0.2"
+ADAPTER_VERSION = "0.0.3"
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
+DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
+DISTILL_INPUT_OPTIONAL = {"repetitions"}
+DOMAIN_DEACTIVATE_TIMEOUT = 6.0
 
 
 class SidecarError(RuntimeError):
@@ -135,8 +139,72 @@ def lease_view(session: str) -> dict[str, Any]:
     return {"status": row.get("status"), "enabled": bool(row.get("enabled")), "project_root": row.get("project_root")}
 
 
+def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
+    lease = selected.get("lease") if isinstance(selected.get("lease"), dict) else {}
+    # The sidecar-to-host result carries the target lease, but the host strips
+    # its token before returning entry output. Routing resolves the target
+    # lease from the target Admission; the default host token is untouched.
+    lease_view = {
+        "session": lease.get("session"),
+        "token": lease.get("token"),
+        "enabled": bool(lease.get("enabled")),
+        "activated_at": lease.get("activated_at"),
+        "project_root": lease.get("project_root"),
+        "root_session": lease.get("root_session"),
+    }
+    view = {
+        "domain": selected.get("domain"),
+        "generation": selected.get("generation"),
+        "activated_at": lease.get("activated_at"),
+        "project_root": lease.get("project_root"),
+        "root_session": lease.get("root_session"),
+        "lease": lease_view,
+    }
+    if isinstance(selected.get("engine_config"), str):
+        view["engine_config"] = selected["engine_config"]
+    return view
+
+
+def _activate_domain(
+    domain: str,
+    session: str,
+    project_root: str,
+    default_lease: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(domain, str) or not domain:
+        raise SidecarError("domain must be a nonempty canonical name")
+    try:
+        from mindie_knowledge.loop.domain_routes import activate_selected_domain
+    except ModuleNotFoundError as exc:
+        if exc.name != "mindie_knowledge.loop.domain_routes":
+            raise
+        raise SidecarError(
+            "explicit domain activation is unavailable in the installed knowledge runtime; "
+            "update the paired runtime"
+        ) from exc
+    root_session = default_lease.get("root_session")
+    if not isinstance(root_session, str) or not root_session:
+        root_session = session
+    config = adapter_config()
+    try:
+        selected = activate_selected_domain(
+            config["engine_config"],
+            domain=domain,
+            domain_configs=routing.adapter_domain_configs(config),
+            session=session,
+            project_root=project_root,
+            # Derived from the verified native default lease, never caller args.
+            root_session=root_session,
+        )
+    except routing.DomainRoutingError as exc:
+        raise SidecarError(str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise SidecarError(str(exc)) from exc
+    return _domain_activation_view(selected)
+
+
 def op_activate(args: dict[str, Any]) -> dict[str, Any]:
-    session, cwd = args.get("session"), args.get("cwd")
+    session, cwd, domain = args.get("session"), args.get("cwd"), args.get("domain")
     if not isinstance(session, str) or not session:
         raise SidecarError("session is required")
     if not isinstance(cwd, str) or not Path(cwd).is_absolute():
@@ -145,13 +213,20 @@ def op_activate(args: dict[str, Any]) -> dict[str, Any]:
     lease = admission().activate(session, project_root=cwd)
     ensure_default_sharing()
     reporting = diagnostics.activate()
-    return {
+    result = {
         "session": lease["session"],
         "token": lease["token"],
         "activated_at": lease["activated_at"],
         "project_root": lease["project_root"],
         "sharing": {**public_settings(), "reporting_activation": reporting},
     }
+    if domain is not None:
+        # Keep the default host lease/token above untouched. The target gets
+        # its own lease from its own Admission; current routing resolves it.
+        result["domain_activation"] = _activate_domain(
+            domain, session, cwd, lease,
+        )
+    return result
 
 
 def op_status(args: dict[str, Any]) -> dict[str, Any]:
@@ -161,11 +236,62 @@ def op_status(args: dict[str, Any]) -> dict[str, Any]:
     return {"lease": lease_view(session), "sharing": public_settings()}
 
 
+def _registered_domain_deactivator():
+    try:
+        from mindie_knowledge.loop.domain_routes import deactivate_registered_domains
+    except ModuleNotFoundError as exc:
+        # Old installed cores lack this exact optional module. A missing
+        # internal dependency is not old-core compatibility and must stay visible.
+        if exc.name != "mindie_knowledge.loop.domain_routes":
+            raise
+        raise SidecarError(
+            "registered-domain deactivation is unavailable in the installed knowledge runtime; "
+            "update the paired runtime"
+        ) from exc
+    return deactivate_registered_domains
+
+
 def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
     session = args.get("session")
     if not isinstance(session, str) or not session:
         raise SidecarError("session is required")
-    return {"deactivated": bool(admission().deactivate(session)), "sharing": public_settings()}
+    config = adapter_config()
+    try:
+        domain_configs = routing.adapter_domain_configs(config)
+    except routing.DomainRoutingError as exc:
+        raise SidecarError(str(exc)) from exc
+    if not domain_configs:
+        # No registered domains: retain the installed-default behavior exactly,
+        # including compatibility with an old core that has no domain helper.
+        return {"deactivated": bool(admission().deactivate(session)), "sharing": public_settings()}
+    deactivate = _registered_domain_deactivator()
+    try:
+        result = deactivate(
+            config["engine_config"],
+            domain_configs=domain_configs,
+            session=session,
+            timeout=DOMAIN_DEACTIVATE_TIMEOUT,
+        )
+    except (TypeError, ValueError) as exc:
+        raise SidecarError(str(exc)) from exc
+    # Revocation never depends on capture consent. Status is diagnostic only;
+    # its failure is visible but cannot turn a successful revocation into an
+    # apparent host-side failure that retains SESSION_STATE.
+    sharing, sharing_error = None, None
+    try:
+        sharing = public_settings()
+    except Exception as exc:  # noqa: BLE001 - revocation already succeeded
+        sharing_error = f"{type(exc).__name__}: {exc}"
+    response = {
+        "deactivated": result["status"] == "inactive" and bool(result.get("changed")),
+        "status": result["status"],
+        "changed": bool(result.get("changed")),
+        "domains": result["domains"],
+        "sharing": sharing,
+    }
+    if sharing_error is not None:
+        response["sharing_error"] = sharing_error
+    return response
 
 
 def _gh(*arguments: str) -> str:
@@ -278,16 +404,100 @@ def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
     return diagnostics.status()
 
 
-def connection():
+def connection(engine: str | None = None):
     from mindie_knowledge.loop.cli import config_at, connection_path, ensure_service
 
     diagnostics.bind_environment()
-    engine = engine_path()
+    engine = engine or engine_path()
     try:
         return ensure_service(engine)
     except Exception:
         connection_path(config_at(engine)).unlink(missing_ok=True)
         return ensure_service(engine)
+
+
+def _require_distill_runtime() -> None:
+    try:
+        from mindie_knowledge.graded import distill
+    except Exception as exc:
+        raise SidecarError(
+            "the installed knowledge runtime has no C6 distillation support; update the paired runtime"
+        ) from exc
+    required = ("value_gate", "noop_decision", "build_prompt", "decision_schema", "validate_decision")
+    if (
+        getattr(distill, "REQUEST_SCHEMA", None) != "mindie-distill-request/1"
+        or not all(callable(getattr(distill, name, None)) for name in required)
+    ):
+        raise SidecarError(
+            "the installed knowledge runtime has no C6 distillation support; update the paired runtime"
+        )
+
+
+def _distill_arguments(payload: dict[str, Any]) -> None:
+    if set(payload) - {"inputs", "task_state", "domain"}:
+        raise SidecarError("distill accepts only inputs, task_state and domain")
+    inputs = payload.get("inputs")
+    if not isinstance(inputs, list) or not inputs:
+        raise SidecarError("distill requires a nonempty inputs array")
+    for item in inputs:
+        if (
+            not isinstance(item, dict)
+            or not DISTILL_INPUT_REQUIRED <= set(item)
+            or set(item) - DISTILL_INPUT_REQUIRED - DISTILL_INPUT_OPTIONAL
+        ):
+            raise SidecarError("distill inputs have unsupported or missing fields")
+    if not isinstance(payload.get("task_state"), str) or not payload["task_state"]:
+        raise SidecarError("distill requires an explicit task_state")
+
+
+def _distill_timeout() -> float:
+    from mindie_knowledge.loop import summary_budget
+    return summary_budget.distill_rpc_timeout()
+
+
+def _route(payload: dict[str, Any]) -> routing.Route:
+    domain, ref = payload.get("domain"), payload.get("ref")
+    if domain is None and ref is None:
+        return routing.default_route(engine_path())
+    config = adapter_config()
+    try:
+        return routing.resolve_route(
+            config["engine_config"],
+            domain=domain,
+            ref=ref,
+            domain_configs=routing.adapter_domain_configs(config),
+        )
+    except routing.DomainRoutingError as exc:
+        raise SidecarError(str(exc)) from exc
+
+
+def _forwarded_arguments(
+    payload: dict[str, Any],
+    route: routing.Route,
+    method: str,
+    session: str,
+    token: str,
+    lease: dict[str, Any] | None,
+) -> dict[str, Any]:
+    forwarded = {
+        key: value for key, value in payload.items()
+        if key not in {"_session_id", "_activation", "_session_verified"}
+    }
+    forwarded.pop("domain", None)
+    if route.forward_domain is not None:
+        forwarded["domain"] = route.forward_domain
+    forwarded["_session_id"] = session
+    if method in {"feedback", "distill"}:
+        # A target domain must prove its own existing lease. The default
+        # domain keeps its historical activation token.
+        forwarded["_activation"] = lease["token"] if lease is not None else token
+    elif route.cross_domain:
+        # Ordinary target reads are bound to the native host session; never
+        # forward another domain's activation token.
+        forwarded["_session_verified"] = True
+    else:
+        forwarded["_activation"] = token
+    return forwarded
 
 
 def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
@@ -298,11 +508,39 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         raise SidecarError("session is required")
     if not isinstance(token, str) or not token:
         raise SidecarError("this task is not activated; invoke /mindie-agent first")
-    if not isinstance(method, str) or method not in {"query", "explain", "feedback"}:
+    if not isinstance(method, str) or method not in {"query", "explain", "feedback", "distill"}:
         raise SidecarError("unknown knowledge operation")
     if not isinstance(payload, dict):
         raise SidecarError("arguments must be an object")
-    return rpc(connection(), method, {**payload, "_session_id": session, "_activation": token}, timeout=30.0)
+    if method == "distill":
+        _distill_arguments(payload)
+        _require_distill_runtime()
+        timeout = _distill_timeout()
+    else:
+        timeout = 30.0
+    if payload.get("domain") is not None or payload.get("ref") is not None:
+        try:
+            admission().check(session, token)
+        except Exception as exc:
+            raise SidecarError(
+                "this task is not activated; invoke /mindie-agent first"
+            ) from exc
+    route = _route(payload)
+    lease = None
+    if route.cross_domain and method in {"feedback", "distill"}:
+        try:
+            lease = routing.target_lease(
+                route.selected_path, session, domain=route.forward_domain,
+            )
+        except routing.DomainRoutingError as exc:
+            raise SidecarError(str(exc)) from exc
+    arguments = _forwarded_arguments(payload, route, method, session, token, lease)
+    result = rpc(connection(str(route.selected_path)), method, arguments, timeout=timeout)
+    if method == "distill":
+        from mindie_knowledge.graded.distill import result_view
+        result, is_error = result_view(result)
+        return {**result, "_tool_error": is_error}
+    return result
 
 
 def op_sync(_args: dict[str, Any]) -> dict[str, Any]:

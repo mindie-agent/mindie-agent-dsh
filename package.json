@@ -1,6 +1,6 @@
 {
   "name": "mindie-agent-dsh",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "MindIE Agent for DeepSeek Harness: Ascend NPU knowledge and remote-dev tools composed from stable DSH plugins.",
   "license": "MIT",
