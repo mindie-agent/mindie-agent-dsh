@@ -107,7 +107,7 @@ class GradedFeedbackEntryTests(unittest.TestCase):
         self._install(unit)
 
         hit = self._query()
-        observed = f"mindie://{self.store.domain}/units/{UNIT_ID}@{unit.content_sha256}"
+        observed = f"mindie://{self.store.domain}/units/{UNIT_ID}@{unit.revision}"
         self.assertEqual(hit["feedback_ref"], observed)
         self.assertEqual(hit["revision"], 1)
 
@@ -115,7 +115,6 @@ class GradedFeedbackEntryTests(unittest.TestCase):
                               "Confirmed during the fixture run.")
         self.assertEqual(vote["unit_id"], UNIT_ID)
         self.assertEqual(vote["revision"], 1)
-        self.assertEqual(vote["content_digest"], unit.metadata["content_digest"])
         self.assertEqual(vote["rating"], "up")
         self.assertTrue(vote["publishable"])
 
@@ -123,7 +122,7 @@ class GradedFeedbackEntryTests(unittest.TestCase):
         self.assertIsNotNone(opaque)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["entry_id"], UNIT_ID)
-        self.assertEqual(rows[0]["revision"], unit.content_sha256)
+        self.assertEqual(rows[0]["revision"], str(unit.revision))
         self.assertEqual(rows[0]["root_opaque"], opaque)
 
     def test_stale_ref_keeps_the_observed_revision_after_the_unit_is_revised(self):
@@ -138,23 +137,21 @@ class GradedFeedbackEntryTests(unittest.TestCase):
         self.assertNotEqual(first["feedback_ref"], second["feedback_ref"])
         self.assertEqual(
             second["feedback_ref"],
-            f"mindie://{self.store.domain}/units/{UNIT_ID}@{revised.content_sha256}",
+            f"mindie://{self.store.domain}/units/{UNIT_ID}@{revised.revision}",
         )
 
         old_vote = self._feedback(first["feedback_ref"], "down",
                                   "The first revision failed.")
         new_vote = self._feedback(second["feedback_ref"], "up",
                                   "The correction worked.")
-        self.assertEqual((old_vote["revision"], old_vote["content_digest"]),
-                         (1, original.metadata["content_digest"]))
-        self.assertEqual((new_vote["revision"], new_vote["content_digest"]),
-                         (2, revised.metadata["content_digest"]))
+        self.assertEqual(old_vote["revision"], 1)
+        self.assertEqual(new_vote["revision"], 2)
 
         rows, _ = self._votes()
         by_revision = {row["revision"]: row for row in rows}
-        self.assertEqual(set(by_revision), {original.content_sha256, revised.content_sha256})
-        self.assertEqual(by_revision[original.content_sha256]["rating"], "down")
-        self.assertEqual(by_revision[revised.content_sha256]["rating"], "up")
+        self.assertEqual(set(by_revision), {str(original.revision), str(revised.revision)})
+        self.assertEqual(by_revision[str(original.revision)]["rating"], "down")
+        self.assertEqual(by_revision[str(revised.revision)]["rating"], "up")
 
 
 class MultiDomainRoutingTests(unittest.TestCase):
@@ -302,7 +299,7 @@ class MultiDomainRoutingTests(unittest.TestCase):
 
     @staticmethod
     def _ref(domain, unit):
-        return f"mindie://{domain}/units/{UNIT_ID}@{unit.content_sha256}"
+        return f"mindie://{domain}/units/{UNIT_ID}@{unit.revision}"
 
     def _query(self, domain=None):
         arguments = {

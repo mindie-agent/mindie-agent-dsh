@@ -40,10 +40,19 @@ FEED = {
     "domain": DOMAIN,
     "interval_seconds": 300,
 }
+PUBLIC_FEEDS = [
+    dict(FEED),
+    {
+        "repository": "mindie-agent/knowledge-operators",
+        "ref": "main",
+        "domain": "operators",
+        "interval_seconds": 300,
+    },
+]
 COMPONENTS = {
-    "mindie-knowledge": "0.12.2",
-    "remote-dev": "0.10.1",
-    "mindie-diagnostics": "0.4.3",
+    "mindie-knowledge": "0.13.0",
+    "remote-dev": "0.10.3",
+    "mindie-diagnostics": "0.5.0",
 }
 
 
@@ -264,7 +273,8 @@ def prepare_domains(adapter, engine):
     request = dict(adapter=adapter, engine=engine,
                    config_directory=str(Path(adapter['engine_config']).parent / 'domains'),
                    authority_directory=str(mp.config_home() / 'knowledge-domains'),
-                   consent_config=str(mp.config_home() / 'mindie-consent.json'))
+                   consent_config=str(mp.config_home() / 'mindie-consent.json'),
+                   domains=PUBLIC_FEEDS)
     completed = run([str(runtime_python()), '-m', 'mindie_knowledge.loop.domain_catalog'],
                     input_text=json.dumps(request), timeout=90)
     if completed.returncode:

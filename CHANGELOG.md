@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.3 — 2026-10-20
+
+- Upgrade the pinned shared runtime to `mindie-knowledge 0.13.0`
+  (`1bf5288fb4ff630aa081d77163e0772e6e302bb3`), `remote-dev 0.10.3`
+  (`f441d52f8dcb227ad31adeeeb1d66da4a28915bb`), and `mindie-diagnostics 0.5.0`
+  (`6460cde3a50a7f91c9ded38557a7f921654f0c6a`).
+- Adopt the single-line `mindie://<domain>/units/<id>@<revision>` graded
+  reference contract on the content repositories' `main` branch. References and
+  feedback bind a stable `unit_id` to an integer `revision`; no content,
+  closure or contract digest is required from callers.
+- Wire the graded execution loop into the `/mindie-agent` skill: `L1` + `L2`
+  Foundation baseline (shared `_common` axioms and triage SOPs mounted through
+  `inherited_rules` / `route: "foundation_baseline"`), `L3` Hermes staged
+  convergence with milestone distillation and feedback, and `L4` RSI de-biased
+  exploration after two stalled routine attempts with Gate 1–4 enforcement and
+  `experiment-ledger.jsonl` / `PROGRESS.md` updates.
+- Add a contract test that rejects legacy graded reference terminology and
+  asserts the documented loop markers.
+
 ## 0.0.2 — 2026-10-19
 
 - Upgrade pinned shared runtime components to `mindie-knowledge 0.12.2`
