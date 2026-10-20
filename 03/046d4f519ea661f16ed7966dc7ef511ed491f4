@@ -1,0 +1,105 @@
+.github/workflows/release.yml
+  s_d737ad21458d6c::t_008d4ed593331f 12,14
+.gitignore
+  s_d737ad21458d6c::t_f5f7ce4fbc3c88 5-6
+CHANGELOG.md
+  s_d737ad21458d6c::t_d250c1755fef50 3-21
+README.en.md
+  s_d737ad21458d6c::t_5f2f8bbed64c5e 25-26,31,33,35,37,63,67,73-75,88,95,102-103,155-156,158,168,173,179,181-182,198,200
+README.md
+  s_d737ad21458d6c::t_523204085b0974 25-26,31,33,35,37,64,74-76,89,96,103-104,156-157,159,169,174,180,182-183,199,201
+harness-compatibility.json
+  s_d737ad21458d6c::t_587796fab08630 5,16-31,110-111
+host3.mjs
+  s_d737ad21458d6c::t_bd229014c99da1 3-13,22-27,41-42,133,140,215-254,257-318,320-340,342-346,389,473,516-535,538-540,542-544,566-571,598-605,609-615,652-672,674-680,693-698,706,725-731,744-745,749-754,761-764,766
+package.json
+  s_d737ad21458d6c::t_c7c66d165694bc 3
+paths.cjs
+  s_d737ad21458d6c::t_2d0ad7ffa40f48 51-71,73,78-79,81
+pyproject.toml
+  s_d737ad21458d6c::t_aced76dbae0b95 3,7-8
+runtime-requirements.txt
+  s_d737ad21458d6c::t_13372ab6671cbf 3-6,10-11
+scripts/dsh_diagnostics.py
+  s_d737ad21458d6c::t_e813e981d48015 44
+scripts/dsh_organizer.py
+  s_d737ad21458d6c::t_2c2a3bad394a57 3-5,25,28,63-79,95-102,174-268,279-300,303
+scripts/install_binding.py
+  s_d737ad21458d6c::t_7585c9413be221 1-44
+scripts/knowledge_domain_routing.py
+  s_d737ad21458d6c::t_465475a85c3e74 1-149
+scripts/knowledge_mcp.py
+  s_d737ad21458d6c::t_0153b40daf6181 2-5,26,32,35,44-49,57-62,72-76,84-90,97-147,149,168-169,250-251,253,258,262-288,294-368,373-403,405,409-412,414-415,421-425,427-428,453-459,498-499
+scripts/knowledge_tools.mjs
+  s_d737ad21458d6c::t_73b1b9df1a6326 1-117
+scripts/mindie_paths.py
+  s_d737ad21458d6c::t_ae53ded3c396ee 3,10,49-51,64,68-84
+scripts/mindie_sidecar.py
+  s_d737ad21458d6c::t_85b168ddd7a511 3-5,23,26,28-30,142-205,207,216,223-229,239-253,258-294,407,413-533,544,548-585
+scripts/setup.py
+  s_d737ad21458d6c::t_a17e43af96b075 3,5,12,19,33,35,43-51,53-55,63-90,101,112,143-164,178,190-191,218,236,248,251,258,263-282,302-320,326,350,354,362,380,386,388-389,407-420,423-427,431,448
+scripts/setup_process.py
+  s_d737ad21458d6c::t_f39b51ca0904c4 17,20-21,24
+scripts/summary_host.mjs
+  s_d737ad21458d6c::t_04097d6dfeecbc 1-96
+scripts/updater.py
+  s_d737ad21458d6c::t_114b966e91dc04 310
+skills/mindie-agent/SKILL.md
+  s_d737ad21458d6c::t_23bbf64456dae9 19,44-57,61-113,117-136,145-282
+skills/mindie-agent/references/knowledge.md
+  s_d737ad21458d6c::t_c8db619911192a 3-5,7-19,23-30,35-40,45-48,50-108,112-296,300-321,336
+skills/mindie-agent/references/limitations.md
+  s_d737ad21458d6c::t_2127bbd50f1445 1,5,32,36,38-40,42
+skills/mindie-agent/references/remote-dev.md
+  s_d737ad21458d6c::t_a416a8d8277c45 24,30-59,65-95
+tests/fixtures/graded_worker.py
+  s_d737ad21458d6c::t_d759f4042ccee4 1-69
+tests/host_domain_harness.mjs
+  s_d737ad21458d6c::t_cfc540647ffcc2 1-78
+tests/host_summary_harness.mjs
+  s_d737ad21458d6c::t_aab401a393b93d 1-52
+tests/host_tool_harness.mjs
+  s_d737ad21458d6c::t_6485c7b9aa6649 1-85
+tests/test_bridge_protocol.py
+  s_d737ad21458d6c::t_daadc615faf372 19,83-124,127-187,228-248,256-257
+tests/test_connection.py
+  s_d737ad21458d6c::t_6d10f5e29d26ab 56-73
+tests/test_graded_feedback_entry.py
+  s_d737ad21458d6c::t_aaabf395cc07e0 1-986
+tests/test_host_distill_route.py
+  s_d737ad21458d6c::t_1bf19e46c2969b 1-311
+tests/test_install_binding.py
+  s_d737ad21458d6c::t_4035fef359fd41 1-87
+tests/test_knowledge_distill_entry.py
+  s_d737ad21458d6c::t_9ee95d68d8fc77 1-334
+tests/test_knowledge_distill_tool.py
+  s_d737ad21458d6c::t_3fcd6cdee168d5 1-510
+tests/test_organizer_distill.py
+  s_d737ad21458d6c::t_72bae3ece727c2 1-319
+tests/test_paths.py
+  s_d737ad21458d6c::t_50063df7a197ed 28-60
+tests/test_setup_budget.py
+  s_d737ad21458d6c::t_72bd4fc6f5b424 3,11,23-111
+tests/test_summary_endpoint.mjs
+  s_d737ad21458d6c::t_a4f72092cf9663 2,45-46,53-78,99-172
+tests/test_summary_host.mjs
+  s_d737ad21458d6c::t_07e0c49823e89c 1-72
+uv.lock
+  s_d737ad21458d6c::t_72480ef4c9fad0 1941,1950-1951,1956-1957,1961-1962,1966,3387-3388
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "03046d4f519ea661f16ed7966dc7ef511ed491f4",
+  "prompts": {},
+  "sessions": {
+    "s_d737ad21458d6c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15708-c6bc-7b41-a0c4-4c573d98441e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "fan2956 <zhoufan53@huawei.com>"
+    }
+  }
+}
