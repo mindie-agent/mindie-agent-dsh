@@ -230,7 +230,10 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         explain = schemas["knowledge_explain"]
         self.assertEqual(
             set(explain["properties"]),
-            {"ref", "refs", "conditions", "known_refs", "token_budget", "run_id"},
+            {
+                "ref", "refs", "conditions", "known_refs", "token_budget", "run_id",
+                "mode", "ledger_entries", "bottleneck_summary", "native_subcontext", "goal",
+            },
         )
         self.assertEqual(explain["required"], [])
         distill = schemas["knowledge_distill"]

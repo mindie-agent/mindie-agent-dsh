@@ -30,6 +30,7 @@ from mindie_paths import (  # noqa: E402
     venv_dir,
 )
 import knowledge_domain_routing as routing  # noqa: E402
+import rsi_explore  # noqa: E402
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
 SERVER_VERSION = "0.0.3"
@@ -77,6 +78,7 @@ TOOLS: list[dict[str, Any]] = [
                 "include_archived": {"type": "boolean"},
                 "navigation_only": {"type": "boolean", "description": "Return navigation cards without inline bodies."},
                 "run_id": {"type": "string", "maxLength": 256, "description": "Existing run ID used to record deduplicated delivery events."},
+                **rsi_explore.schema_properties(),
             },
             "additionalProperties": False,
         },
@@ -104,6 +106,7 @@ TOOLS: list[dict[str, Any]] = [
                 "known_refs": {"type": "array", "items": {"type": "string"}},
                 "token_budget": {"type": "integer", "minimum": 1, "maximum": 16000},
                 "run_id": {"type": "string", "maxLength": 256, "description": "Existing run ID used to attribute delivered units."},
+                **rsi_explore.schema_properties(),
             },
             "required": [],
             "additionalProperties": False,
@@ -411,26 +414,30 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     if name == "knowledge_query":
         if not args.get("query") and not args.get("continuation"):
             raise ValueError("knowledge_query requires `query` or `continuation`")
-        route = _route(args, config)
-        payload = _payload(args, route, {
+        body = rsi_explore.forwarded(args)
+        route = _route(body, config)
+        payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })
         try:
-            return rpc(knowledge_connection(config, str(route.selected_path)),
-                       "query", payload, timeout=30.0)
+            result = rpc(knowledge_connection(config, str(route.selected_path)),
+                         "query", payload, timeout=30.0)
+            return rsi_explore.attach(result, body)
         except FeedUnavailableError as exc:
             raise RuntimeError(
                 f"{exc} The configured feed has no installed snapshot. Call knowledge_sync once, then retry the query."
             ) from exc
     if name == "knowledge_explain":
-        route_ref = _explain_route_ref(args)
+        body = rsi_explore.forwarded(args)
+        route_ref = _explain_route_ref(body)
         route = _route({"ref": route_ref}, config)
-        payload = _payload(args, route, {
+        payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })
         try:
-            return rpc(knowledge_connection(config, str(route.selected_path)),
-                       "explain", payload, timeout=30.0)
+            result = rpc(knowledge_connection(config, str(route.selected_path)),
+                         "explain", payload, timeout=30.0)
+            return rsi_explore.attach(result, body)
         except FeedUnavailableError as exc:
             raise RuntimeError(f"{exc} Call knowledge_sync once, then retry.") from exc
     raise ValueError(f"unknown knowledge tool: {name}")
