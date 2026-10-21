@@ -62,7 +62,7 @@
    ```bash
    git --version && uv --version && node --version
    ```
-   - 确认 Node.js `>= 22`、Python `>= 3.11`（由 `uv` 管理）。若用户计划开启社区知识贡献或故障上报，还需确认 `gh auth status` 已登录并执行 `gh auth setup-git`（仅使用只读知识与 `remote-dev` 时不强制依赖 `gh`）。
+   - 确认 Node.js `>= 22`、Python `>= 3.11`（由 `uv` 管理）。若用户计划开启社区知识贡献或故障上报，按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 复用已有认证；需要登录时提供浏览器或企业网络 Token 创建/输入流程。验证账号和凭据复用后执行 `gh auth setup-git --hostname github.com`（仅使用只读知识与 `remote-dev` 时不强制依赖 `gh`）。
 
 2. **构建持久化锁定运行时并同步知识源（须在启用 DSH bundle 前完成）**：
    - 安装当前正式版 `v0.0.3`（若与主仓 `v0.0.2` 配套安装，将下方分支标签替换为 `v0.0.2` 即可）：
@@ -99,6 +99,8 @@
 | `uv` | 任意近期版本 | 构建锁定运行时、提供 Python 解释器 |
 | `git` & `gh` | 已安装并完成认证 | 拉取插件与知识源、支持社区知识 PR 与故障上报 |
 | 网络 | 首次安装需要 | 拉取锁定组件与公共知识快照 |
+
+需要 GitHub 认证时，先按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 检查已有账号；需要登录才选择浏览器或 Token。企业网络优先 Token：已有则在 `gh` 隐藏提示中输入，没有则引导创建。验证后由 `gh` 保存并供后续同步、PR 和 Issue 操作复用，贡献开关保持原有选择。
 
 ### 第 1 步：构建锁定运行时并同步知识（先于启用 bundle）
 
