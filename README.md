@@ -4,8 +4,6 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
-> 插件发现：本仓库使用 GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) 供 DSH 插件市场索引。
-
 <p align="center">
   <b>面向昇腾（Ascend）NPU AI Infra 设计、开发与测试流程的 DeepSeek Harness 原生插件</b><br/>
   <sub>标准预设直接继承 · 领域知识检索与经验沉淀 · 远端 NPU 开发测试工具集 · 仅依赖 DSH 稳定插件</sub>
@@ -36,6 +34,8 @@
 - **`remote-dev` 远端 NPU 工具集**：在远端昇腾服务器或容器内读写文件、执行命令、运行测试并轮询长耗时后台任务；
 - **生态支持**：当前 `v0.0.3` 同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）与 DeepSeek Harness（本仓库）。
 
+项目遵循 [MindIE Agent 工程设计原则](https://github.com/mindie-agent/mindie-agent/blob/main/docs/design-principles.md) 的薄适配层架构：本仓库专注于 DSH Host 组合、会话采集与本地代数切换，而多领域分层路由、分片索引、`L1–L4` 分级知识单元校验与社区发布门禁均由共享组件 [`mindie-knowledge`](https://github.com/mindie-agent/knowledge) 统一承载。
+
 > [!IMPORTANT]
 > **稳定性设计：只依赖 DSH 标准发行版中的稳定插件。**
 > 本适配器仅组合 `@deepseek-ai/dsh-skill-filesystem`、`@deepseek-ai/dsh-mcp-client` 两个非 experimental 包与本地 Host 入口 `./host.mjs`，**不引入任何 `@deepseek-ai/dsh-experimental-*`**，**不覆盖任何 DSH 内置行或内置预设**。
@@ -43,7 +43,53 @@
 
 ## 快速开始
 
-### 前置条件
+> **插件市场发现**：本仓库标记了 GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin)，支持 DSH 插件市场直接索引发现。
+
+### 方式一：通过提示词交由 Agent 自动安装（推荐）
+
+直接复制下面这句话发送给你的 DeepSeek Harness（或其他支持终端执行的 AI Agent），由其自动完成前置检查、锁定运行时构建与插件 bundle 注册：
+
+```text
+帮我安装一下这个 https://github.com/mindie-agent/mindie-agent-dsh
+```
+
+<details>
+<summary>🤖 <b>AI Agent 自动安装执行协议（点击展开 / Agent 读取本页时会自动解析执行）</b></summary>
+
+如果你是收到用户安装请求的 AI Agent，请直接按顺序在终端执行以下步骤完成安装与自检，**无需让用户手动翻阅文档**：
+
+1. **检查基础工具与环境前置条件**：
+   ```bash
+   git --version && uv --version && node --version
+   ```
+   - 确认 Node.js `>= 22`、Python `>= 3.11`（由 `uv` 管理）。若用户计划开启社区知识贡献或故障上报，还需确认 `gh auth status` 已登录并执行 `gh auth setup-git`（仅使用只读知识与 `remote-dev` 时不强制依赖 `gh`）。
+
+2. **构建持久化锁定运行时并同步知识源（须在启用 DSH bundle 前完成）**：
+   - 安装当前正式版 `v0.0.3`（若与主仓 `v0.0.2` 配套安装，将下方分支标签替换为 `v0.0.2` 即可）：
+   ```bash
+   MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh-install"
+   rm -rf "$MINDIE_TMP"
+   git clone --depth 1 --branch v0.0.3 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+   uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
+   ```
+
+3. **在 DSH 中安装并启用插件 bundle**：
+   - 如果当前就在 DSH 会话内且具备 `plugin_manager` 工具，直接调用：
+     ```text
+     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3")
+     ```
+     （若安装 `v0.0.2` 配套版本，使用 `plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")`）
+   - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3`（或 `#v0.0.2`）。
+
+4. **校验结果并向用户汇报**：
+   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`knowledge.status` 为 `"ready"`，且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
+   - 提醒用户打开**新会话**后输入 `/mindie-agent` 即可唤醒昇腾领域知识与 Skill，而 `remote-dev` 远端 NPU 工具在日常对话中默认自动触发。
+
+</details>
+
+### 方式二：手动终端与 Web 页面安装
+
+#### 前置条件
 
 | 依赖 | 要求 | 说明 |
 | --- | --- | --- |

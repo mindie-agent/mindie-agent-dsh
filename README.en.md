@@ -4,8 +4,6 @@
 
 <h1 align="center">MindIE Agent for DeepSeek Harness</h1>
 
-> Plugin discovery: this repository carries the GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) for DSH plugin marketplaces.
-
 <p align="center">
   <b>Native DeepSeek Harness Plugin for the Ascend NPU AI Infra Lifecycle</b><br/>
   <sub>Inherited by the standard preset · Domain knowledge & sanitized experience loop · Remote-dev NPU toolset · Stable DSH plugins only</sub>
@@ -36,13 +34,61 @@ Designed for the Ascend NPU AI Infra design, development, and testing lifecycle,
 - **Official `remote-dev` NPU toolset** — read, write, execute, test, and poll long-running jobs on remote Ascend servers and containers;
 - **Ecosystem support** — `v0.0.3` supports Claude Code ([`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)), OpenAI Codex CLI ([`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)), Kimi Code ([`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)), and DeepSeek Harness (this repository).
 
+Following the [MindIE Agent Engineering Design Principles](https://github.com/mindie-agent/mindie-agent/blob/main/docs/design-principles.en.md), this repository acts as a thin host adapter for DSH composition, transcript capture, and local generation updates, while domain routing rules, shard indexing, `L1–L4` graded knowledge unit validation, and publication gates are handled by the shared [`mindie-knowledge`](https://github.com/mindie-agent/knowledge) engine.
+
 > [!IMPORTANT]
 > **Stability by composition: stable DSH plugins only.**
 > This adapter composes `@deepseek-ai/dsh-skill-filesystem`, `@deepseek-ai/dsh-mcp-client`, and the local Host plugin `./host.mjs`. It uses **no `@deepseek-ai/dsh-experimental-*` package**, overrides **no shipped row or shipped preset**, and inserts its three rows (`mindie-agent-skill`, `mindie-agent-host`, `mindie-agent-remote-mcp`) at the Host layer so the shipped `standard` preset and other presets inherit them directly.
 
 ## Quick Start
 
-### Prerequisites
+> **Plugin Marketplace Discovery**: This repository carries the GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin) for automatic indexing in DSH plugin marketplaces.
+
+### Option 1: One-Sentence Agent-Native Install (Recommended)
+
+Copy and paste the prompt below directly to DeepSeek Harness (or any terminal-capable AI Agent) to automatically run the prerequisite checks, provision the pinned runtime, and register the plugin bundle:
+
+```text
+Please install https://github.com/mindie-agent/mindie-agent-dsh for me
+```
+
+<details>
+<summary>🤖 <b>Automated Installation Protocol for AI Agents (Click to expand / Automatically parsed by AI Agents)</b></summary>
+
+If you are an AI Agent asked by the user to install this plugin, execute the following steps directly **without asking the user to read the documentation manually**:
+
+1. **Check prerequisites**:
+   ```bash
+   git --version && uv --version && node --version
+   ```
+   - Verify Node.js `>= 22` and Python `>= 3.11` (managed via `uv`). If the user plans to enable community contribution or fault reporting, also verify `gh auth status` and run `gh auth setup-git` (`gh` is optional for read-only knowledge and `remote-dev` usage).
+
+2. **Provision the pinned runtime before enabling the bundle**:
+   - For the latest `v0.0.3` release (or substitute `v0.0.2` when pairing with the `v0.0.2` suite):
+   ```bash
+   MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh-install"
+   rm -rf "$MINDIE_TMP"
+   git clone --depth 1 --branch v0.0.3 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+   uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
+   ```
+
+3. **Install and enable the bundle in DSH**:
+   - If you are running inside a DSH session with the `plugin_manager` tool available, call:
+     ```text
+     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3")
+     ```
+     (Or use `target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2"` for `0.0.2` installations.)
+   - Otherwise, install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3` (or `#v0.0.2`) on the DSH Web **Plugins** page.
+
+4. **Verify and report back**:
+   - Confirm the final JSON from `setup.py` reports `"status": "ready"` and `"knowledge": { "status": "ready" }`, and confirm `mindie-agent-dsh` is enabled on the **Plugins** page.
+   - Remind the user to open a **new session** and type `/mindie-agent` to activate Ascend domain knowledge & skills, while `remote-dev` triggers automatically in everyday conversation.
+
+</details>
+
+### Option 2: Manual Terminal & Web UI Install
+
+#### Prerequisites
 
 | Dependency | Requirement | Why |
 | --- | --- | --- |
