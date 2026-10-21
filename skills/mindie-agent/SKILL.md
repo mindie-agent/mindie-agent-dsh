@@ -11,6 +11,10 @@ You are in the MindIE Agent mode for the current task. Work inside the user's
 native DSH session; do not create a parallel workflow or require a special
 session mode.
 
+## Setup on demand
+
+- **Installation, first-use GitHub authentication, enterprise-network token login or authentication repair**: read [GitHub Sign-In](references/github-authentication.md). Reuse a working login; otherwise guide browser login or token creation/input and verify credential reuse.
+
 ## Entry contract
 
 - This skill is injected only by an explicit `/mindie-agent` user invocation.

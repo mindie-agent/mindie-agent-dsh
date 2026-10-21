@@ -61,7 +61,7 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
    ```bash
    git --version && uv --version && node --version
    ```
-   - Verify Node.js `>= 22` and Python `>= 3.11` (managed via `uv`). If the user plans to enable community contribution or fault reporting, also verify `gh auth status` and run `gh auth setup-git` (`gh` is optional for read-only knowledge and `remote-dev` usage).
+   - Verify Node.js `>= 22` and Python `>= 3.11` (managed via `uv`). If the user plans to enable community contribution or fault reporting, follow [GitHub Sign-In](skills/mindie-agent/references/github-authentication.md): reuse working authentication; otherwise offer browser login or enterprise-network token creation/input through the native `gh` prompt. Verify the account and credential reuse, then run `gh auth setup-git --hostname github.com` (`gh` is optional for read-only knowledge and `remote-dev` usage).
 
 2. **Provision the pinned runtime before enabling the bundle**:
    - For the latest `v0.0.3` release (or substitute `v0.0.2` when pairing with the `v0.0.2` suite):
