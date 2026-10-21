@@ -118,8 +118,8 @@ uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setu
   "status": "ready",
   "components": {
     "mindie-knowledge": "0.13.0",
-    "remote-dev": "0.10.3",
-    "mindie-diagnostics": "0.5.0"
+    "remote-dev": "0.10.4",
+    "mindie-diagnostics": "0.5.1"
   },
   "knowledge": { "status": "ready" }
 }
@@ -200,9 +200,9 @@ flowchart TB
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
   HPLUG --> KS["mindie-knowledge 0.13.0<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
-  HPLUG --> DIAG["mindie-diagnostics 0.5.0<br/>本地有界诊断 & 统一贡献开关故障上报"]
+  HPLUG --> DIAG["mindie-diagnostics 0.5.1<br/>本地有界诊断 & 统一贡献开关故障上报"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
-  RMC --> RD["remote-dev 0.10.3<br/>remote_dev.mcp.server"]
+  RMC --> RD["remote-dev 0.10.4<br/>remote_dev.mcp.server"]
   RD --> NPU[("远端昇腾主机 / Docker 容器")]
 ```
 
@@ -212,7 +212,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | 暴露 `/mindie-agent` 显式入口 Skill（`disable-model-invocation: true`） | 否 |
 | `mindie-agent-host` | `./host.mjs`（挂载生成代数 `./host3.mjs`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_sync`）、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接与后台代数更新 | 否 |
-| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | 启动锁定的 `remote-dev 0.10.3` 官方 MCP 服务（`remote_dev.mcp.server`） | 否 |
+| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | 启动锁定的 `remote-dev 0.10.4` 官方 MCP 服务（`remote_dev.mcp.server`） | 否 |
 
 - **不覆盖**任何 DSH 内置行或预设，仅通过 `cordis.patch.yml` 执行 `insert`；DSH 标准预设改动不会被本适配器遮蔽。
 - `package.json` 仅声明精确的 `@deepseek-ai/dsh@0.2.0-rc.2` 可选 peer 依赖，安装时不会把第二个 DSH 运行时拉入 profile。
@@ -225,7 +225,7 @@ flowchart TB
 
 ## `0.0.3` 范围与已知限制
 
-- **锁定运行时版本**：`mindie-knowledge 0.13.0`（`1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a`）、`remote-dev 0.10.3`（`293045f87193fbe749dd161f3fa4bd6a8fbff37f`）、`mindie-diagnostics 0.5.0`（`57ae6487391ffcd0e5342345dbeb7fd859c4f7d5`）。
+- **锁定运行时版本**：`mindie-knowledge 0.13.0`（`10ee85606aa43de7975e3c4542013be4c177730a`）、`remote-dev 0.10.4`（`6bd1a15380195a95d450458e7c1856905d95bf73`）、`mindie-diagnostics 0.5.1`（`fba07e8607ddadde14cea315c9dbda23726c1c79`）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
 - **`remote-dev` 状态跨会话共享**：远端作业记录位于 `~/.local/share/mindie-agent/dsh/state/remote`，在当前 Host 下跨会话可见。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活期间定时检查正式 Release 并切换子插件代数；DSH 停止期间不依赖操作系统级后台常驻计划任务。

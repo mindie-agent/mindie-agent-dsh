@@ -117,8 +117,8 @@ Verify that the final JSON reports the `0.0.3` pinned components and ready statu
   "status": "ready",
   "components": {
     "mindie-knowledge": "0.13.0",
-    "remote-dev": "0.10.3",
-    "mindie-diagnostics": "0.5.0"
+    "remote-dev": "0.10.4",
+    "mindie-diagnostics": "0.5.1"
   },
   "knowledge": { "status": "ready" }
 }
@@ -199,9 +199,9 @@ flowchart TB
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
   HPLUG --> KS["mindie-knowledge 0.13.0<br/>mindie_entry / knowledge_* / Stop capture"]
-  HPLUG --> DIAG["mindie-diagnostics 0.5.0<br/>Bounded local diagnostics & unified consent reporter"]
+  HPLUG --> DIAG["mindie-diagnostics 0.5.1<br/>Bounded local diagnostics & unified consent reporter"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
-  RMC --> RD["remote-dev 0.10.3<br/>remote_dev.mcp.server"]
+  RMC --> RD["remote-dev 0.10.4<br/>remote_dev.mcp.server"]
   RD --> NPU[("remote Ascend host / Docker container")]
 ```
 
@@ -211,7 +211,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the `/mindie-agent` skill bundle (`disable-model-invocation: true`) | no |
 | `mindie-agent-host` | `./host.mjs` (mounts generation `./host3.mjs`) | Registers native Host tools (`mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_sync`), handles `agent/turn-stopping` capture handoff, serves the model summary bridge, and manages generation swaps | no |
-| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | Launches the pinned `remote-dev 0.10.3` official MCP server (`remote_dev.mcp.server`) | no |
+| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | Launches the pinned `remote-dev 0.10.4` official MCP server (`remote_dev.mcp.server`) | no |
 
 - **No override** of any shipped row or preset — `cordis.patch.yml` only performs `insert` operations, so DSH upgrades to the standard preset are never shadowed.
 - The package declares only an optional exact peer on `@deepseek-ai/dsh@0.2.0-rc.2`, avoiding duplicate DSH runtimes in the profile.
@@ -224,7 +224,7 @@ flowchart TB
 
 ## `0.0.3` Scope and Known Limits
 
-- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a`), `remote-dev 0.10.3` (`293045f87193fbe749dd161f3fa4bd6a8fbff37f`), and `mindie-diagnostics 0.5.0` (`57ae6487391ffcd0e5342345dbeb7fd859c4f7d5`).
+- **Pinned Runtime Components**: `mindie-knowledge 0.13.0` (`10ee85606aa43de7975e3c4542013be4c177730a`), `remote-dev 0.10.4` (`6bd1a15380195a95d450458e7c1856905d95bf73`), and `mindie-diagnostics 0.5.1` (`fba07e8607ddadde14cea315c9dbda23726c1c79`).
 - **Historical Same-Version Refresh**: `0.0.2` replaced the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Installations staying on `0.0.2` must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
 - **Shared Host-Level `remote-dev` State**: Remote job records live under `~/.local/share/mindie-agent/dsh/state/remote` and are visible across sessions on the same Host.
 - **Background Auto-Update Scope**: The stable launcher `host.mjs` checks for formal releases and swaps child plugin generations while the DSH Host process is running; no OS-level scheduler runs when DSH is stopped.

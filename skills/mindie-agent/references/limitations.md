@@ -35,9 +35,9 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 Current development runtime pins:
 
-- `mindie-knowledge` `0.13.0` — integration commit `8e4377bacdb0d5ff529217c5963a68f989e0fe5d`
-- `remote-dev` `0.10.3` — integration commit `293045f87193fbe749dd161f3fa4bd6a8fbff37f`
-- `mindie-diagnostics` `0.5.0` — integration commit `57ae6487391ffcd0e5342345dbeb7fd859c4f7d5`
+- `mindie-knowledge` `0.13.0` — integration commit `10ee85606aa43de7975e3c4542013be4c177730a`
+- `remote-dev` `0.10.4` — integration commit `6bd1a15380195a95d450458e7c1856905d95bf73`
+- `mindie-diagnostics` `0.5.1` — integration commit `fba07e8607ddadde14cea315c9dbda23726c1c79`
 
 **Upgrade Boundary**: `0.0.3` is a normal semantic-version upgrade selected by the updater. The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.0.3` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
 
