@@ -80,9 +80,16 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
      (Or use `target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2"` for `0.0.2` installations.)
    - Otherwise, install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3` (or `#v0.0.2`) on the DSH Web **Plugins** page.
 
-4. **Verify and report back**:
+4. **Verify plugin installation**:
    - Confirm the final JSON from `setup.py` reports `"status": "ready"` and `"knowledge": { "status": "ready" }`, and confirm `mindie-agent-dsh` is enabled on the **Plugins** page.
    - Remind the user to open a **new session** and type `/mindie-agent` to activate Ascend domain knowledge & skills, while `remote-dev` triggers automatically in everyday conversation.
+
+   Continue with step 5 after verification, then report the complete setup result.
+
+5. **Finish first-time setup and development workspace onboarding**:
+   - In this installation, present the existing [user notice](skills/mindie-agent/references/user-notice.md), then follow [Workspace Setup](skills/mindie-agent/references/workspace-setup.md). Offer creating and initializing `vllm-ascend-workspace`, reusing a directory, or keeping the current one even when contribution is disabled. Reuse choices already made.
+   - Approval to create or reuse includes automatically adding the selected path through the current harness's native project/workspace entry and checking the result. Initialize sources through the checkout's `repo_init.py`, reusing the verified GitHub authentication and saved fork configuration.
+   - Report plugin status, workspace path, native registration and source initialization together, including any remaining native UI action.
 
 </details>
 
@@ -151,6 +158,8 @@ plugin_manager(action="install_bundle",
 Open a **new session** afterwards (existing sessions keep the composition they started with) and type `/mindie-agent`.
 
 ### Step 3 — Verify
+
+After the commands, enter **`/mindie-agent help me finish first-time setup`** in a new session and complete [Workspace Setup](skills/mindie-agent/references/workspace-setup.md) as part of installation. The agent reuses GitHub authentication, offers workspace creation/reuse and adds the approved path to the current client. Keeping the current directory also completes the offer.
 
 ```text
 /mindie-agent Design an accuracy test for a fused operator in vllm-ascend, then use remote-dev to run it in the remote NPU container.

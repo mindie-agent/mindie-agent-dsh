@@ -14,6 +14,7 @@ session mode.
 ## Setup on demand
 
 - **Installation, first-use GitHub authentication, enterprise-network token login or authentication repair**: read [GitHub Sign-In](references/github-authentication.md). Reuse a working login; otherwise guide browser login or token creation/input and verify credential reuse.
+- **Normal installation and first-use setup, including when contribution is disabled**: present the existing [user notice](references/user-notice.md), then complete [Workspace Setup](references/workspace-setup.md). Offer creation/initialization, reuse or the current directory; approved creation/reuse includes native workspace registration. Reuse prior choices, and do not repeat this flow during ordinary tasks.
 
 ## Entry contract
 
