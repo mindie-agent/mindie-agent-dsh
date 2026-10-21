@@ -81,9 +81,16 @@
      （若安装 `v0.0.2` 配套版本，使用 `plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")`）
    - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.3`（或 `#v0.0.2`）。
 
-4. **校验结果并向用户汇报**：
+4. **核对插件安装状态**：
    - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`knowledge.status` 为 `"ready"`，且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
    - 提醒用户打开**新会话**后输入 `/mindie-agent` 即可唤醒昇腾领域知识与 Skill，而 `remote-dev` 远端 NPU 工具在日常对话中默认自动触发。
+
+   验证成功后继续第 5 步，完成首次配置后一起汇报安装结果。
+
+5. **完成首次配置与开发工作区引导**：
+   - 在本次安装中介绍已有 [用户须知](skills/mindie-agent/references/user-notice.md)，随后执行 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md)。即使未开启贡献，也要提供创建并初始化 `vllm-ascend-workspace`、复用已有目录或继续当前目录的选择；复用已经确认的选择。
+   - 用户同意创建或复用后，自动通过当前宿主的原生项目/工作区入口登记所选路径，核对实际结果。源码初始化使用工作区检出的 `repo_init.py`，复用本次已验证的 GitHub 认证和已有 Fork 配置。
+   - 安装结果同时报告插件、工作区路径、宿主登记与源码初始化状态；需要原生界面操作时明确剩余步骤。
 
 </details>
 
@@ -154,6 +161,8 @@ plugin_manager(action="install_bundle",
 启用后打开**新会话**（已有会话保留其启动时的组合），输入 `/mindie-agent` 即可使用。
 
 ### 第 3 步：验证
+
+安装命令完成后，在新会话输入 **`/mindie-agent 帮我完成首次配置`**，按 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md) 完成本次安装引导。Agent 会复用 GitHub 登录，提供工作区创建/复用选择，并在同意后登记到当前客户端；选择当前目录也可完成引导。
 
 ```text
 /mindie-agent 我准备在 vllm-ascend 里补一个融合算子的精度测试，请先结合知识库给出测试设计，再用 remote-dev 在远端 NPU 容器里跑通。
