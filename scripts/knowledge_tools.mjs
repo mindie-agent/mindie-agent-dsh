@@ -170,11 +170,33 @@ export const knowledgeDomainProperty = {
 }
 
 export const rsiExploreProperties = {
-  mode: { type: 'string', enum: ['reuse', 'diagnose', 'explore'] },
-  ledger_entries: { type: 'array', items: { type: 'object' } },
-  bottleneck_summary: { type: 'object' },
-  native_subcontext: { type: 'boolean' },
-  goal: { type: 'string' },
+  mode: {
+    type: 'string',
+    enum: ['reuse', 'diagnose', 'explore'],
+    description:
+      'Retrieval mode: "reuse" (default) for standard L1-L3 knowledge reuse; "diagnose" for fault triage; "explore" (RSI mode) when standard L3 workflows only partially cover the problem or stall on a structural bottleneck—strips L3 workflows, promotes L1/L2 foundations, mounts L4 mutators, and returns exploration_context + subagent_fact_pack.',
+  },
+  ledger_entries: {
+    type: 'array',
+    items: { type: 'object' },
+    description:
+      'Prior attempt records (e.g. [{run_id, hypothesis, verdict, failure_reason, conditions}]) supplied in mode="explore" to assess stagnation and populate conditional_avoid.',
+  },
+  bottleneck_summary: {
+    type: 'object',
+    description:
+      'Observed bottleneck facts and metrics (e.g. {bottleneck, stage, metrics}) mounted into exploration_context in mode="explore".',
+  },
+  native_subcontext: {
+    type: 'boolean',
+    description:
+      'Whether the explore fact pack will seed a fresh native subagent context.',
+  },
+  goal: {
+    type: 'string',
+    description:
+      'Concise optimization or structural code-transformation goal for mode="explore".',
+  },
 }
 
 export const knowledgeQueryExtraProperties = {

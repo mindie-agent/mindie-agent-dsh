@@ -80,11 +80,14 @@ the previous single-query/single-ref/`rating` behavior.
   `condition_unknown` candidates and their `missing_conditions`; read the cards
   first instead of expanding every body. `include_archived` defaults to `false`
   so archived/superseded units stay out of ordinary discovery; use `true` only
-  to investigate an old or replaced conclusion.
+  to investigate an old or replaced conclusion. Supports `mode` (`"reuse"`
+  default, `"diagnose"`, or `"explore"` for RSI mode), `goal`,
+  `bottleneck_summary`, `ledger_entries`, and `native_subcontext`.
 - `knowledge_explain` — the second step. Pass one actual returned single-line
   `ref` (`mindie://<domain>/units/<id>@<revision>`, a positive integer revision)
   or `unit_ref` for a compatible single read, or pass `refs=[...]` with
-  `token_budget=12000` (and optional `conditions`, `known_refs`) to assemble a
+  `token_budget=12000` (and optional `conditions`, `known_refs`, `mode`, `goal`,
+  `bottleneck_summary`, `ledger_entries`, `native_subcontext`) to assemble a
   batch dependency closure (`units` + `requires`). Shared prerequisites appear
   once, complete bodies are never truncated, and `unresolved` distinguishes
   `condition_unknown`, `condition_mismatch`, `budget_excluded`,
@@ -167,8 +170,13 @@ Knowledge tiers (L1 constraints/measurements, L2 procedures, L3 decision branche
 L4 transformations), evidence strength and the current work mode are independent.
 Hermes is experience revision across tiers; exploration does not require an L4 result.
 
-- **Apply complete, relevant knowledge**: query with observed conditions, then read the selected bodies and their prerequisites. Unknown conditions need verification. Use L3 branches to choose the next action; the next observation can change the route.
-- **Explore an unresolved subproblem**: choose the least costly experiment that separates competing explanations. New facts or a first divergence count as progress even if the full test fails. Repeated no-information attempts prompt reconsideration, not an automatic mode switch. Use native independent context only when available and authorized; filtering an object or inheriting full history does not establish isolation. Device-free work may use `npu_count=0`; JIT, warmup and measurement use the required lease and actually assigned devices.
+- **Apply complete, relevant knowledge (`mode="reuse"`)**: begin in default `mode="reuse"` by querying the matching domain (`domain="vllm-ascend"` for model/serving tasks or `domain="operators"` for AscendC/Triton/operator kernel tasks) with observed conditions, then call `knowledge_explain` to read the selected `L1`/`L2`/`L3` bodies and their prerequisites. Unknown conditions need verification. Use `L3` workflow branches to choose the initial action.
+- **Transition from partial `L3` experience to RSI exploration (`mode="explore"`)**: when a baseline probe, prior attempt log, or initial `L3` workflow attempt shows that standard `L3` heuristics only partially solve the problem or stall below the target speedup/latency/accuracy due to a structural bottleneck (such as per-layer GM materialization round-trips, `.contiguous()` view clones, host `.item()`/`.cpu()` D2H syncs, unmerged multi-dimensional loops, or unfused BF16→FP32 cast stores), **explicitly switch to RSI mode** by calling `knowledge_query` (and/or `knowledge_explain` on the target `L4` mutator `ref`) with:
+  - `mode="explore"`,
+  - `goal="<concise optimization or structural code-transformation goal>"`,
+  - `bottleneck_summary={"bottleneck": "...", "observed_signals": [...]}`, and
+  - `ledger_entries=[{"run_id": "...", "hypothesis": "...", "verdict": "refuted", "failure_reason": "...", "conditions": {...}}]` (recording why the `L3` heuristic attempt stalled or was insufficient).
+  In `mode="explore"`, the runtime automatically strips `L3` workflows (`stripped_l3_ids`), promotes their `L1`/`L2` prerequisites, mounts `L4` code-transformation mutators (`l4_mutators`), and returns `exploration_context` (`mindie-exploration-context/1`) + `subagent_fact_pack` (`mindie-rsi-subagent-pack/1`). Then implement the separable `L4` mutator factors, run the baseline / full-candidate / leave-one-out ablation verification, and record the verified runs and factor dispositions in `experiment-ledger.jsonl` and `PROGRESS.md`.
 - **Revise from bounded evidence**: use `task_state="verified_milestone"` for a finished finding in an ongoing task, or `"completed"` for completion. Preserve counterevidence, human corrections, superseded plans and unresolved alternatives; compare related units and prefer revision or no-op. Separate evidence validity, goal attainment and reusable information, with supported/refuted/inconclusive feedback. L4 transformations still require a verified final-combination ablation receipt; diagnostic L2/L3 findings do not require performance gains.
 
 For first-divergence checks, observer effects, history-dependent reproducers,
