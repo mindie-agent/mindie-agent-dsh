@@ -415,7 +415,7 @@ export function apply(ctx) {
       return process.argv[index + 1]
     }
     const match = String(import.meta.url).match(/[/\\]profiles[/\\]([^/\\]+)[/\\]node_modules[/\\]/)
-    return match ? match[1] : String(process.env.DSH_PROFILE || '')
+    return match ? match[1] : String(process.env.MINDIE_DSH_PROFILE || process.env.DSH_PROFILE || 'web')
   }
 
   const readUpdateConfig = () => {

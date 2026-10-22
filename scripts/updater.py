@@ -310,11 +310,24 @@ def acquire_lock():
     return None
 
 
+def default_current_version() -> str:
+    current = read_json(current_path(), {})
+    if isinstance(current, dict) and isinstance(current.get("tag"), str) and current["tag"]:
+        return current["tag"].lstrip("v")
+    try:
+        pkg = json.loads((mp.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))
+        if isinstance(pkg.get("version"), str) and pkg["version"]:
+            return pkg["version"]
+    except (OSError, ValueError):
+        pass
+    return "0.0.3"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("check", "status", "recover", "enable", "disable"))
     parser.add_argument("--profile", default=os.environ.get("DSH_PROFILE", "web"))
-    parser.add_argument("--current-version", default="0.0.3")
+    parser.add_argument("--current-version", default=None)
     parser.add_argument("--api", default=os.environ.get("MINDIE_DSH_UPDATE_API", DEFAULT_API))
     parser.add_argument("--silent", action="store_true")
     parser.add_argument("--stage-only", action="store_true")
@@ -344,7 +357,8 @@ def main() -> int:
             print(json.dumps({"state": "busy"}))
         return 0
     try:
-        result = check(args.profile, args.current_version, args.api, apply=not args.stage_only)
+        current_version = args.current_version or default_current_version()
+        result = check(args.profile, current_version, args.api, apply=not args.stage_only)
         if not args.silent:
             print(json.dumps(result, ensure_ascii=False))
         return 0

@@ -85,6 +85,17 @@ class UpdaterTests(unittest.TestCase):
                 with self.assertRaises(updater.UpdateError):
                     updater.update_config()
 
+    def test_default_current_version_reads_active_generation_or_package_manifest(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.dict("os.environ", {"MINDIE_DSH_DATA_HOME": str(root)}):
+                package_version = updater.json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+                self.assertEqual(updater.default_current_version(), package_version)
+                updater.write_current(root / "gen", "v0.0.9", None)
+                self.assertEqual(updater.default_current_version(), "0.0.9")
+
 
 if __name__ == "__main__":
     unittest.main()

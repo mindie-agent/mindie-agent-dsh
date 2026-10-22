@@ -20,6 +20,10 @@ import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const paths = require('./paths.cjs').paths()
+const seedProfileMatch = String(import.meta.url).match(/[/\\]profiles[/\\]([^/\\]+)[/\\]node_modules[/\\]/)
+if (seedProfileMatch && !process.env.MINDIE_DSH_PROFILE) {
+  process.env.MINDIE_DSH_PROFILE = seedProfileMatch[1]
+}
 const logPath = path.join(paths.dataHome, 'update', 'launcher.log')
 const log = (message) => { try { appendFileSync(logPath, new Date().toISOString() + ' ' + message + '\n') } catch {} }
 
