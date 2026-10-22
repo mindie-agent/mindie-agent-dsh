@@ -35,7 +35,7 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 Current development runtime pins:
 
-- `mindie-knowledge` `0.13.0` — integration commit `880c9f71f55aabd9e3a2a015e94524d6d9b54c9c`
+- `mindie-knowledge` `0.13.0` — integration commit `6bb92e41edd5161d6287c70e49daf06a4be6c3da`
 - `remote-dev` `0.10.4` — integration commit `6bd1a15380195a95d450458e7c1856905d95bf73`
 - `mindie-diagnostics` `0.5.1` — integration commit `fba07e8607ddadde14cea315c9dbda23726c1c79`
 
