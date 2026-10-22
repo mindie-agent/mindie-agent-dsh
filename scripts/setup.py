@@ -194,30 +194,10 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
 
 
 def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
-    probe = r"""
-import importlib.metadata as md, json, sqlite3, sys
-import mindie_knowledge, remote_dev
-
-db = sqlite3.connect(":memory:")
-try:
-    db.execute("CREATE VIRTUAL TABLE probe USING fts5(body)")
-finally:
-    db.close()
-
-def version(name):
-    try:
-        return md.version(name)
-    except Exception:
-        return None
-
-print(json.dumps({
-    "python": sys.version.split()[0],
-    "sqlite": sqlite3.sqlite_version,
-    "executable": sys.executable,
-    "versions": {k: version(k) for k in ("mindie-knowledge", "remote-dev", "mindie-diagnostics")},
-}))
-"""
-    completed = run([str(runtime_python()), "-c", probe], timeout=timeout)
+    completed = run(
+        [str(runtime_python()), str(HERE / "runtime_probe.py")],
+        timeout=timeout,
+    )
     if completed.returncode != 0:
         raise SetupError("runtime import/FTS5 probe failed. " + tail(completed.stderr or completed.stdout))
     try:
@@ -356,6 +336,8 @@ def report_setup_failure(error: Exception) -> None:
         result = run([str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
                       "record", "--operation", "setup", "--category", type(error).__name__], timeout=5)
         progress("diagnostic: " + result.stdout.strip())
+    except TimeoutError:
+        raise
     except (OSError, SetupError) as exc:
         progress("diagnostic storage unavailable: " + type(exc).__name__)
 
@@ -464,6 +446,8 @@ def main(argv: list[str] | None = None) -> int:
         progress("failed: " + str(exc))
         report_setup_failure(exc)
         return 1
+    except TimeoutError:
+        raise
     except OSError as exc:
         progress("failed: " + f"{type(exc).__name__}: {exc}")
         report_setup_failure(exc)

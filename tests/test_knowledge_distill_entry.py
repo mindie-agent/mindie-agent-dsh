@@ -298,6 +298,12 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.assertIsNone(payload["result"])
         self.assertEqual(payload["llmCalls"], 0)
 
+    def test_pre_step_user_gesture_activates_session_without_explicit_entry_tool(self) -> None:
+        payload = self._run_harness(skip_activation=True, DISTILL_PRE_STEP_GESTURE="1")
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["result"]["status"], "applied")
+        self.assertEqual(payload["llmCalls"], 1)
+
     def test_local_application_failure_preserves_the_native_decision(self) -> None:
         with mock.patch.object(self.store.graded, "install", side_effect=OSError("controlled local write failure")):
             payload = self._run_harness()

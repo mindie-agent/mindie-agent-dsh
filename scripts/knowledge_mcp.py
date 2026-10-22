@@ -67,7 +67,14 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Concise task query. Omit when continuing a previous page."},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Concise bilingual task query combining canonical English technical "
+                        "identifiers/APIs/error codes and key Chinese/English domain terms. "
+                        "Omit when continuing a previous page."
+                    ),
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Maximum citation groups to return (1-20)."},
                 "conditions": {"type": "object", "description": "Optional exact-match filters supplied by the corpus."},
                 "continuation": {"type": "string", "description": "Opaque continuation token from a previous query."},
@@ -220,6 +227,8 @@ def running_in_configured_venv(config: dict[str, Any]) -> bool:
         return False
     try:
         return Path(sys.prefix).resolve() == Path(configured).resolve()
+    except TimeoutError:
+        raise
     except OSError:
         return False
 
@@ -511,6 +520,13 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
                 "result": success(dispatch(name, arguments), distill=name == "knowledge_distill")}
     except ConfigError as exc:
         return {"jsonrpc": "2.0", "id": ident, "result": failure(str(exc), error=exc)}
+    except TimeoutError as exc:
+        log("mindie-knowledge MCP timeout: " + "".join(traceback.format_exception_only(type(exc), exc)).strip())
+        return {"jsonrpc": "2.0", "id": ident,
+                "result": failure(
+                    f"TimeoutError: {exc}. The operation exceeded its deadline; continue independently.",
+                    error=exc,
+                )}
     except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
         log("mindie-knowledge MCP error: " + "".join(traceback.format_exception_only(type(exc), exc)).strip())
         return {"jsonrpc": "2.0", "id": ident, "result": failure(f"{type(exc).__name__}: {exc}. Continue independently.", error=exc)}

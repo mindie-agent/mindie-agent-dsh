@@ -8,6 +8,13 @@
 import { writeFileSync } from 'node:fs'
 import { createSummaryServer, dispatchSummaryPayload } from '../host3.mjs'
 
+// This is a pytest-driven harness, not a standalone node:test file. When the
+// Node test runner collects `tests/*.mjs`, skip instead of requiring env vars.
+if (process.env.NODE_TEST_CONTEXT) {
+  console.log('host_summary_harness.mjs is exercised by pytest; skipping standalone run')
+  process.exit(0)
+}
+
 const endpointPath = process.env.DISTILL_STUB_ENDPOINT
 const capturePath = process.env.DISTILL_STUB_CAPTURE
 const token = process.env.DISTILL_STUB_TOKEN || 'distill-stub-token'

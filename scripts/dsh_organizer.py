@@ -70,7 +70,7 @@ def distill_capability() -> bool:
     """Advertise C6 only when the installed runtime can actually service it."""
     try:
         from mindie_knowledge.graded import distill
-    except Exception:  # pragma: no cover - the legacy runtime has no C6 module
+    except (ImportError, AttributeError):  # pragma: no cover - the legacy runtime has no C6 module
         return False
     if getattr(distill, "REQUEST_SCHEMA", None) != DISTILL_REQUEST_SCHEMA:
         return False
@@ -122,6 +122,8 @@ def _post(value: dict) -> tuple[str, dict]:
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read(2000).decode("utf-8", "replace")
+        except TimeoutError:
+            raise
         except OSError:
             detail = ""
         if exc.code == 409:
@@ -254,7 +256,7 @@ def _distill_outcome(request: dict, started: float, summarizer) -> dict:
     raw_result = text if len(text.encode("utf-8")) <= summarizer.MAX_RESPONSE_BYTES else None
     try:
         decision = distill.validate_decision(_extract_json(text), request)
-    except Exception:  # noqa: BLE001 - untrusted model output
+    except (ValueError, KeyError, TypeError, AssertionError):  # noqa: BLE001 - untrusted model output
         # The remote call completed and was billed; local bookkeeping failure
         # must not reverse that fact into an unknown or zero-call outcome.
         return summarizer.outcome(
@@ -321,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
             result = summarizer.validate_result(
                 _extract_json(text), [b["block_id"] for b in request["blocks"]]
             )
-        except Exception:  # noqa: BLE001
+        except (ValueError, KeyError, TypeError, AssertionError):  # noqa: BLE001
             envelope = summarizer.outcome(
                 request, status="failed", raw_result=raw_result, usage=reported_usage,
                 usage_known=usage_known, model_calls=1, elapsed_ms=elapsed_ms,
@@ -359,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(envelope, ensure_ascii=True))
             return 0
-        except Exception:
+        except (ValueError, KeyError, TypeError):
             pass
         print(json.dumps({"schema": "mindie-summary-error/1", "error": str(exc)}, ensure_ascii=True))
         return 1

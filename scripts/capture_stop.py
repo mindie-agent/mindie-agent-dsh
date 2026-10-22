@@ -36,6 +36,8 @@ def append_log(value: dict) -> None:
             os.replace(path, path.with_suffix(".1"))
         with path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+    except TimeoutError:
+        raise
     except OSError as exc:
         print(
             f"MindIE capture receipt write failed: {type(exc).__name__}: {exc}"[:500],
@@ -45,6 +47,17 @@ def append_log(value: dict) -> None:
 
 def diagnose(stage: str, error: Exception) -> dict:
     return diagnostics.failure("capture", stage, error)
+
+
+def failure_entry(started: float, error: Exception) -> dict:
+    entry = {
+        "time": time.time(),
+        "elapsed": round(time.time() - started, 3),
+        "error": {"type": type(error).__name__, "message": str(error)[:500]},
+    }
+    if projected := diagnose("hook", error):
+        entry["diagnostic"] = projected
+    return entry
 
 
 def main() -> int:
@@ -78,15 +91,11 @@ def main() -> int:
                 entry["diagnostic"] = projected
         append_log(entry)
         return 0
+    except TimeoutError as exc:
+        append_log(failure_entry(started, exc))
+        return 1
     except Exception as exc:  # noqa: BLE001
-        entry = {
-            "time": time.time(),
-            "elapsed": round(time.time() - started, 3),
-            "error": {"type": type(exc).__name__, "message": str(exc)[:500]},
-        }
-        if projected := diagnose("hook", exc):
-            entry["diagnostic"] = projected
-        append_log(entry)
+        append_log(failure_entry(started, exc))
         return 1
 
 

@@ -17,10 +17,24 @@ def bind_environment() -> None:
     os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(mp.diagnostics_config())
 
 
+def effective_reporting(view: dict, saved: dict) -> dict:
+    """The authority gates status too; a legacy choice cannot widen consent."""
+    if saved.get("state") in {"corrupt", "unreadable"}:
+        return dict(view, enabled=False, status="unavailable", consent=saved)
+    if not saved.get("choice_revision"):
+        return dict(view, enabled=False, status="needs_choice", consent=saved,
+                    detail="Choose contribution again to authorize knowledge sharing and sanitized fault Issues together.")
+    if saved.get("choice") != "contribute":
+        return dict(view, enabled=False, status="disabled", consent=saved)
+    return dict(view, consent=saved)
+
+
 def status() -> dict:
     from mindie_diagnostics.integration import reporting_status
+    from mindie_knowledge.consent_store import read
 
-    return reporting_status(config=mp.diagnostics_config())
+    result = reporting_status(config=mp.diagnostics_config())
+    return effective_reporting(result, read(mp.config_home() / "mindie-consent.json"))
 
 
 def activate(*, ensure=True) -> dict:
@@ -44,6 +58,8 @@ def failure(operation, stage, error, *, reportable=True, category=None) -> dict:
             exception=error, host="dsh", version="0.0.3", reportable=reportable,
         )
         return {key: receipt[key] for key in ("incident_id", "record_ref", "logging_failed") if key in receipt}
+    except TimeoutError:
+        raise
     except Exception:
         return {"logging_failed": True}
 

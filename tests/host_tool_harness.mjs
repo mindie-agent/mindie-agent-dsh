@@ -7,6 +7,13 @@ import path from 'node:path'
 import { apply } from '../host3.mjs'
 import { distillCallTimeoutMs } from '../scripts/knowledge_tools.mjs'
 
+// This is a pytest-driven harness, not a standalone node:test file. When the
+// Node test runner collects `tests/*.mjs`, skip instead of requiring env vars.
+if (process.env.NODE_TEST_CONTEXT) {
+  console.log('host_tool_harness.mjs is exercised by pytest; skipping standalone run')
+  process.exit(0)
+}
+
 const decision = process.env.DISTILL_DECISION
 const inputs = JSON.parse(process.env.DISTILL_INPUTS || '[]')
 const cwd = process.env.DISTILL_CWD
@@ -19,6 +26,7 @@ if (!cwd) throw new Error('DISTILL_CWD is required')
 let llmCalls = 0
 let promptHasDecisionSchema = false
 const tools = new Map()
+const listeners = new Map()
 const disposers = []
 const ctx = {
   tools: { register(tool) { tools.set(tool.name, tool) } },
@@ -34,7 +42,7 @@ const ctx = {
       yield { type: 'finish', reason: { kind: 'stop' } }
     },
   },
-  on() {},
+  on(event, callback) { listeners.set(event, callback) },
   effect(callback) {
     const dispose = callback()
     if (typeof dispose === 'function') disposers.push(dispose)
@@ -60,7 +68,18 @@ const entry = tools.get('mindie_entry')
 const distill = tools.get('knowledge_distill')
 if (!entry || !distill) throw new Error('required host tools are not registered')
 let activated = { activated: false }
-if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
+if (process.env.DISTILL_PRE_STEP_GESTURE === '1') {
+  const preStep = listeners.get('agent/pre-step')
+  if (typeof preStep !== 'function') throw new Error('agent/pre-step listener is not registered')
+  const userMsg = {
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: '/mindie-agent\n\ndistill task' }],
+  }
+  await preStep(
+    { agent: exec.agent, messages: [userMsg] },
+    async () => ({ kind: 'enter', messages: [userMsg] }),
+  )
+} else if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
   activated = JSON.parse(await entry.execute({ op: 'init' }, exec))
 }
 const arguments_ = { inputs, task_state: 'verified_milestone' }

@@ -67,27 +67,32 @@ Use the two-step progressive flow: discover with bounded navigation, then load
 only the selected body closure. These fields are additive; omitting them keeps
 the previous single-query/single-ref/`rating` behavior.
 
-- `knowledge_query` — one concise query; `limit` 1–20; optional `domain`
+- `knowledge_query` — one concise bilingual query (when the user's request is in
+  Chinese or mixed Chinese-English, always include canonical English technical
+  identifiers/APIs/error codes alongside key Chinese domain phrases); `limit`
+  1–20; optional `domain`
   (selecting the default domain or a registered `domain_configs` Engine/Feed
   such as `"vllm-ascend"` or `"operators"`), `conditions`, `continuation`,
   `domain_path`, `token_budget`, `include_unknown`, and `include_archived`.
-  A graded query returns bounded `cards` and deduplicated `foundation_cards`
-  alongside compatible `results` and `usage`; read the cards first instead of
-  expanding every body. `include_archived` defaults to `false` so
-  archived/superseded units stay out of ordinary discovery; use `true` only to
-  investigate an old or replaced conclusion.
+  During initial discovery (before all declared condition keys are known), pass
+  `include_unknown=true` (for example with `navigation_only=true` and
+  `token_budget=3000`) so `cards` and `foundation_cards` return
+  `condition_unknown` candidates and their `missing_conditions`; read the cards
+  first instead of expanding every body. `include_archived` defaults to `false`
+  so archived/superseded units stay out of ordinary discovery; use `true` only
+  to investigate an old or replaced conclusion.
 - `knowledge_explain` — the second step. Pass one actual returned single-line
   `ref` (`mindie://<domain>/units/<id>@<revision>`, a positive integer revision)
   or `unit_ref` for a compatible single read, or pass `refs=[...]` with
-  `conditions`, `known_refs`, and `token_budget` (1–16000) to assemble a batch
-  dependency closure. Shared prerequisites appear once, complete bodies are
-  never truncated, and `unresolved` distinguishes `condition_unknown`,
-  `condition_mismatch`, `budget_excluded`, `removed_or_superseded` (with
-  `superseded_by`), and `not_found`. `known_refs` means exact `id@revision`
-  bodies still fully visible in the current context—not everything ever
-  read—so clear it after native compaction. Route by the `mindie://<domain>/...`
-  authority; conflicting authorities across `refs` are rejected. Never pass a
-  bare `id` or rewrite the returned revision URI.
+  `token_budget=12000` (and optional `conditions`, `known_refs`) to assemble a
+  batch dependency closure (`units` + `requires`). Shared prerequisites appear
+  once, complete bodies are never truncated, and `unresolved` distinguishes
+  `condition_unknown`, `condition_mismatch`, `budget_excluded`,
+  `removed_or_superseded` (with `superseded_by`), and `not_found`. `known_refs`
+  means exact `id@revision` bodies still fully visible in the current
+  context—not everything ever read—so clear it after native compaction. Route by
+  the `mindie://<domain>/...` authority; conflicting authorities across `refs`
+  are rejected. Never pass a bare `id` or rewrite the returned revision URI.
 - `knowledge_distill` — explicitly distill caller-selected, already-authorized
   evidence (`inputs`, `task_state`, optional `domain`, `related_refs`,
   `proposal`) into local C5 graded units at `task_state="verified_milestone"` or
@@ -144,13 +149,17 @@ and say so.
 
 `mcp__remote-dev__remote_*` is the published remote-dev MCP server. Use a real
 endpoint (`host` + `port`, optional `container`/`user`, or `alias`); never
-invent one. Long work becomes a managed job: poll `remote_job_status` /
-`remote_job_tail`, stop with `remote_job_stop`. On a timeout or lost receipt the
-remote mutation may already have executed: inspect the original job before any
-deliberate repeat; never automatically replay an uncertain write. Separate CPU /
-cross-compile concurrency from physical NPU timing: any latency, throughput, or
-profiler measurement requires an exclusive `coordinator` lease on the target
-physical NPU cards and pre/post `environment_fingerprint` verification.
+invent one. Prefer `remote_grep`, `remote_glob`, `remote_read`, and
+`remote_edit` for fast remote search, reading, and surgical edits, and use
+`remote_bash` (with `yield_time_ms=10000` or `30000`) for running remote tests.
+Long work becomes a managed job: poll `remote_job_status`, `remote_job_output`,
+or `remote_job_tail`, and stop with `remote_job_stop`. On a timeout or lost
+receipt the remote mutation may already have executed: inspect the original job
+before any deliberate repeat; never automatically replay an uncertain write.
+Separate CPU / cross-compile concurrency from physical NPU timing: any latency,
+throughput, or profiler measurement requires an exclusive `coordinator` lease on
+the target physical NPU cards and pre/post `environment_fingerprint`
+verification.
 
 ## Knowledge use, diagnosis and exploration
 

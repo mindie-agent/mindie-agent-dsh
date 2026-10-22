@@ -1,12 +1,13 @@
 """[Role] DSH v4 concatenated-zstd session-log public-transcript adapter for mindie-knowledge.
 [Invariants] Extracts only public user messages (source.kind == 'user') and assistant text blocks; preserves append-only byte-offset cursor monotonicity.
-[Timeouts & Locks] Decompression bounded at MAX_DECOMPRESSED_BYTES=128 MiB and scan budget max_seconds=2.0s.
+[Timeouts & Locks] Decompression bounded at MAX_DECOMPRESSED_BYTES=32 MiB and scan budget max_seconds=2.0s.
 [Side-Effect Policy] Strictly read-only; never mutates session logs or external state.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import time
@@ -19,7 +20,7 @@ except ImportError:  # pragma: no cover
     zstandard = None
 
 ANCHOR_BYTES = 512
-MAX_DECOMPRESSED_BYTES = 128 * 1024 * 1024
+MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024
 PUBLIC_USER_KINDS = {"user"}
 
 
@@ -66,6 +67,8 @@ def identify(path) -> FileIdentity | None:
         with open(path, "rb") as stream:
             stat = os.fstat(stream.fileno())
             anchor = stream.read(ANCHOR_BYTES)
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         return None
     return FileIdentity(
@@ -84,6 +87,8 @@ def _seconds(raw):
 def _session_in_path(path):
     try:
         resolved = Path(path).resolve()
+    except TimeoutError:
+        raise
     except OSError:
         return None
     return (resolved.parent.name or None) if "sessions" in resolved.parts else None
@@ -127,7 +132,8 @@ def _text_blocks(content):
 
 def _records(raw, *, boundary):
     current_turn = None
-    for line in raw.decode("utf-8", "replace").splitlines():
+    for raw_line in io.BytesIO(raw):
+        line = raw_line.decode("utf-8", "replace")
         if not line.strip():
             continue
         try:
@@ -221,13 +227,13 @@ def read_material(
             for _stamp, kind, text, _turn in records
             if (norm := text.replace("\r\n", "\n").replace("\r", "\n").strip())
         ]
-        full = b""
+        full = bytearray()
         spans = []
         for index, value in enumerate(values):
             if index:
-                full += b"\n\n"
+                full.extend(b"\n\n")
             begin = len(full)
-            full += value
+            full.extend(value)
             spans.append((begin, len(full)))
 
         if start > len(full):
@@ -263,13 +269,15 @@ def read_material(
         if selected == 0:
             result.update(status="unchanged", end=start)
             return result
-        slice_bytes = full[effective_start:end]
+        slice_bytes = bytes(full[effective_start:end])
         result.update(
             end=end, text=slice_bytes.decode("utf-8", "replace"), records=selected,
             digest=hashlib.sha256(slice_bytes).hexdigest(), more=end < len(full),
             skipped_records=max(0, len(records) - selected),
         )
         return result
+    except TimeoutError:
+        raise
     except OSError:
         result.update(status="missing", coverage_note="transcript unreadable")
         return result

@@ -61,6 +61,7 @@ class ForkTests(unittest.TestCase):
             env = {
                 "MINDIE_DSH_CONFIG_HOME": str(config_dir),
                 "MINDIE_DSH_DATA_HOME": str(root / "data"),
+                "MINDIE_DIAGNOSTICS_ROOT": str(root / "logs"),
                 "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
             }
             old = {key: os.environ.get(key) for key in env}

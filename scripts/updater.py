@@ -75,6 +75,8 @@ def config_path() -> Path:
 def read_json(path: Path, default):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         return default
 
@@ -212,6 +214,8 @@ def run(command, timeout, cwd=None, env=None):
             command, cwd=str(cwd) if cwd else None, env=env,
             timeout=timeout,
         )
+    except TimeoutError:
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, f"{type(exc).__name__}: {exc}"
     return completed.returncode, (completed.stderr or completed.stdout or "").strip()[-2000:]
@@ -304,6 +308,8 @@ def acquire_lock():
                 if time.time() - lock_path().stat().st_mtime > 3600:
                     lock_path().unlink(missing_ok=True)
                     continue
+            except TimeoutError:
+                raise
             except OSError:
                 pass
             return None
@@ -318,9 +324,25 @@ def default_current_version() -> str:
         pkg = json.loads((mp.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))
         if isinstance(pkg.get("version"), str) and pkg["version"]:
             return pkg["version"]
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         pass
     return "0.0.3"
+
+
+def record_update_failure(error: Exception, args) -> int:
+    result = {
+        "schema": SCHEMA, "state": "failed", "current": args.current_version,
+        "checked_at": time.time(), "detail": f"{type(error).__name__}: {str(error)[:800]}",
+    }
+    from dsh_diagnostics import failure
+
+    result["diagnostic"] = failure("update", "update", error)
+    atomic_json(status_path(), result)
+    if not args.silent:
+        print(json.dumps(result, ensure_ascii=False))
+    return 1
 
 
 def main() -> int:
@@ -362,18 +384,10 @@ def main() -> int:
         if not args.silent:
             print(json.dumps(result, ensure_ascii=False))
         return 0
+    except TimeoutError as exc:
+        return record_update_failure(exc, args)
     except Exception as exc:  # noqa: BLE001
-        result = {
-            "schema": SCHEMA, "state": "failed", "current": args.current_version,
-            "checked_at": time.time(), "detail": f"{type(exc).__name__}: {str(exc)[:800]}",
-        }
-        from dsh_diagnostics import failure
-
-        result["diagnostic"] = failure("update", "update", exc)
-        atomic_json(status_path(), result)
-        if not args.silent:
-            print(json.dumps(result, ensure_ascii=False))
-        return 1
+        return record_update_failure(exc, args)
     finally:
         lock_path().unlink(missing_ok=True)
 

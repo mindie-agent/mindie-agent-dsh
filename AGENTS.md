@@ -12,7 +12,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 | `scripts/knowledge_mcp.py` | Thin stdio MCP bridge (`knowledge_query`, `knowledge_explain`, `knowledge_sync`) | Re-executes into configured venv Python (`MINDIE_DSH_NO_REEXEC=1` disables re-exec); strictly read-only plus explicit feed sync. |
 | `scripts/capture_stop.py` | Detached Stop-hook capture handoff | Reads one Stop envelope (`<= 256 KiB`) from stdin, calls `capture_hook`, appends receipt to `capture.log` (`1 MiB` rotation), never emits to stdout. |
 | `scripts/dsh_organizer.py` | Loopback summary worker (`mindie-summary-outcome/1`) | Calls active DSH session's loopback summary endpoint (`summary-endpoint.json`); returns `returned`, `failed`, or `outcome_unknown` without retrying uncertain calls. |
-| `scripts/dsh_transcript.py` | DSH v4 `.jsonl.zstd` public-transcript reader | Streams concatenated zstd frames (`<= 128 MiB`), extracts only `user/message` (`source.kind == "user"`) and `assistant/message` `text` blocks, maintains monotonic byte-offset cursors. |
+| `scripts/dsh_transcript.py` | DSH v4 `.jsonl.zstd` public-transcript reader | Streams concatenated zstd frames (`<= 32 MiB`), extracts only `user/message` (`source.kind == "user"`) and `assistant/message` `text` blocks, maintains monotonic byte-offset cursors. |
 | `scripts/setup.py` | One-step locked runtime provisioner | Runs `uv sync --frozen`, probes SQLite FTS5 + component imports, installs transcript redactor, writes `engine.json` / `config.json` via `os.replace`. |
 | `scripts/updater.py` | Background GitHub Release updater | Stages candidate under `update/generations/<tag>`, provisions candidate before switching `current.json`. |
 
@@ -28,7 +28,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 - **Timeout Arithmetic**:
   - Sidecar / MCP knowledge RPCs: `30.0s` (`query`, `explain`, `feedback`); feed sync: `120.0s`.
   - Loopback organizer HTTP POST: `DEADLINE_SECONDS = 300s` (`MAX_REQUEST_BYTES = MAX_RESPONSE_BYTES = 256 KiB`).
-  - Transcript incremental scan: `max_seconds = 2.0s`, `max_text_bytes = 48 KiB`, `MAX_DECOMPRESSED_BYTES = 128 MiB`.
+  - Transcript incremental scan: `max_seconds = 2.0s`, `max_text_bytes = 48 KiB`, `MAX_DECOMPRESSED_BYTES = 32 MiB`.
   - Setup & Updater: standalone `uv sync` has a `900s` stage budget and redactor installation `300s`. Updater supplies one `600s` total candidate setup deadline and reserves `10s` for cleanup. GitHub API lookup `30s`, asset download `60s`. Explicit contribution configuration has a `600s` outer budget including community operations and the shared reporter's `75s` startup; ordinary sidecar calls use `120s`.
 - **Four `v0.0.2` Iron Rules**:
   1. Lightweight SQLite connections (WAL + busy timeout set once on open; no per-query schema reflection or `.owner` `lstat` ceremony).

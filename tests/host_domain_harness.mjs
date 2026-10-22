@@ -6,6 +6,13 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { apply } from '../host3.mjs'
 
+// This is a pytest-driven harness, not a standalone node:test file. When the
+// Node test runner collects `tests/*.mjs`, skip instead of requiring env vars.
+if (process.env.NODE_TEST_CONTEXT) {
+  console.log('host_domain_harness.mjs is exercised by pytest; skipping standalone run')
+  process.exit(0)
+}
+
 const cwd = process.env.DOMAIN_CWD
 const operations = JSON.parse(process.env.DOMAIN_OPERATIONS || '[]')
 if (!cwd) throw new Error('DOMAIN_CWD is required')

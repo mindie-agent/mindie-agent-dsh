@@ -32,6 +32,8 @@ def activate(path, previous, candidate, *, timeout=30):
             return dict(status=report['status'], domains=report)
         try:
             _atomic_write_text(path, json.dumps(candidate, ensure_ascii=False, sort_keys=True, indent=2) + '\n')
+        except TimeoutError:
+            raise
         except (OSError, ValueError) as exc:
             restoration = restore_changed(report, timeout=max(0, deadline - time.monotonic()))
             return dict(status='incomplete', error_type=type(exc).__name__, restoration=restoration)

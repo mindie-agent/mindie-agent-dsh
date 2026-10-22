@@ -284,6 +284,8 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
     sharing, sharing_error = None, None
     try:
         sharing = public_settings()
+    except TimeoutError:
+        raise
     except Exception as exc:  # noqa: BLE001 - revocation already succeeded
         sharing_error = f"{type(exc).__name__}: {exc}"
     response = {
@@ -659,6 +661,10 @@ def main() -> int:
                 raise SidecarError("unknown operation")
             result = OPS[op](args if isinstance(args, dict) else {})
             print(json.dumps(response(identifier, ok=True, result=result), ensure_ascii=False), flush=True)
+        except TimeoutError as exc:
+            envelope = response(identifier, ok=False, error=exc)
+            envelope["error"]["message"] = f"operation exceeded its deadline: {exc}"
+            print(json.dumps(envelope, ensure_ascii=False), flush=True)
         except Exception as exc:  # noqa: BLE001
             envelope = response(identifier, ok=False, error=exc)
             if projected := diagnostic(str(op or "request"), exc):

@@ -111,7 +111,8 @@ class ContributionReportingTests(unittest.TestCase):
     def test_startup_preserves_every_legacy_choice_without_activating_worker(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.dict(os.environ, MINDIE_DSH_CONFIG_HOME=str(root)), \
+            with patch.dict(os.environ, MINDIE_DSH_CONFIG_HOME=str(root),
+                            MINDIE_DIAGNOSTICS_ROOT=str(root / "logs")), \
                     patch("mindie_diagnostics.reporting_commands.ensure") as ensure:
                 for choice in ("contribute", "disabled", "later", "read-only"):
                     authority = root / "mindie-consent.json"
