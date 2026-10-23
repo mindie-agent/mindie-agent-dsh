@@ -234,9 +234,9 @@ flowchart TB
 - **升级保持与旧版授权重确认**：已有的 `disabled`、`later`、`read-only` 选择在升级后保持关闭。旧版仅含知识共享授权（缺少统一授权 `choice_revision` / 标记为 `needs_choice`）的记录在升级或常规启动时**不会**自动获得故障上传权限，必须由用户显式重新确认一次后才允许上传故障报告。
 - **三态严格区分**：系统严格区分（1）本地授权配置已写入 `mindie-consent.json`、（2）后台上报/整理 worker 正在运行、（3）外部 GitHub Issue 或知识 PR 已实际创建。可通过 `reporting-status` 只读查看 worker 与队列真实状态，详见 **[用户须知](skills/mindie-agent/references/user-notice.md)**。
 
-## `0.0.3` 范围与已知限制
+## `0.1.0` 范围与已知限制
 
-- **锁定运行时版本**：`mindie-knowledge 0.13.0`（`6bb92e41edd5161d6287c70e49daf06a4be6c3da`）、`remote-dev 0.10.4`（`6bd1a15380195a95d450458e7c1856905d95bf73`）、`mindie-diagnostics 0.5.1`（`fba07e8607ddadde14cea315c9dbda23726c1c79`）。
+- **锁定运行时版本**：`mindie-knowledge 0.13.1`（`2e5cf79050a6634a53b9c2cff52d98ca87850e50`）、`remote-dev 0.10.5`（`20d34abebeab17bb6a68f0966ac4d627af54be88`）、`mindie-diagnostics 0.5.1`（`fba07e8607ddadde14cea315c9dbda23726c1c79`）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
 - **`remote-dev` 状态跨会话共享**：远端作业记录位于 `~/.local/share/mindie-agent/dsh/state/remote`，在当前 Host 下跨会话可见。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活期间定时检查正式 Release 并切换子插件代数；DSH 停止期间不依赖操作系统级后台常驻计划任务。

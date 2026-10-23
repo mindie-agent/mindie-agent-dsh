@@ -29,17 +29,17 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.0.3` Runtime Components
+## Pinned `0.1.0` Runtime Components
 
 `scripts/setup.py` is idempotent: it runs `uv sync --frozen` against `uv.lock`, installs persistent worker scripts under `state_dir/bin/`, updates `engine.json` and `diagnostics.json`, and performs an incremental knowledge feed sync.
 
 Current development runtime pins:
 
-- `mindie-knowledge` `0.13.0` — integration commit `6bb92e41edd5161d6287c70e49daf06a4be6c3da`
-- `remote-dev` `0.10.4` — integration commit `6bd1a15380195a95d450458e7c1856905d95bf73`
+- `mindie-knowledge` `0.13.1` — integration commit `2e5cf79050a6634a53b9c2cff52d98ca87850e50`
+- `remote-dev` `0.10.5` — integration commit `20d34abebeab17bb6a68f0966ac4d627af54be88`
 - `mindie-diagnostics` `0.5.1` — integration commit `fba07e8607ddadde14cea315c9dbda23726c1c79`
 
-**Upgrade Boundary**: `0.0.3` is a normal semantic-version upgrade selected by the updater. The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.0.3` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
+**Upgrade Boundary**: `0.1.0` is a normal semantic-version upgrade selected by the updater. The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.1.0` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
 
 ## Unified Contribution Switch & Three-State Separation
 

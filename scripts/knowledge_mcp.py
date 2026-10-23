@@ -33,7 +33,7 @@ import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
-SERVER_VERSION = "0.0.3"
+SERVER_VERSION = "0.1.0"
 PROTOCOL_FALLBACK = "2025-11-25"
 MAX_ERROR_CHARS = 1200
 

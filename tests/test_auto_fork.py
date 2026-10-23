@@ -42,6 +42,22 @@ class ForkTests(unittest.TestCase):
                 "exit 1\n"
             )
             gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+            if os.name == "nt":
+                gh_py = bin_dir / "gh_stub.py"
+                gh_py.write_text(
+                    "import json, pathlib, sys\n"
+                    "args = sys.argv[1:3]\n"
+                    "if args == ['api', 'user']: print('testuser'); raise SystemExit(0)\n"
+                    "if args == ['repo', 'list']: print(json.dumps([{'nameWithOwner': 'testuser/vaws-knowledge-corpus', 'parent': {'nameWithOwner': 'mindie-agent/knowledge-vllm-ascend'}}])); raise SystemExit(0)\n"
+                    "if args == ['repo', 'view']: raise SystemExit(1)\n"
+                    f"if args == ['repo', 'fork']: pathlib.Path({str(marker)!r}).touch(); print('testuser/knowledge-vllm-ascend'); raise SystemExit(0)\n"
+                    "raise SystemExit(1)\n",
+                    encoding="utf-8",
+                )
+                (bin_dir / "gh.cmd").write_text(
+                    f'@"{os.sys.executable}" -I "{gh_py}" %*\n',
+                    encoding="utf-8",
+                )
             config_dir = root / "config"
             config_dir.mkdir()
             engine = config_dir / "engine.json"

@@ -25,6 +25,7 @@ import tempfile
 
 import pytest
 
+_REAL_HOME = Path.home()
 _DIAG_ROOT = Path(tempfile.mkdtemp(prefix="mindie-dsh-test-diag-")).resolve()
 _DEFAULT_DIAGNOSTICS_ROOT = _DIAG_ROOT / "logs"
 _DEFAULT_DIAGNOSTICS_CONFIG = _DIAG_ROOT / "diagnostics.json"
@@ -33,6 +34,8 @@ os.environ["MINDIE_DIAGNOSTICS_ROOT"] = str(_DEFAULT_DIAGNOSTICS_ROOT)
 os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(_DEFAULT_DIAGNOSTICS_CONFIG)
 
 _ISOLATED_PATHS = {
+    "HOME": ("home",),
+    "USERPROFILE": ("home",),
     "MINDIE_DSH_DATA_HOME": ("data",),
     "MINDIE_DSH_CONFIG_HOME": ("config",),
     "MINDIE_DSH_STATE_DIR": ("state",),
@@ -63,5 +66,9 @@ def isolated_host_environment(tmp_path, monkeypatch):
         else:
             location.mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv(variable, str(location))
+    real_ssh = _REAL_HOME / ".ssh"
+    home_ssh = tmp_path / "home" / ".ssh"
+    if real_ssh.is_dir() and not home_ssh.exists():
+        home_ssh.symlink_to(real_ssh, target_is_directory=True)
     yield
     _close_failure_recorders()
