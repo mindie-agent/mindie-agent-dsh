@@ -68,25 +68,48 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
   const remote = await import(config.mcpPluginUrl)
   const generation = {
     name: 'mindie-agent-generation',
+    inject: ['agents'],
     async apply(child) {
       await child.plugin(plugin)
-      await child.plugin(remote, {
-        serverName: 'remote-dev', transport: 'stdio', command: binding.venvPython,
-        args: ['-m', 'remote_dev.mcp.server'], cwd: path.dirname(entry),
-        env: {
-          MINDIE_DSH_CONFIG: binding.configFile,
-          MINDIE_DSH_STATE_DIR: binding.stateDir,
-          REMOTE_DEV_STATE_DIR: path.join(binding.stateDir, 'remote'),
-          MINDIE_DIAGNOSTICS_CONFIG: path.join(binding.configHome, 'diagnostics.json'),
-          // Trusted launcher binding; never derived from tool arguments.
-          REMOTE_DEV_HARNESS_PROFILE: 'dsh',
-          // DSH exposes a real session id only inside a tool execution
-          // (`exec.agent.session.id`), after this single long-lived stdio
-          // process has spawned. No per-session id is available here, so keep
-          // the install-scoped value rather than fabricating one.
-          REMOTE_DEV_SESSION_ID: 'dsh',
-        },
-        toolCallTimeoutMs: 600000, failOnStartupError: true,
+      // One remote-dev stdio process per live agent/session. `agent/created`
+      // is serial and awaited before the agent becomes visible; `agent.ctx`
+      // owns the scoped registration, so a session id is a real identity rather
+      // than an install-wide sentinel. Existing idle agents are attached too so
+      // a generation switch does not drop their remote tools.
+      const mounted = new Map()
+      const attach = async (agent) => {
+        const sessionId = agent?.session?.id
+        if (typeof sessionId !== 'string' || sessionId.length === 0) {
+          throw new Error('MindIE remote MCP requires a non-empty agent session id')
+        }
+        if (mounted.has(sessionId)) return
+        const fiber = await agent.ctx.plugin(remote, {
+          serverName: 'remote-dev', transport: 'stdio', command: binding.venvPython,
+          args: ['-m', 'remote_dev.mcp.server'], cwd: path.dirname(entry),
+          env: {
+            MINDIE_DSH_CONFIG: binding.configFile,
+            MINDIE_DSH_STATE_DIR: binding.stateDir,
+            REMOTE_DEV_STATE_DIR: path.join(binding.stateDir, 'remote'),
+            MINDIE_DIAGNOSTICS_CONFIG: path.join(binding.configHome, 'diagnostics.json'),
+            // Trusted launcher binding; never derived from tool arguments.
+            REMOTE_DEV_HARNESS_PROFILE: 'dsh',
+            // The DSH agent/session identity available at this supported hook.
+            REMOTE_DEV_SESSION_ID: sessionId,
+          },
+          toolCallTimeoutMs: 600000, failOnStartupError: true,
+        })
+        mounted.set(sessionId, fiber)
+      }
+      for (const agent of child.agents.list()) await attach(agent)
+      child.on('agent/created', ({ agent }) => attach(agent))
+      child.on('agent/disposed', ({ agent }) => {
+        mounted.delete(agent?.session?.id)
+      })
+      child.effect(() => async () => {
+        for (const [sessionId, fiber] of mounted) {
+          mounted.delete(sessionId)
+          await fiber?.dispose?.()
+        }
       })
     },
   }

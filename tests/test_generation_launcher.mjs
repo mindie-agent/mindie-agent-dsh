@@ -1,4 +1,4 @@
-// Lifecycle unit contract: one canonical binding moves host and remote together.
+// Lifecycle unit contract: remote MCP is scoped to each real agent session.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -6,11 +6,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-test('an idle generation switch replaces both native host and remote MCP', async (t) => {
+test('an idle generation switch replaces host and per-session remote MCP', async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-generation-'))
   const prior = { ...process.env }
   const events = globalThis.__mindieGenerationEvents = []
-  let running = false
   let poll
   t.mock.method(globalThis, 'setInterval', (callback) => {
     poll = callback
@@ -40,22 +39,35 @@ test('an idle generation switch replaces both native host and remote MCP', async
   writeFileSync(remote, `
     export const name = 'fixture-mcp';
     export function apply(ctx, config) {
-      globalThis.__mindieRemoteProfile = config.env?.REMOTE_DEV_HARNESS_PROFILE;
-      globalThis.__mindieGenerationEvents.push(['remote', config.command]);
-      ctx.effect(() => () => globalThis.__mindieGenerationEvents.push(['remote-dispose', config.command]));
+      globalThis.__mindieGenerationEvents.push([
+        'remote', config.command,
+        config.env?.REMOTE_DEV_SESSION_ID,
+        config.env?.REMOTE_DEV_HARNESS_PROFILE,
+      ]);
+      ctx.effect(() => () => globalThis.__mindieGenerationEvents.push(
+        ['remote-dispose', config.command, config.env?.REMOTE_DEV_SESSION_ID]));
     }
   `)
   const publish = (index) => writeFileSync(path.join(config, 'config.json'), JSON.stringify({
     package_dir: generations[index], python: path.join(root, 'python-' + index),
     venv_dir: path.join(root, 'runtime-' + index),
   }))
-  function context() {
+  const agents = []
+  function context(children = []) {
     const effects = []
+    const listeners = new Map()
     return {
-      agents: { list: () => [{ status: running ? 'running' : 'idle' }] },
+      agents: { list: () => agents },
       effect(factory) { effects.push(factory()) },
+      on(name, handler) {
+        listeners.set(name, handler)
+        return () => listeners.delete(name)
+      },
+      listeners,
+      children,
       async plugin(plugin, options) {
-        const child = context()
+        const child = context(children)
+        children.push(child)
         await plugin.apply(child, options)
         const fiber = { dispose: async () => {
           for (const dispose of child.effects.toReversed()) await dispose?.()
@@ -67,29 +79,52 @@ test('an idle generation switch replaces both native host and remote MCP', async
     }
   }
   const ctx = context()
+  const makeAgent = (id) => {
+    const agent = { session: { id }, ctx: context(), status: 'idle' }
+    agents.push(agent)
+    return agent
+  }
   try {
     publish(0)
     const launcher = await import('../host.mjs')
     await launcher.apply(ctx, { mcpPluginUrl: pathToFileURL(remote).href })
-    assert.deepEqual(events, [['host', 'one'], ['remote', path.join(root, 'python-0')]])
-    assert.equal(globalThis.__mindieRemoteProfile, 'dsh')
+    assert.deepEqual(events, [['host', 'one']])
+    const createdHandler = () => [...ctx.children].reverse().find(
+      (child) => child.listeners.has('agent/created'))
+    assert.ok(createdHandler(), 'generation child context')
+    const created = createdHandler().listeners.get('agent/created')
+    assert.equal(typeof created, 'function')
+
+    const first = makeAgent('session-one')
+    await created({ agent: first })
+    assert.deepEqual(events.slice(1), [
+      ['remote', path.join(root, 'python-0'), 'session-one', 'dsh'],
+    ])
+
     publish(1)
-    running = true
+    first.status = 'running'
     await poll()
     assert.equal(events.length, 2)
-    running = false
+    first.status = 'idle'
     await poll()
     assert.deepEqual(events.slice(2), [
-      ['remote-dispose', path.join(root, 'python-0')], ['host-dispose', 'one'],
-      ['host', 'two'], ['remote', path.join(root, 'python-1')],
+      ['remote-dispose', path.join(root, 'python-0'), 'session-one'],
+      ['host-dispose', 'one'],
+      ['host', 'two'],
+      ['remote', path.join(root, 'python-1'), 'session-one', 'dsh'],
+    ])
+
+    const second = makeAgent('session-two')
+    await createdHandler().listeners.get('agent/created')({ agent: second })
+    assert.deepEqual(events.slice(6), [
+      ['remote', path.join(root, 'python-1'), 'session-two', 'dsh'],
     ])
     await poll()
-    assert.equal(events.length, 6)
+    assert.equal(events.length, 7)
   } finally {
     for (const dispose of ctx.effects.toReversed()) await dispose?.()
     process.env = prior
     delete globalThis.__mindieGenerationEvents
-    delete globalThis.__mindieRemoteProfile
     rmSync(root, { recursive: true, force: true })
   }
 })
