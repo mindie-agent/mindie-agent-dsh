@@ -10,7 +10,7 @@
     },
     "remote-dev": {
       "version": "0.10.7",
-      "commit": "e0d2292325d915fb4b992981611aa8ce263b8a0c"
+      "commit": "cbc61a90bf75211f7720d8573196dedf50e9b98b"
     },
     "mindie-diagnostics": {
       "version": "0.5.2",
