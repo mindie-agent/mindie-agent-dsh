@@ -78,6 +78,12 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
           MINDIE_DSH_STATE_DIR: binding.stateDir,
           REMOTE_DEV_STATE_DIR: path.join(binding.stateDir, 'remote'),
           MINDIE_DIAGNOSTICS_CONFIG: path.join(binding.configHome, 'diagnostics.json'),
+          // Trusted launcher binding; never derived from tool arguments.
+          REMOTE_DEV_HARNESS_PROFILE: 'dsh',
+          // DSH exposes a real session id only inside a tool execution
+          // (`exec.agent.session.id`), after this single long-lived stdio
+          // process has spawned. No per-session id is available here, so keep
+          // the install-scoped value rather than fabricating one.
           REMOTE_DEV_SESSION_ID: 'dsh',
         },
         toolCallTimeoutMs: 600000, failOnStartupError: true,

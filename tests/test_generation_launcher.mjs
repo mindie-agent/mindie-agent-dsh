@@ -40,6 +40,7 @@ test('an idle generation switch replaces both native host and remote MCP', async
   writeFileSync(remote, `
     export const name = 'fixture-mcp';
     export function apply(ctx, config) {
+      globalThis.__mindieRemoteProfile = config.env?.REMOTE_DEV_HARNESS_PROFILE;
       globalThis.__mindieGenerationEvents.push(['remote', config.command]);
       ctx.effect(() => () => globalThis.__mindieGenerationEvents.push(['remote-dispose', config.command]));
     }
@@ -71,6 +72,7 @@ test('an idle generation switch replaces both native host and remote MCP', async
     const launcher = await import('../host.mjs')
     await launcher.apply(ctx, { mcpPluginUrl: pathToFileURL(remote).href })
     assert.deepEqual(events, [['host', 'one'], ['remote', path.join(root, 'python-0')]])
+    assert.equal(globalThis.__mindieRemoteProfile, 'dsh')
     publish(1)
     running = true
     await poll()
@@ -87,6 +89,7 @@ test('an idle generation switch replaces both native host and remote MCP', async
     for (const dispose of ctx.effects.toReversed()) await dispose?.()
     process.env = prior
     delete globalThis.__mindieGenerationEvents
+    delete globalThis.__mindieRemoteProfile
     rmSync(root, { recursive: true, force: true })
   }
 })
