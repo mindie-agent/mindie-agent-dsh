@@ -429,9 +429,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
             "_session_id": session, "_session_verified": True,
         })
         try:
-            result = rpc(knowledge_connection(config, str(route.selected_path)),
-                         "query", payload, timeout=30.0)
-            return rsi_explore.attach(result, body)
+            return rpc(knowledge_connection(config, str(route.selected_path)),
+                       "query", payload, timeout=30.0)
         except FeedUnavailableError as exc:
             raise RuntimeError(
                 f"{exc} The configured feed has no installed snapshot. Call knowledge_sync once, then retry the query."
@@ -444,9 +443,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
             "_session_id": session, "_session_verified": True,
         })
         try:
-            result = rpc(knowledge_connection(config, str(route.selected_path)),
-                         "explain", payload, timeout=30.0)
-            return rsi_explore.attach(result, body)
+            return rpc(knowledge_connection(config, str(route.selected_path)),
+                       "explain", payload, timeout=30.0)
         except FeedUnavailableError as exc:
             raise RuntimeError(f"{exc} Call knowledge_sync once, then retry.") from exc
     raise ValueError(f"unknown knowledge tool: {name}")

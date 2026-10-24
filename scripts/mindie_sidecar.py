@@ -598,8 +598,6 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         from mindie_knowledge.graded.distill import result_view
         result, is_error = result_view(result)
         return {**result, "_tool_error": is_error}
-    if method in {"query", "explain"}:
-        return rsi_explore.attach(result, payload)
     return result
 
 

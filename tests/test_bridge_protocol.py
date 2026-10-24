@@ -44,6 +44,57 @@ def exchange(messages: list[dict], env: dict[str, str]) -> list[dict]:
     return rows
 
 
+def real_explore_result(method="query"):
+    """One real `mode="explore"` payload from the installed knowledge engine.
+
+    Explore stripping, foundation promotion and the subagent fact pack are the
+    engine's contract; adapter tests assert against its actual output rather
+    than a hand-written response that could drift from the real schema.
+    """
+    from mindie_knowledge.graded.index import RoutingIndex
+    from mindie_knowledge.graded.units import GradedUnit
+
+    observed = {"soc": "Ascend910B"}
+
+    def graded_unit(ident, tier, category, body, parents=(), strength="single_observation"):
+        return GradedUnit.from_parts(
+            {
+                "schema": "mindie-graded-unit/1", "id": ident, "tier": tier,
+                "category": category, "evidence_strength": strength,
+                "domain_path": "serving/graph", "inherits_from": list(parents),
+                "title": f"{ident} probe",
+                "triggers": {"error_signatures": [], "keywords": ["rmsnorm"]},
+                "conditions": {"soc": ["Ascend910B"]},
+                "provenance": {"source_type": "session_distill",
+                               "source_locator": "fixture@abc:probe.txt",
+                               "source_digest": "0" * 64,
+                               "evidence_refs": ["fixture"], "supersedes": []},
+            },
+            body,
+            f"serving/graph/{ident}.md",
+        )
+
+    units = [
+        graded_unit("unit-l1-foundation", "L1", "axiom", "Keep 32B UB alignment.",
+                    strength="hardware_spec"),
+        graded_unit("unit-l3-workflow", "L3", "workflow", "Old rmsnorm workflow steps.",
+                    parents=["unit-l1-foundation"]),
+        graded_unit("unit-l4-mutator", "L4", "mutator", "Fuse the rmsnorm epilogue."),
+    ]
+    index = RoutingIndex(units)
+    options = dict(
+        conditions=observed, mode="explore", token_budget=16000,
+        native_subcontext=True, goal="Fuse RMSNorm epilogue",
+        ledger_entries=[{"run_id": "r1", "verdict": "refuted", "hypothesis": "tile=64",
+                         "conditions": observed, "axes": {"evidence_validity": "valid"}}],
+    )
+    if method == "explain":
+        return index.explain_closure(
+            ["mindie://mindie/units/unit-l3-workflow", "mindie://mindie/units/unit-l4-mutator"],
+            domain="mindie", **options)
+    return index.query("rmsnorm", **options)
+
+
 class BridgeProtocolTests(unittest.TestCase):
     def _env(self) -> dict[str, str]:
         temporary = tempfile.TemporaryDirectory()
@@ -282,36 +333,112 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIs(responses[2]["result"]["isError"], True)
         self.assertIn("unexpected tool arguments", responses[2]["result"]["content"][0]["text"])
 
-    def test_rsi_explore_mode_strips_l3_and_builds_subagent_pack(self) -> None:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    def test_rsi_explore_query_and_explain_deliver_the_engine_result_verbatim(self) -> None:
+        scripts = Path(__file__).resolve().parents[1] / "scripts"
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        import knowledge_mcp
+        import mindie_sidecar
         import rsi_explore
+        from unittest import mock
 
+        # Argument shaping is this lane's only RSI responsibility: reject an
+        # unknown mode before any service/store call, and forward the selectors.
         with self.assertRaises(ValueError):
             rsi_explore.forwarded({"query": "rmsnorm", "mode": "invalid"})
-        args = rsi_explore.forwarded({
+        query_raw = {
             "query": "rmsnorm", "mode": "explore", "native_subcontext": True,
             "goal": "Fuse RMSNorm epilogue",
             "ledger_entries": [{"run_id": "r1", "verdict": "refuted", "hypothesis": "tile=64"}],
-        })
-        shaped = rsi_explore.attach(
-            {
-                "cards": [
-                    {"id": "u-l1", "tier": "L1", "title": "32B UB alignment"},
-                    {"id": "u-l3", "tier": "L3", "title": "old workflow"},
-                ],
-            },
-            args,
-        )
+        }
+        shaped = rsi_explore.forwarded(query_raw)
         self.assertEqual(shaped["mode"], "explore")
-        self.assertEqual(shaped["stripped_l3_ids"], ["u-l3"])
-        self.assertEqual([c["id"] for c in shaped["cards"]], ["u-l1"])
-        pack = shaped["exploration_context"]["subagent_fact_pack"]
-        self.assertEqual(pack["schema_version"], "mindie-rsi-subagent-pack/1")
-        self.assertEqual(pack["isolation_mode"], "native_subcontext")
-        from unittest import mock
-        with mock.patch.object(rsi_explore, "_load_builder", return_value=None):
-            with self.assertRaises(RuntimeError):
-                rsi_explore.attach({"cards": [{"id": "u-l1", "tier": "L1"}]}, args)
+        self.assertIs(shaped["native_subcontext"], True)
+
+        # Explore stripping, foundation promotion and the subagent fact pack are
+        # the knowledge engine's contract. Both DSH adapters must deliver that
+        # engine result verbatim; only the RPC transport boundary is mocked, and
+        # it returns the genuine RoutingIndex output.
+        session = "manual-dsh"
+        explain_raw = {
+            "refs": ["mindie://mindie/units/unit-l3-workflow", "mindie://mindie/units/unit-l4-mutator"], "mode": "explore", "native_subcontext": True,
+            "goal": "Fuse RMSNorm epilogue", "conditions": {"soc": "Ascend910B"},
+            "ledger_entries": [{"run_id": "r1", "verdict": "refuted", "hypothesis": "tile=64"}],
+        }
+
+        workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(workspace.cleanup)
+        root = Path(workspace.name)
+        engine_config = root / "engine.json"
+        engine_config.write_text(json.dumps({
+            "domain": "mindie", "root": str(root / "domain"),
+            "admission_path": str(root / "admission.sqlite3"),
+        }), encoding="utf-8")
+
+        def assert_verbatim(delivered):
+            self.assertEqual(delivered, engine_result)
+            self.assertEqual(delivered["stripped_l3_ids"], ["unit-l3-workflow"])
+            self.assertNotIn(
+                "unit-l3-workflow", [row["id"] for row in (delivered.get("results", []) + delivered.get("units", []) + delivered.get("requires", []))])
+            context = delivered["exploration_context"]
+            pack = context["subagent_fact_pack"]
+            self.assertEqual(pack["schema_version"], "mindie-rsi-subagent-pack/1")
+            self.assertEqual(pack["isolation_mode"], "native_subcontext")
+            # conditional_avoid (with its `avoid` field) and the usage estimate
+            # arrive exactly as the engine produced them.
+            self.assertIn("avoid", context["conditional_avoid"][0])
+            self.assertEqual(
+                context["conditional_avoid"],
+                engine_result["exploration_context"]["conditional_avoid"])
+            self.assertEqual(delivered["usage"], engine_result["usage"])
+
+        # (1) knowledge_mcp.call_knowledge routes from a real local engine config;
+        # the knowledge service is reached only through the mocked transport.
+        config = {"engine_config": str(engine_config)}
+        for name, raw, method in (
+                ("knowledge_query", query_raw, "query"),
+                ("knowledge_explain", explain_raw, "explain")):
+            engine_result = real_explore_result(method)
+            served = json.loads(json.dumps(engine_result))
+            with self.subTest(adapter="call_knowledge", method=method), \
+                    mock.patch.object(
+                        knowledge_mcp, "knowledge_connection", return_value=object()), \
+                    mock.patch(
+                        "mindie_knowledge.loop.transport.rpc", return_value=served) as rpc:
+                delivered = knowledge_mcp.call_knowledge(name, dict(raw), config)
+            self.assertEqual(rpc.call_args.args[1], method)
+            self.assertEqual(rpc.call_args.args[2]["mode"], "explore")
+            assert_verbatim(delivered)
+
+        # (2) mindie_sidecar.op_rpc dispatches with a real adapter config and a
+        # real local lease, so its own admission and routing run for real.
+        config_file = root / "config.json"
+        config_file.write_text(json.dumps({
+            "python": sys.executable, "engine_config": str(engine_config),
+            "state_dir": str(root / "state"), "venv_dir": str(root / "venv"),
+        }), encoding="utf-8")
+        data_home = root / "data"
+        data_home.mkdir()
+        with mock.patch.dict(os.environ, {
+                "MINDIE_DSH_CONFIG": str(config_file),
+                "MINDIE_DSH_DATA_HOME": str(data_home)}):
+            token = mindie_sidecar.admission().activate(
+                session, project_root=str(root))["token"]
+            for method, raw in (("query", query_raw), ("explain", explain_raw)):
+                engine_result = real_explore_result(method)
+                served = json.loads(json.dumps(engine_result))
+                with self.subTest(adapter="op_rpc", method=method), \
+                        mock.patch.object(
+                            mindie_sidecar, "connection", return_value=object()), \
+                        mock.patch(
+                            "mindie_knowledge.loop.transport.rpc",
+                            return_value=served) as rpc:
+                    delivered = mindie_sidecar.op_rpc({
+                        "session": session, "token": token,
+                        "method": method, "arguments": dict(raw)})
+                self.assertEqual(rpc.call_args.args[1], method)
+                self.assertEqual(rpc.call_args.args[2]["mode"], "explore")
+                assert_verbatim(delivered)
 
 
 if __name__ == "__main__":
