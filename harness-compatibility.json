@@ -2,7 +2,7 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.2",
+  "plugin_version": "0.1.3",
   "runtime_components": {
     "mindie-knowledge": {
       "version": "0.13.3",
