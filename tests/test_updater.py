@@ -43,6 +43,9 @@ def release(tag, *, draft=False, prerelease=False, version=None):
 class UpdaterTests(unittest.TestCase):
     def setUp(self):
         from unittest.mock import patch
+        native_version = patch("native_update.current_version", return_value=None)
+        self.native_version = native_version.start()
+        self.addCleanup(native_version.stop)
         native = patch("native_update.install")
         self.native_install = native.start()
         self.addCleanup(native.stop)
@@ -99,6 +102,26 @@ class UpdaterTests(unittest.TestCase):
                     result = updater.check("web", "0.1.1", "https://example.invalid")
                     self.assertEqual(result["state"], "applied" if candidate else "up-to-date")
                     self.assertFalse((root / "corpus").exists())
+
+    def test_legacy_runtime_upgrade_does_not_hide_an_older_native_bundle(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.dict(os.environ, {"MINDIE_DSH_DATA_HOME": str(root / "data"),
+                                              "MINDIE_DSH_CONFIG_HOME": str(root / "config")}):
+                updater.atomic_json(updater.mp.config_file(), {"python": sys.executable})
+                package = updater.update_dir() / "generations/v0.1.2/package"
+                package.mkdir(parents=True)
+                (package / "package.json").write_text(json.dumps({"version": "0.1.2"}))
+                self.native_version.return_value = "0.1.1"
+                with mock.patch.object(updater, "fetch_releases", return_value=[release("v0.1.2")]), \
+                        mock.patch.object(updater, "setup_candidate"):
+                    result = updater.check("web", "0.1.2", "https://example.invalid")
+                self.assertEqual(result["state"], "applied")
+                self.assertEqual(result["active_version"], "0.1.2")
+                self.assertEqual(result["native_version"], "0.1.1")
+                self.assertEqual(result["current"], "0.1.1")
+                self.native_install.assert_called_once()
 
     def test_only_newer_formal_releases_are_selected(self):
         values = [

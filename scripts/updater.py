@@ -245,8 +245,16 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     pending = read_json(status_path(), {}).get('native', {})
     if pending.get('stage') in {'installing', 'unknown'}:
         raise UpdateError('previous native plugin write is unconfirmed; inspect native plugin status before recovery')
+    active_version = current
+    native_version = None
+    if mp.config_file().is_file():
+        from native_update import current_version as registered_version
+        native_version = registered_version(profile)
+        if native_version is not None:
+            current = native_version
     status = {
         "schema": SCHEMA, "state": "checking", "current": current, "latest": None,
+        "active_version": active_version, "native_version": native_version,
         "profile": profile, "checked_at": time.time(), "needs_host_reload": False, "detail": "",
     }
     atomic_json(status_path(), status)

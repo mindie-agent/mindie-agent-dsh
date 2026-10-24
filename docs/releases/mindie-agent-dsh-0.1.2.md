@@ -7,8 +7,8 @@
 ## 核心更新
 
 - **共享组件独立自动更新与同代子插件热切换**：
-  - `cordis.patch.yml` 与 `host.mjs` 将原生 Host 插件（`host3.mjs`）与 `remote-dev` stdio MCP 客户端挂载在同一个 `mindie-agent-generation` 子 Cordis 纤维内，仅在当前无运行中 Agent 任务时随 `current.json` 同步切换至同一 Generation（挂载失败时自动回退至上一可用代数）。
-  - 当无新插件 Release 时，更新器直接从各官方组件仓库发现正式 GitHub Release，按不降级原则构建带完整 `uv.lock` 的旁路组件环境并在空闲时切换 `current.json`（保留原生插件包，**无需重新安装 DSH 原生插件定义**）；插件升级时同样继承已安装组件的版本下界。
+  - `cordis.patch.yml` 与 `host.mjs` 将原生 Host 插件（`host3.mjs`）与 `remote-dev` stdio MCP 客户端挂载在同一个 `mindie-agent-generation` 子 Cordis 纤维内：`host.mjs` 的 `entryFor()` 优先读取 `paths.configFile`（`config.json`）中的 `package_dir` 作为权威适配器绑定（`current.json` 仅在缺少该字段的 legacy seed 情形下作兼容回退），`remote-dev` Python 解释器与 `host3.mjs` 均由该权威绑定决定，并在当前无运行中 Agent 任务时同步热切换（挂载失败时自动回退至上一可用绑定）。
+  - 当无新插件 Release 时，更新器直接从各官方组件仓库发现正式 GitHub Release，按不降级原则构建带完整 `uv.lock` 的旁路组件环境并在空闲时更新权威适配器绑定（保留原生插件包，**无需重新安装 DSH 原生插件定义**）；插件升级时同样继承已安装组件的版本下界。
 - **原生插件安装回读校验与文件锁自动释放**：
   - 插件级更新先校验新包的 `peerDependencies["@deepseek-ai/dsh"]` 与当前 `dsh --version` 兼容，再执行真实 `dsh plugin --profile <profile> add link:<package> --ignore-scripts` 并通过 `dsh plugin --profile <profile> list --json` 回读确认；若清理或回读结果不确定，如实记录 `stage="unknown"` 并停止盲目覆盖或回滚。涉及原生插件定义变更时标记 `needs_host_reload=True`，需重载宿主生效。
   - `updater.py` 对 `check.lock` 采用操作系统文件锁，确保更新进程异常退出或被终止后锁自动释放。

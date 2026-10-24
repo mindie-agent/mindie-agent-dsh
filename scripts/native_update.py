@@ -24,6 +24,21 @@ def installed(native, profile):
     return str(Path(row['path']).resolve()) if row is not None else None
 
 
+
+def current_version(profile):
+    """Read the registered bundle, which can lag a legacy runtime-only update."""
+    native = shutil.which('dsh')
+    if native is None:
+        raise FileNotFoundError('dsh is required to inspect its installed plugin')
+    package = installed(native, profile)
+    if package is None:
+        return None
+    manifest = json.loads((Path(package) / 'package.json').read_text(encoding='utf-8'))
+    if manifest.get('name') != 'mindie-agent-dsh' or not isinstance(manifest.get('version'), str):
+        raise ValueError('native DSH bundle identity is unavailable')
+    return manifest['version']
+
+
 def install(package, profile, status, record):
     native = shutil.which('dsh')
     if native is None:

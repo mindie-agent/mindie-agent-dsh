@@ -4,13 +4,16 @@
 
 - Add independent formal GitHub Release auto-update discovery and side-by-side
   `uv` runtime builds for shared runtime components (`scripts/component_update.py`),
-  switching `current.json` when idle without reinstalling native DSH plugin
-  definitions on component-only updates and preserving the installed component
-  version floor across plugin upgrades.
+  updating the canonical adapter binding (`paths.configFile`) when idle without
+  reinstalling native DSH plugin definitions on component-only updates and
+  preserving the installed component version floor across plugin upgrades.
 - Mount both `./host3.mjs` and the `@deepseek-ai/dsh-mcp-client` `remote-dev`
   stdio MCP bridge inside a single `mindie-agent-generation` child Cordis fiber
-  (`cordis.patch.yml`, `host.mjs`), hot-swapping both together from
-  `current.json` when no agent session is `running`.
+  (`cordis.patch.yml`, `host.mjs`), where `entryFor()` prioritizes `package_dir`
+  in `paths.configFile` as the canonical adapter binding (`current.json` only
+  serves as a fallback for legacy seeds without `package_dir`), both `remote-dev`
+  Python and `host3.mjs` follow the canonical adapter binding, and the child
+  fiber hot-swaps when no agent session is `running`.
 - Verify `peerDependencies["@deepseek-ai/dsh"]` against `dsh --version`, install
   plugin-level updates via `dsh plugin --profile <profile> add link:<package> --ignore-scripts`
   with `dsh plugin list --json` readback verification, record `stage="unknown"`
