@@ -33,3 +33,4 @@ jobs:
           node --check host3.mjs
           node tests/test_summary_endpoint.mjs
           node --test tests/test_manual_entry_host.mjs
+          node --test tests/test_generation_launcher.mjs

@@ -101,10 +101,10 @@ def update_config() -> dict:
     if not isinstance(value, dict):
         value = {}
     enabled = value.get("enabled", True)
-    interval = value.get("interval_hours", 6)
+    interval = value.get("interval_minutes", value.get("interval_hours", 0) * 60 or 5)
     return {
         "enabled": enabled if type(enabled) is bool else True,
-        "interval_hours": interval if type(interval) is int and 1 <= interval <= 168 else 6,
+        "interval_minutes": interval if type(interval) is int and 1 <= interval <= 10080 else 5,
     }
 
 
@@ -221,16 +221,20 @@ def run(command, timeout, cwd=None, env=None):
     return completed.returncode, (completed.stderr or completed.stdout or "").strip()[-2000:]
 
 
-def setup_candidate(package: Path, python: str) -> None:
+def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) -> None:
     updater = shutil.which("uv")
     if updater is None:
         raise UpdateError("uv is not available to provision the candidate")
     command = [
-        sys.executable,
+        artifact['python'] if artifact else sys.executable,
         str(package / "scripts" / "setup.py"), "--python", python,
         *os.environ.get("MINDIE_DSH_UPDATE_SETUP_ARGS", "").split(),
         "--total-timeout", str(INSTALL_TIMEOUT),
     ]
+    if artifact:
+        command += ['--component-manifest', str(Path(artifact['generation']) / 'components.json')]
+    if not apply:
+        command.append('--prepare-only')
     code, detail = run(command, timeout=INSTALL_TIMEOUT + 10, cwd=package)
     if code != 0:
         raise UpdateError("candidate setup failed: " + detail[-800:])
@@ -238,6 +242,9 @@ def setup_candidate(package: Path, python: str) -> None:
 
 def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     update_dir().mkdir(parents=True, exist_ok=True)
+    pending = read_json(status_path(), {}).get('native', {})
+    if pending.get('stage') in {'installing', 'unknown'}:
+        raise UpdateError('previous native plugin write is unconfirmed; inspect native plugin status before recovery')
     status = {
         "schema": SCHEMA, "state": "checking", "current": current, "latest": None,
         "profile": profile, "checked_at": time.time(), "needs_host_reload": False, "detail": "",
@@ -245,6 +252,20 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     atomic_json(status_path(), status)
     candidate = choose(fetch_releases(api), current)
     if candidate is None:
+        from component_update import prepare as component_prepare
+        adapter = read_json(mp.config_file(), {})
+        artifact = (component_prepare(adapter.get('package_dir') or mp.PACKAGE_DIR,
+                                      adapter['python'], active=True)
+                    if adapter.get('python') else None)
+        if artifact:
+            package = Path(artifact['source'])
+            setup_candidate(package, artifact['python'], artifact=artifact, apply=apply)
+            if apply:
+                previous = read_json(current_path(), {})
+                write_current(package, current, previous)
+            status['components'] = dict(status='active' if apply else 'staged', runtime=artifact['components'])
+        else:
+            status['components'] = dict(status='up_to_date' if adapter.get('python') else 'unconfigured')
         status.update(state="up-to-date", checked_at=time.time())
         atomic_json(status_path(), status)
         return status
@@ -266,7 +287,12 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         if manifest.get("version") != tag.lstrip("v"):
             raise UpdateError("candidate version does not match the release tag")
     previous = read_json(current_path(), {})
-    setup_candidate(package, sys.executable)
+    from component_update import prepare as component_prepare
+    adapter = read_json(mp.config_file(), {})
+    effective = component_prepare(package, adapter.get('python') or sys.executable)
+    if effective:
+        package = Path(effective['source'])
+    setup_candidate(package, sys.executable, artifact=effective, apply=False)
     if not apply:
         status.update(
             state="staged", checked_at=time.time(), previous=previous.get("generation"),
@@ -274,38 +300,61 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         )
         atomic_json(status_path(), status)
         return status
+    from native_update import install as native_install
+    native_install(package, profile, status, lambda value: atomic_json(status_path(), value))
+    setup_candidate(package, sys.executable, artifact=effective, apply=True)
     write_current(package, tag, previous if isinstance(previous, dict) else None)
     status.update(
         state="applied", checked_at=time.time(), previous=previous.get("generation"),
-        generation=str(package), needs_host_reload=False,
-        detail="generation pointer switched; the stable launcher reloads it",
+        generation=str(package),
+        detail="runtime binding and native dependency updated; the launcher switches idle tools, profile definitions refresh on reload",
     )
     atomic_json(status_path(), status)
     return status
 
 
 def acquire_lock():
+    from mindie_knowledge.loop.locks import lock_file
     update_dir().mkdir(parents=True, exist_ok=True)
-    for _ in range(2):
-        try:
-            descriptor = os.open(lock_path(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(descriptor, str(os.getpid()).encode())
-            os.close(descriptor)
-            return descriptor
-        except FileExistsError:
-            try:
-                if time.time() - lock_path().stat().st_mtime > 3600:
-                    lock_path().unlink(missing_ok=True)
-                    continue
-            except TimeoutError:
-                raise
-            except OSError:
-                pass
-            return None
-    return None
+    descriptor = os.open(lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        lock_file(descriptor, exclusive=True)
+    except BlockingIOError:
+        os.close(descriptor)
+        return None
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def recover(profile):
+    status = read_json(status_path(), {})
+    if status.get('native', {}).get('stage') in {'installing', 'unknown'}:
+        raise UpdateError('native plugin write is unconfirmed; inspect the native registry before rollback')
+    current = read_json(current_path(), {})
+    previous = current.get('previous_generation')
+    if not previous:
+        return dict(recovered=False, reason='no_previous_generation')
+    package = Path(previous)
+    from native_update import install as native_install
+    native_install(package, profile, status, lambda value: atomic_json(status_path(), value))
+    manifest = package.parent / 'components.json'
+    artifact = None
+    if manifest.is_file():
+        artifact = dict(generation=str(package.parent), python=str(
+            package.parent / 'runtime/.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')))
+    setup_candidate(package, sys.executable, artifact=artifact)
+    write_current(package, str(current.get('previous_tag') or ''), current)
+    status.update(state='recovered', generation=str(package), checked_at=time.time())
+    atomic_json(status_path(), status)
+    return dict(recovered=True, generation=str(package), status=status)
 
 
 def default_current_version() -> str:
+    adapter = read_json(mp.config_file(), {})
+    if adapter.get('package_dir') and adapter.get('version'):
+        return adapter['version']
     current = read_json(current_path(), {})
     if isinstance(current, dict) and isinstance(current.get("tag"), str) and current["tag"]:
         return current["tag"].lstrip("v")
@@ -317,14 +366,16 @@ def default_current_version() -> str:
         raise
     except (OSError, ValueError):
         pass
-    return "0.1.1"
+    return "0.1.2"
 
 
 def record_update_failure(error: Exception, args) -> int:
-    result = {
+    result = {**read_json(status_path(), {}),
         "schema": SCHEMA, "state": "failed", "current": args.current_version,
         "checked_at": time.time(), "detail": f"{type(error).__name__}: {str(error)[:800]}",
     }
+    if result.get('native', {}).get('stage') in {'installing', 'unknown'}:
+        result['state'] = 'unknown'
     from dsh_diagnostics import failure
 
     result["diagnostic"] = failure("update", "update", error)
@@ -352,22 +403,18 @@ def main() -> int:
         atomic_json(config_path(), config)
         print(json.dumps(config))
         return 0
-    if args.command == "recover":
-        lock_path().unlink(missing_ok=True)
-        current = read_json(current_path(), {})
-        previous = current.get("previous_generation") if isinstance(current, dict) else None
-        if isinstance(previous, str) and previous:
-            write_current(Path(previous), str(current.get("previous_tag") or ""), None)
-        print(json.dumps({"recovered": True, "previous": previous, "status": read_json(status_path(), {})}))
-        return 0
-    if not update_config()["enabled"]:
+    if args.command != 'recover' and not update_config()["enabled"]:
         print(json.dumps({"state": "disabled"}))
         return 0
-    if acquire_lock() is None:
+    descriptor = acquire_lock()
+    if descriptor is None:
         if not args.silent:
             print(json.dumps({"state": "busy"}))
         return 0
     try:
+        if args.command == 'recover':
+            print(json.dumps(recover(args.profile)))
+            return 0
         current_version = args.current_version or default_current_version()
         result = check(args.profile, current_version, args.api, apply=not args.stage_only)
         if not args.silent:
@@ -378,7 +425,11 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         return record_update_failure(exc, args)
     finally:
-        lock_path().unlink(missing_ok=True)
+        from mindie_knowledge.loop.locks import unlock_file
+        try:
+            unlock_file(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 if __name__ == "__main__":

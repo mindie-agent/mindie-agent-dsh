@@ -64,11 +64,12 @@ class PackageContractTests(unittest.TestCase):
             {
                 "mindie-agent-skill",
                 "mindie-agent-host",
-                "mindie-agent-remote-mcp",
             },
         )
         names = {row["name"] for row in rows}
-        self.assertEqual(names, STANDARD_ONLY | {LOCAL_PLUGIN})
+        self.assertEqual(names, {"@deepseek-ai/dsh-skill-filesystem", LOCAL_PLUGIN})
+        host = next(row for row in rows if row["name"] == LOCAL_PLUGIN)
+        self.assertIn("@deepseek-ai/dsh-mcp-client", host["config"]["mcpPluginUrl"])
         for row in rows:
             self.assertFalse(
                 row["name"].startswith("@deepseek-ai/dsh-experimental-"),

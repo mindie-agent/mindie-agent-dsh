@@ -9,6 +9,10 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import subprocess
+import os
+import queue
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +41,44 @@ def release(tag, *, draft=False, prerelease=False, version=None):
 
 
 class UpdaterTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        native = patch("native_update.install")
+        self.native_install = native.start()
+        self.addCleanup(native.stop)
+        for name, result in (("prepare", None),):
+            context = patch("component_update." + name, return_value=result)
+            setattr(self, "component_" + name, context.start())
+            self.addCleanup(context.stop)
+
+    def test_killed_check_releases_the_native_update_lock_immediately(self):
+        from mindie_knowledge.loop.locks import unlock_file
+        code = (
+            "import sys;sys.path.insert(0,sys.argv[1]);import updater;"
+            "fd=updater.acquire_lock();print('locked' if fd is not None else 'busy',flush=True);"
+            "sys.stdin.readline()"
+        )
+        child = subprocess.Popen([sys.executable, '-I', '-c', code, str(ROOT / 'scripts')],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, env=dict(os.environ))
+        output = queue.Queue()
+        reader = threading.Thread(target=lambda: output.put(child.stdout.readline()))
+        reader.start()
+        try:
+            self.assertEqual(output.get(timeout=5).strip(), 'locked')
+            self.assertIsNone(updater.acquire_lock())
+            child.kill()
+            child.wait(timeout=3)
+            descriptor = updater.acquire_lock()
+            self.assertIsNotNone(descriptor)
+            unlock_file(descriptor)
+            os.close(descriptor)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=3)
+            reader.join(timeout=1)
+
     def test_release_checks_never_start_the_knowledge_loop(self):
         from unittest import mock
         for candidate in (False, True):

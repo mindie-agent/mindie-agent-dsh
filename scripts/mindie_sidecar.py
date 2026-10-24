@@ -24,7 +24,7 @@ import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 
 MAX_LINE = 256 * 1024
-ADAPTER_VERSION = "0.1.1"
+ADAPTER_VERSION = "0.1.2"
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
 DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
 DISTILL_INPUT_OPTIONAL = {"repetitions"}
