@@ -30,7 +30,7 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 RUN_DEADLINE: float | None = None
 INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
@@ -52,7 +52,7 @@ PUBLIC_FEEDS = [
 COMPONENTS = {
     "mindie-knowledge": "0.13.3",
     "remote-dev": "0.10.6",
-    "mindie-diagnostics": "0.5.2",
+    "mindie-diagnostics": "0.5.3",
 }
 
 

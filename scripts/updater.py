@@ -374,7 +374,7 @@ def default_current_version() -> str:
         raise
     except (OSError, ValueError):
         pass
-    return "0.1.2"
+    return "0.1.3"
 
 
 def record_update_failure(error: Exception, args) -> int:
@@ -386,7 +386,7 @@ def record_update_failure(error: Exception, args) -> int:
         result['state'] = 'unknown'
     from dsh_diagnostics import failure
 
-    result["diagnostic"] = failure("update", "update", error)
+    result["diagnostic"] = failure("update", "update", error, category="update")
     atomic_json(status_path(), result)
     if not args.silent:
         print(json.dumps(result, ensure_ascii=False))
