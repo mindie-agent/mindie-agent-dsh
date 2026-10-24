@@ -95,6 +95,12 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
             REMOTE_DEV_HARNESS_PROFILE: 'dsh',
             // The DSH agent/session identity available at this supported hook.
             REMOTE_DEV_SESSION_ID: sessionId,
+            // Clear inherited session names from other harnesses; the core
+            // already prefers REMOTE_DEV_SESSION_ID, and empty values keep a
+            // stale parent scope out of the child entirely.
+            CLAUDE_SESSION_ID: '',
+            CODEX_SESSION_ID: '',
+            CODEX_RUN_ID: '',
           },
           toolCallTimeoutMs: 600000, failOnStartupError: true,
         })
