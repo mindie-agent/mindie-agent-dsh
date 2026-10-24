@@ -18,7 +18,8 @@
   file locking on `check.lock` (`scripts/native_update.py`, `scripts/updater.py`).
 - Pass `mindie-knowledge` exploration outputs straight through without host-side
   rewriting while preserving the manual per-session `/mindie-agent` gate.
-- Target the formal releases of `mindie-knowledge 0.13.3`, `remote-dev 0.10.6`
+- Target the formal releases of `mindie-knowledge 0.13.3`
+  (`38a42f6f778cfa555d8918fdcacd12cee4a181f5`), `remote-dev 0.10.6`
   (`0463a13fce9618ec9a51904869d61acb0cdb8538`), and `mindie-diagnostics 0.5.2`
   (`801a01b2789aed7f58e971a909205a7d40b61077`).
 
