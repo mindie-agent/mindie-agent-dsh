@@ -50,9 +50,9 @@ PUBLIC_FEEDS = [
     },
 ]
 COMPONENTS = {
-    "mindie-knowledge": "0.13.2",
-    "remote-dev": "0.10.5",
-    "mindie-diagnostics": "0.5.1",
+    "mindie-knowledge": "0.13.3",
+    "remote-dev": "0.10.6",
+    "mindie-diagnostics": "0.5.2",
 }
 
 

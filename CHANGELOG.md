@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.2 — 2026-10-24
+
+- Add independent formal GitHub Release auto-update discovery and side-by-side
+  `uv` runtime builds for shared runtime components (`scripts/component_update.py`),
+  switching `current.json` when idle without reinstalling native DSH plugin
+  definitions on component-only updates and preserving the installed component
+  version floor across plugin upgrades.
+- Mount both `./host3.mjs` and the `@deepseek-ai/dsh-mcp-client` `remote-dev`
+  stdio MCP bridge inside a single `mindie-agent-generation` child Cordis fiber
+  (`cordis.patch.yml`, `host.mjs`), hot-swapping both together from
+  `current.json` when no agent session is `running`.
+- Verify `peerDependencies["@deepseek-ai/dsh"]` against `dsh --version`, install
+  plugin-level updates via `dsh plugin --profile <profile> add link:<package> --ignore-scripts`
+  with `dsh plugin list --json` readback verification, record `stage="unknown"`
+  without blind overwrite/rollback on unconfirmed native writes, and use OS
+  file locking on `check.lock` (`scripts/native_update.py`, `scripts/updater.py`).
+- Pass `mindie-knowledge` exploration outputs straight through without host-side
+  rewriting while preserving the manual per-session `/mindie-agent` gate.
+- Target the formal releases of `mindie-knowledge 0.13.3`, `remote-dev 0.10.6`
+  (`0463a13fce9618ec9a51904869d61acb0cdb8538`), and `mindie-diagnostics 0.5.2`
+  (`801a01b2789aed7f58e971a909205a7d40b61077`).
+
 ## 0.0.3 — 2026-10-20
 
 - Upgrade the pinned shared runtime to `mindie-knowledge 0.13.0`
