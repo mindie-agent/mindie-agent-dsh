@@ -30,7 +30,7 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 RUN_DEADLINE: float | None = None
 INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
@@ -50,9 +50,9 @@ PUBLIC_FEEDS = [
     },
 ]
 COMPONENTS = {
-    "mindie-knowledge": "0.13.2",
-    "remote-dev": "0.10.5",
-    "mindie-diagnostics": "0.5.1",
+    "mindie-knowledge": "0.13.3",
+    "remote-dev": "0.10.6",
+    "mindie-diagnostics": "0.5.2",
 }
 
 
@@ -149,6 +149,7 @@ def adapter_configuration() -> dict[str, Any]:
     config = {**previous,
         "schema": ADAPTER_SCHEMA,
         "version": VERSION,
+        "package_dir": str(mp.PACKAGE_DIR),
         "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
         "python": str(runtime_python()),
         "venv_dir": str(runtime_dir()),
@@ -266,7 +267,7 @@ def prepare_domains(adapter, engine):
 
 def install_updater() -> dict[str, Any]:
     directory = mp.data_home() / "update"
-    for name in ("updater.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
+    for name in ("updater.py", "component_update.py", "native_update.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:
@@ -277,17 +278,24 @@ def install_updater() -> dict[str, Any]:
                 raise
     config = mp.config_home() / "update.json"
     if not config.is_file():
-        write_private(config, {"enabled": True, "interval_hours": 6})
-    return {"script": str(directory / "updater.py"), "enabled": True, "interval_hours": 6}
+        write_private(config, {"enabled": True, "interval_minutes": 5})
+    else:
+        previous = json.loads(config.read_text(encoding='utf-8'))
+        if previous.get('interval_hours') == 6 and 'interval_minutes' not in previous:
+            previous.pop('interval_hours')
+            write_private(config, dict(previous, interval_minutes=5))
+    return {"script": str(directory / "updater.py"), "enabled": True, "interval_minutes": 5}
 
 
-def publish_binding(previous, adapter, engine) -> dict:
+def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
     path = Path(adapter['engine_config'])
     if path.exists():
         if json.loads(path.read_text()) != engine:
             raise SetupError('prepared engine path contains different immutable config')
     else:
         write_private(path, engine)
+    if not activate:
+        return dict(status='prepared')
     outer = min(35, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 35
     if outer <= 5:
         raise SetupError('setup has no remaining idle handoff and cleanup budget')
@@ -324,6 +332,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--install-timeout", type=int, default=900, help="seconds allowed for uv sync")
     parser.add_argument("--total-timeout", type=float, default=None,
                         help="shared budget for all setup subprocesses")
+    parser.add_argument("--component-manifest", type=Path,
+                        help="verified independent component generation prepared by the updater")
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="validate and prepare without publishing the native binding")
     args = parser.parse_args(argv)
     RUN_DEADLINE = (time.monotonic() + args.total_timeout
                     if args.total_timeout is not None else None)
@@ -333,6 +345,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         check_host()
         INSTALL_RUNTIME_DIR = mp.data_home() / 'runtimes' / runtime_identity() / 'venv'
+        if args.component_manifest:
+            from mindie_knowledge.component_runtime import source_baseline
+            from mindie_knowledge.component_releases import runtime_identity as effective_identity
+            from mindie_knowledge.runtime_inventory import verify, verify_lock
+            manifest = json.loads(args.component_manifest.read_text(encoding="utf-8"))
+            effective_identity(source_baseline(mp.PACKAGE_DIR), manifest)
+            INSTALL_RUNTIME_DIR = args.component_manifest.parent / 'runtime/.venv'
+            if Path(sys.prefix).resolve() != INSTALL_RUNTIME_DIR.resolve():
+                raise SetupError('component setup must run in its prepared interpreter')
+            verify_lock(manifest)
+            verify(manifest['runtime'])
         paths = {
             "package_dir": str(mp.PACKAGE_DIR),
             "data_home": str(mp.data_home()),
@@ -361,7 +384,9 @@ def main(argv: list[str] | None = None) -> int:
             mp.ensure_private_dir(d)
         previous = json.loads(mp.config_file().read_text()) if mp.config_file().is_file() else {}
         probe = None
-        if previous.get('venv_dir') == str(runtime_dir()):
+        if args.component_manifest:
+            probe = probe_runtime()
+        if not args.component_manifest and previous.get('venv_dir') == str(runtime_dir()):
             try:
                 probe = probe_runtime()
             except SetupError:
@@ -373,12 +398,16 @@ def main(argv: list[str] | None = None) -> int:
             sync_runtime(args.python, timeout=args.install_timeout)
             probe = probe_runtime()
         adapter = adapter_configuration()
+        adapter["components"] = probe["versions"]
         redactor = install_redactor()
         engine = engine_configuration(redactor)
         adapter['engine_config'] = str(prepared_engine_path(engine))
         adapter['domain'] = engine['domain']
         adapter['domain_configs'] = prepare_domains(adapter, engine)
-        publication = publish_binding(previous, adapter, engine)
+        publication = publish_binding(previous, adapter, engine, activate=not args.prepare_only)
+        if args.prepare_only:
+            print(json.dumps(dict(status='prepared', components=probe['versions'], paths=paths)))
+            return 0
         paths.update(engine_config=adapter['engine_config'], venv_dir=adapter['venv_dir'], venv_python=adapter['python'])
         knowledge = {"status": "inactive"}
         update = install_updater()

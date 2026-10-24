@@ -2,19 +2,19 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.1",
+  "plugin_version": "0.1.2",
   "runtime_components": {
     "mindie-knowledge": {
-      "version": "0.13.2",
-      "commit": "b616a38f77ca17573e4ed22ee23c08c09adefac7"
+      "version": "0.13.3",
+      "commit": "38a42f6f778cfa555d8918fdcacd12cee4a181f5"
     },
     "remote-dev": {
-      "version": "0.10.5",
-      "commit": "20d34abebeab17bb6a68f0966ac4d627af54be88"
+      "version": "0.10.6",
+      "commit": "0463a13fce9618ec9a51904869d61acb0cdb8538"
     },
     "mindie-diagnostics": {
-      "version": "0.5.1",
-      "commit": "fba07e8607ddadde14cea315c9dbda23726c1c79"
+      "version": "0.5.2",
+      "commit": "801a01b2789aed7f58e971a909205a7d40b61077"
     }
   },
   "verified": [

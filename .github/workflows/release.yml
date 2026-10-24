@@ -9,9 +9,10 @@ permissions:
 
 jobs:
   release:
-    uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@3bf7fa6efc111876cc31c602f11dcd0c029769d7
+    uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@484b80621aaf9293c559786d0ef2174c79a0dbb4
     with:
-      benchmark-ref: 3bf7fa6efc111876cc31c602f11dcd0c029769d7
+      benchmark-ref: 484b80621aaf9293c559786d0ef2174c79a0dbb4
+      release-notes-path: docs/releases/mindie-agent-dsh-0.1.2.md
       version-files: |
         package.json
         pyproject.toml
@@ -21,6 +22,7 @@ jobs:
         .venv/bin/python -m pytest -q -m "not live_npu"
         node --check paths.cjs
         node --test tests/test_manual_entry_host.mjs
+        node --test tests/test_generation_launcher.mjs
       node: true
       build-command: |
         npm pack --pack-destination "$RELEASE_ASSETS_DIR"

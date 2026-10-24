@@ -315,7 +315,7 @@ export function apply(ctx) {
 
   const writeUpdateEnabled = async (enabled) => {
     const current = readUpdateConfig()
-    const next = { ...current, enabled: Boolean(enabled), interval_hours: current.interval_hours || 6 }
+    const next = { ...current, enabled: Boolean(enabled), interval_minutes: current.interval_minutes || 5 }
     writeFileSync(updateFile + '.tmp', JSON.stringify(next, null, 2) + '\n', { mode: 0o600 })
     renameSync(updateFile + '.tmp', updateFile)
     return next
@@ -354,10 +354,11 @@ export function apply(ctx) {
       startUpdateCheck().catch((error) => log(`update check failed: ${error.message}`))
     }, 30000)
     updateTimer.unref?.()
-    const hours = Number(config.interval_hours) >= 1 ? Number(config.interval_hours) : 6
+    const minutes = Number(config.interval_minutes) >= 1 ? Number(config.interval_minutes)
+      : Number(config.interval_hours) >= 1 ? Number(config.interval_hours) * 60 : 5
     updateInterval = setInterval(() => {
       startUpdateCheck().catch((error) => log(`update check failed: ${error.message}`))
-    }, hours * 60 * 60 * 1000)
+    }, minutes * 60 * 1000)
     updateInterval.unref?.()
   } catch (error) {
     log(`update timer could not start: ${error.message}`)

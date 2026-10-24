@@ -34,28 +34,9 @@
     # mindie-knowledge runtime still owns capture, redaction and indexing.
     - id: mindie-agent-host
       name: ./host.mjs
+      config:
+        mcpPluginUrl: !!js process.getBuiltinModule('node:url').pathToFileURL(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-mcp-client')).href
       inject:
         - tools
         - agents
         - llm
-
-    # The published remote-dev MCP server, imported from the pinned runtime.
-    # This is the component's own server entry point, not an adapter copy.
-    - id: mindie-agent-remote-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: remote-dev
-        transport: stdio
-        command: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().venvPython
-        args:
-          - '-m'
-          - remote_dev.mcp.server
-        env:
-          MINDIE_DSH_CONFIG: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configFile
-          MINDIE_DSH_STATE_DIR: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir
-          REMOTE_DEV_STATE_DIR: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().stateDir, 'remote')
-          MINDIE_DIAGNOSTICS_CONFIG: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().configHome, 'diagnostics.json')
-          REMOTE_DEV_SESSION_ID: dsh
-        cwd: !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().packageDir
-        toolCallTimeoutMs: 600000
-        failOnStartupError: false

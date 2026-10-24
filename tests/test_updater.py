@@ -9,6 +9,10 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import subprocess
+import os
+import queue
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +41,47 @@ def release(tag, *, draft=False, prerelease=False, version=None):
 
 
 class UpdaterTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        native_version = patch("native_update.current_version", return_value=None)
+        self.native_version = native_version.start()
+        self.addCleanup(native_version.stop)
+        native = patch("native_update.install")
+        self.native_install = native.start()
+        self.addCleanup(native.stop)
+        for name, result in (("prepare", None),):
+            context = patch("component_update." + name, return_value=result)
+            setattr(self, "component_" + name, context.start())
+            self.addCleanup(context.stop)
+
+    def test_killed_check_releases_the_native_update_lock_immediately(self):
+        from mindie_knowledge.loop.locks import unlock_file
+        code = (
+            "import sys;sys.path.insert(0,sys.argv[1]);import updater;"
+            "fd=updater.acquire_lock();print('locked' if fd is not None else 'busy',flush=True);"
+            "sys.stdin.readline()"
+        )
+        child = subprocess.Popen([sys.executable, '-I', '-c', code, str(ROOT / 'scripts')],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, env=dict(os.environ))
+        output = queue.Queue()
+        reader = threading.Thread(target=lambda: output.put(child.stdout.readline()))
+        reader.start()
+        try:
+            self.assertEqual(output.get(timeout=5).strip(), 'locked')
+            self.assertIsNone(updater.acquire_lock())
+            child.kill()
+            child.wait(timeout=3)
+            descriptor = updater.acquire_lock()
+            self.assertIsNotNone(descriptor)
+            unlock_file(descriptor)
+            os.close(descriptor)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=3)
+            reader.join(timeout=1)
+
     def test_release_checks_never_start_the_knowledge_loop(self):
         from unittest import mock
         for candidate in (False, True):
@@ -57,6 +102,26 @@ class UpdaterTests(unittest.TestCase):
                     result = updater.check("web", "0.1.1", "https://example.invalid")
                     self.assertEqual(result["state"], "applied" if candidate else "up-to-date")
                     self.assertFalse((root / "corpus").exists())
+
+    def test_legacy_runtime_upgrade_does_not_hide_an_older_native_bundle(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.dict(os.environ, {"MINDIE_DSH_DATA_HOME": str(root / "data"),
+                                              "MINDIE_DSH_CONFIG_HOME": str(root / "config")}):
+                updater.atomic_json(updater.mp.config_file(), {"python": sys.executable})
+                package = updater.update_dir() / "generations/v0.1.2/package"
+                package.mkdir(parents=True)
+                (package / "package.json").write_text(json.dumps({"version": "0.1.2"}))
+                self.native_version.return_value = "0.1.1"
+                with mock.patch.object(updater, "fetch_releases", return_value=[release("v0.1.2")]), \
+                        mock.patch.object(updater, "setup_candidate"):
+                    result = updater.check("web", "0.1.2", "https://example.invalid")
+                self.assertEqual(result["state"], "applied")
+                self.assertEqual(result["active_version"], "0.1.2")
+                self.assertEqual(result["native_version"], "0.1.1")
+                self.assertEqual(result["current"], "0.1.1")
+                self.native_install.assert_called_once()
 
     def test_only_newer_formal_releases_are_selected(self):
         values = [
