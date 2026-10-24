@@ -328,7 +328,7 @@ def default_current_version() -> str:
         raise
     except (OSError, ValueError):
         pass
-    return "0.1.0"
+    return "0.1.1"
 
 
 def record_update_failure(error: Exception, args) -> int:

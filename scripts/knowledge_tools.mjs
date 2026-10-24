@@ -287,7 +287,7 @@ export function registerKnowledgeDistill(ctx, {
     knowledgeDistillDescription,
     knowledgeDistillParameters,
     async (args, exec) => {
-      const { session, state } = requireState(exec)
+      const { session, state } = await requireState(exec)
       const { _tool_error: isError, ...result } = await sidecar.call(
         'rpc',
         { session: session.id, token: state.token, method: 'distill', arguments: args },
@@ -357,16 +357,16 @@ export const entryParameters = {
   additionalProperties: false,
 }
 
-const MINDIE_SKILL_GESTURE = /(^|\s)\/mindie-agent(?=\s|$)/
+const MINDIE_SKILL_GESTURE = /^\s*\/mindie-agent(?=\s|$)/
 
 export function hasMindieGesture(messages) {
   if (!Array.isArray(messages)) return false
-  for (const message of messages) {
-    if (
-      message?.source?.kind === 'skill-invocation' &&
-      message?.source?.name === 'mindie-agent'
-    ) {
-      return true
+  // Only the latest user/skill origin can enable a fresh session. Earlier
+  // commands may be inherited history, and prose mentions are not gestures.
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.source?.kind === 'skill-invocation') {
+      return message.source.name === 'mindie-agent'
     }
     if (message?.source?.kind !== 'user') continue
     if (!Array.isArray(message.content)) continue
@@ -375,6 +375,7 @@ export function hasMindieGesture(messages) {
         if (MINDIE_SKILL_GESTURE.test(block.text)) return true
       }
     }
+    return false
   }
   return false
 }

@@ -20,6 +20,7 @@ jobs:
       test-command: |
         .venv/bin/python -m pytest -q -m "not live_npu"
         node --check paths.cjs
+        node --test tests/test_manual_entry_host.mjs
       node: true
       build-command: |
         npm pack --pack-destination "$RELEASE_ASSETS_DIR"

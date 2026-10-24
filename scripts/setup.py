@@ -30,7 +30,7 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 RUN_DEADLINE: float | None = None
 INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
@@ -303,6 +303,10 @@ def publish_binding(previous, adapter, engine) -> dict:
 
 
 def sync_feed(*, timeout: int) -> dict[str, Any]:
+    from mindie_knowledge.loop.activation import Admission
+    session = os.environ.get("MINDIE_DSH_SESSION_ID")
+    if not session or Admission(mp.data_home() / "admission.sqlite3").knowledge_lease(session) is None:
+        return {"status": "inactive"}
     progress("synchronizing the public knowledge feed")
     completed = run(
         [str(runtime_python()), "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(mp.engine_config())],
@@ -379,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                         "schema": SCHEMA, "status": "dry-run", "version": VERSION,
                         "python": sys.version.split()[0], "uv": shutil.which("uv"),
                         "components": COMPONENTS, "paths": paths,
-                        "sync": "skipped" if args.no_sync else "planned",
+                        "sync": "skipped" if args.no_sync else "manual-session-required",
                     },
                     ensure_ascii=False, indent=2, sort_keys=True,
                 )

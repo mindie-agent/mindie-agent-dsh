@@ -2,8 +2,6 @@
 // handler, real Python sidecar/Service/Engine via MINDIE_DSH_* paths, with
 // only the DSH native LLM boundary stubbed.
 
-import { existsSync } from 'node:fs'
-import path from 'node:path'
 import { apply } from '../host3.mjs'
 import { distillCallTimeoutMs } from '../scripts/knowledge_tools.mjs'
 
@@ -50,11 +48,6 @@ const ctx = {
 }
 
 apply(ctx)
-const endpointFile = path.join(process.env.MINDIE_DSH_STATE_DIR, 'summary-endpoint.json')
-for (let index = 0; index < 200 && !existsSync(endpointFile); index += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 25))
-}
-if (!existsSync(endpointFile)) throw new Error('summary endpoint file was not written')
 
 const session = {
   id: 'manual-A',
@@ -68,7 +61,7 @@ const entry = tools.get('mindie_entry')
 const distill = tools.get('knowledge_distill')
 if (!entry || !distill) throw new Error('required host tools are not registered')
 let activated = { activated: false }
-if (process.env.DISTILL_PRE_STEP_GESTURE === '1') {
+if (process.env.DISTILL_PRE_STEP_GESTURE === '1' || process.env.DISTILL_SKIP_ACTIVATION !== '1') {
   const preStep = listeners.get('agent/pre-step')
   if (typeof preStep !== 'function') throw new Error('agent/pre-step listener is not registered')
   const userMsg = {
@@ -79,7 +72,8 @@ if (process.env.DISTILL_PRE_STEP_GESTURE === '1') {
     { agent: exec.agent, messages: [userMsg] },
     async () => ({ kind: 'enter', messages: [userMsg] }),
   )
-} else if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
+}
+if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
   activated = JSON.parse(await entry.execute({ op: 'init' }, exec))
 }
 const arguments_ = { inputs, task_state: 'verified_milestone' }

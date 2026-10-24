@@ -179,10 +179,10 @@ plugin_manager(action="install_bundle",
 
 | 能力 | 触发方式 | 说明 |
 | --- | --- | --- |
-| 昇腾领域知识、工程经验、测试与排障参考 | **手动** `/mindie-agent <需求>` | 显式注入 Skill，调用 `mindie_entry` 与知识工具（`knowledge_query` / `knowledge_explain` / `knowledge_feedback`）；历史知识仅作参考，以当前环境实测为准 |
-| 远端昇腾服务器 / 容器操作 | **默认常驻**，无需斜杠命令 | 直接用自然语言描述远端操作，Agent 调用 `mcp__remote-dev__remote_*` |
-| 知识源刷新 | 由 `/mindie-agent` 会话内的 `knowledge_sync` 触发 | 仅在语料不可用/过期或用户要求最新知识时调用一次，不轮询 |
-| 公开经验沉淀与工具故障上报 | **统一贡献开关控制** | 显式选择 `contribute` 后，每次回合结束（`agent/turn-stopping`）在后台完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布，并开启脱敏故障上报 |
+| 昇腾领域知识、工程经验、测试与排障参考 | **当前会话手动触发** `/mindie-agent <需求>` | 在当前会话显式输入一次 `/mindie-agent` 注入 Skill 并激活会话租约，随后在本会话后续轮次可持续调用 `mindie_entry` 与知识工具（`knowledge_query` / `knowledge_explain` / `knowledge_distill` / `knowledge_feedback`）；历史知识仅作参考，以当前环境实测为准 |
+| 远端昇腾服务器 / 容器操作与事实状态查询 | **默认常驻**，无需斜杠命令 | 直接用自然语言描述远端操作，Agent 调用 `mcp__remote-dev__remote_*`；只读事实状态查询 `mindie_entry(op="status" \| "reporting-status")` 同样无需 `/mindie-agent` |
+| 知识源刷新 | 由已启用 `/mindie-agent` 会话内的 `knowledge_sync` 触发 | 仅在当前会话已通过 `/mindie-agent` 激活且语料不可用/过期或用户要求最新知识时调用一次，不轮询 |
+| 公开经验沉淀与工具故障上报 | **统一贡献开关控制 + 已激活会话后台运行** | 显式选择 `contribute` 后，在已通过 `/mindie-agent` 激活的会话中，每次回合结束（`agent/turn-stopping`）在后台完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布，并开启脱敏故障上报（未调用 `/mindie-agent` 的普通会话不触发采集） |
 
 示例：
 

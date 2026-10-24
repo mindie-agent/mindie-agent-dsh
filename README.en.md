@@ -176,10 +176,10 @@ Success criteria:
 
 | Capability | Trigger | Notes |
 | --- | --- | --- |
-| Ascend knowledge, engineering experience, testing and troubleshooting references | **Manual** `/mindie-agent <request>` | Explicit skill injection followed by `mindie_entry` and `knowledge_*` tools; historical knowledge is reference only, and current-environment evidence takes precedence |
-| Remote Ascend hosts / containers | **Default-on**, no slash command | Describe the remote task in natural language; the agent calls `mcp__remote-dev__remote_*` |
-| Knowledge feed refresh | `knowledge_sync` inside a `/mindie-agent` task | Called once when the corpus is unavailable/stale or the user asks for the latest knowledge |
-| Sanitized experience capture & fault reporting | **Unified contribution switch** | When `contribute` is enabled, completed turns (`agent/turn-stopping`) sanitize `session.v4.jsonl.zstd` public messages in the background for community PR publication and enable sanitized tool fault reporting |
+| Ascend knowledge, engineering experience, testing and troubleshooting references | **Manual per-session** `/mindie-agent <request>` | Type `/mindie-agent` once in the current session to inject the skill and activate the session lease across subsequent turns (`mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`); historical knowledge is reference only, and current-environment evidence takes precedence |
+| Remote Ascend hosts / containers & factual status | **Default-on**, no slash command | Describe the remote task in natural language; the agent calls `mcp__remote-dev__remote_*`. Read-only factual `mindie_entry(op="status" \| "reporting-status")` also works without `/mindie-agent` |
+| Knowledge feed refresh | `knowledge_sync` inside a `/mindie-agent`-enabled session | Requires the session's manual `/mindie-agent` grant; called once when the corpus is unavailable/stale or the user asks for the latest knowledge |
+| Sanitized experience capture & fault reporting | **Unified contribution switch + `/mindie-agent` session** | When `contribute` is enabled, completed turns (`agent/turn-stopping`) in `/mindie-agent`-enabled sessions sanitize `session.v4.jsonl.zstd` public messages in the background for community PR publication and enable sanitized tool fault reporting (unactivated sessions perform zero `Stop` capture) |
 
 Examples:
 

@@ -18,8 +18,8 @@ and calls that omit these fields keep their previous shape.
 
 ## Entry (`mindie_entry`) & Multi-Domain Route Registration
 
-- `op="init"` binds the current `/mindie-agent` task and returns the saved
-  unified contribution state (`sharing`) and any required setup step (`next`).
+- **Manual `/mindie-agent` Session Gate**: The user must invoke `/mindie-agent` once in the current session before calling `mindie_entry(op="init"|"choose"|"sharing-enable"|"sharing-disable")`, any `knowledge_*` tool (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`), or triggering `agent/turn-stopping` background capture. Both the host sidecar (`mindie_sidecar.py`) and the stdio MCP bridge (`knowledge_mcp.py`, which also requires `MINDIE_DSH_SESSION_ID`) enforce `admission.knowledge_lease(session)` (`entry_enabled == 1`).
+- `op="init"` binds the current `/mindie-agent` task (after the `/mindie-agent` gesture is observed on the latest user/skill turn), lazily starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`) and any required setup step (`next`).
   Passing `mindie_entry(op="init", domain="<domain>")` explicitly activates a
   registered target `domain` under its own existing `consent` and `project_root`
   scope (returning `domain_activation` without replacing the default session
@@ -30,8 +30,10 @@ and calls that omit these fields keep their previous shape.
   creates or widens `consent`. Ordinary reads do not widen authorization.
 - `op="choose"` records the unified contribution switch (`choice="contribute"`
   or `choice="disabled"`) in `mindie-consent.json`.
-- `op="status"` and `op="reporting-status"` are read-only checks of knowledge
-  and diagnostic reporter worker/queue state.
+- `op="status"`, `op="sharing-status"`, and `op="reporting-status"` are factual
+  read-only checks (`{kind: "status", activated: Boolean(state?.token), ...}`)
+  available in any session without requiring `/mindie-agent`, starting the
+  summary server, or emitting onboarding views.
 - `op="deactivate"` revokes **only the current session's** capture lease across
   the default domain and all registered `domain_configs` without altering the
   saved profile consent choice or revoking other sessions. If any registered

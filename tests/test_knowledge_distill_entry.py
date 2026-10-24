@@ -292,6 +292,7 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.assertIn("unit-host-entry-distill", [row["id"] for row in found["results"]])
 
     def test_unactivated_registered_tool_never_calls_model(self) -> None:
+        Admission(self.root / "admission.sqlite3").deactivate("manual-A")
         payload = self._run_harness(skip_activation=True)
         self.assertFalse(payload["activated"])
         self.assertIn("not activated", payload["error"])

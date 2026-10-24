@@ -13,7 +13,7 @@
 // mindie-knowledge components.
 
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -253,11 +253,12 @@ export function apply(ctx) {
     }
   }
 
-  const setRoute = (agent) => {
+  const setRoute = async (agent) => {
     const provider = agent?.options?.provider
     const model = agent?.options?.model
     if (typeof provider === 'string' && provider && typeof model === 'string' && model) {
       route = { provider, model }
+      await ensureSummaryServer()
       writeEndpoint()
     }
   }
@@ -362,12 +363,17 @@ export function apply(ctx) {
     log(`update timer could not start: ${error.message}`)
   }
 
-  summaryServer = createSummaryServer({ summarize, token: endpointToken })
-  summaryServer.on('error', (error) => log(`summary server failed: ${error.message}`))
-  summaryServer.listen(0, '127.0.0.1', () => {
+  async function ensureSummaryServer() {
+    if (summaryServer) return
+    summaryServer = createSummaryServer({ summarize, token: endpointToken })
+    await new Promise((resolve, reject) => {
+      summaryServer.once('error', reject)
+      summaryServer.listen(0, '127.0.0.1', resolve)
+    })
+    summaryServer.on('error', (error) => log(`summary server failed: ${error.message}`))
     endpointUrl = `http://127.0.0.1:${summaryServer.address().port}/summary`
     writeEndpoint()
-  })
+  }
   ctx.effect(() => () => {
     clearTimeout(updateTimer)
     clearInterval(updateInterval)
@@ -385,9 +391,29 @@ export function apply(ctx) {
     }
   }, 'mindie-agent-dsh.sidecar')
 
-  const requireState = (exec) => {
+  const remember = (session, result) => {
+    if (!result.token) return undefined
+    const state = { token: result.token, sharing: result.sharing, activatedAt: result.activated_at }
+    sessions.set(session.id, state)
+    return state
+  }
+
+  const resume = async (session) => {
+    if (sessions.get(session.id)?.token) return sessions.get(session.id)
+    // No authority file means no persisted grant. Do not bootstrap a sidecar
+    // for an ordinary session; existing authority remains the sole grant source.
+    try {
+      statSync(path.join(runtimePaths().dataHome, 'admission.sqlite3'))
+    } catch (error) {
+      if (error.code === 'ENOENT') return undefined
+      throw error
+    }
+    return remember(session, await sidecar.call('resume', { session: session.id }))
+  }
+
+  const requireState = async (exec) => {
     const session = sessionOf(exec)
-    const state = sessions.get(session.id)
+    const state = await resume(session)
     if (!state?.token) {
       throw new Error('this task is not activated; invoke /mindie-agent first')
     }
@@ -396,13 +422,7 @@ export function apply(ctx) {
 
   const activate = async (session, cwd) => {
     const result = await sidecar.call('activate', { session: session.id, cwd })
-    const state = {
-      token: result.token,
-      sharing: result.sharing,
-      activatedAt: result.activated_at,
-    }
-    sessions.set(session.id, state)
-    return state
+    return remember(session, result)
   }
 
   const activateDomain = async (session, cwd, domain) => {
@@ -439,8 +459,8 @@ export function apply(ctx) {
         }
       }
       if (op === 'init') {
-        setRoute(exec.agent)
-        const state = await activate(session, cwd)
+        const { state } = await requireState(exec)
+        await setRoute(exec.agent)
         let activation
         if (args.domain !== undefined) {
           activation = await activateDomain(session, cwd, args.domain)
@@ -450,12 +470,13 @@ export function apply(ctx) {
         return text(view)
       }
       if (op === 'status' || op === 'sharing-status') {
-        setRoute(exec.agent)
         const result = await sidecar.call('status', { session: session.id, cwd })
-        sessions.set(session.id, { ...(sessions.get(session.id) || {}), sharing: result.sharing })
-        return text(entryView('status', result.sharing, sessions.get(session.id)))
+        const state = sessions.get(session.id)
+        if (state) state.sharing = result.sharing
+        return text({ kind: 'status', activated: Boolean(result.lease?.enabled), ...result })
       }
       if (op === 'choose' || op === 'sharing-enable' || op === 'sharing-disable') {
+        await requireState(exec)
         const choice =
           op === 'sharing-disable' ? 'disabled' : op === 'sharing-enable' ? 'contribute' : args.choice
         if (choice !== 'contribute' && choice !== 'disabled') {
@@ -551,7 +572,7 @@ export function apply(ctx) {
         additionalProperties: false,
       },
       async (args, exec) => {
-        const { session, state } = requireState(exec)
+        const { session, state } = await requireState(exec)
         const result = await sidecar.call(
           'rpc',
           { session: session.id, token: state.token, method: 'query', arguments: args },
@@ -575,7 +596,7 @@ export function apply(ctx) {
         'Use only after an explicit `/mindie-agent` invocation.',
       knowledgeExplainParameters,
       async (args, exec) => {
-        const { session, state } = requireState(exec)
+        const { session, state } = await requireState(exec)
         const result = await sidecar.call(
           'rpc',
           { session: session.id, token: state.token, method: 'explain', arguments: args },
@@ -617,7 +638,7 @@ export function apply(ctx) {
         additionalProperties: false,
       },
       async (args, exec) => {
-        const { session, state } = requireState(exec)
+        const { session, state } = await requireState(exec)
         const result = await sidecar.call(
           'rpc',
           { session: session.id, token: state.token, method: 'feedback', arguments: args },
@@ -636,8 +657,8 @@ export function apply(ctx) {
         'explicitly asks for the latest knowledge; never in a retry loop.',
       { type: 'object', properties: {}, additionalProperties: false },
       async (_args, exec) => {
-        requireState(exec)
-        const result = await sidecar.call('sync', {}, exec.signal, SYNC_TIMEOUT_MS)
+        const { session, state } = await requireState(exec)
+        const result = await sidecar.call('sync', { session: session.id, token: state.token }, exec.signal, SYNC_TIMEOUT_MS)
         return text(result)
       },
     ),
@@ -704,14 +725,13 @@ export function apply(ctx) {
     if (decision?.kind === 'reject') return decision
     try {
       const session = agent?.session
-      if (
-        session &&
-        typeof session.id === 'string' &&
-        !sessions.get(session.id)?.token &&
-        (hasMindieGesture(messages) || hasMindieGesture(decision?.messages))
-      ) {
-        setRoute(agent)
-        await activate(session, cwdOf(session))
+      if (session && typeof session.id === 'string') {
+        if (hasMindieGesture(messages) || hasMindieGesture(decision?.messages)) {
+          await setRoute(agent)
+          await activate(session, cwdOf(session))
+        } else if (!sessions.get(session.id)?.token && await resume(session)) {
+          await setRoute(agent)
+        }
       }
     } catch (error) {
       log(`pre-step activation failed: ${error.message}`)
