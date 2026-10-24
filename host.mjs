@@ -6,7 +6,9 @@
 // seed and never leaves the previous fiber unmounted.
 // [Timeouts & Locks] One 5s pointer poll; no network/model/child work.
 // [Side-Effect Policy] Reads `current.json`; mounts/disposes Cordis fibers and
-// writes only the launcher log.
+// writes only the launcher log. Remote MCP toolCallTimeoutMs is derived from
+// the 600000 ms native Bash maximum plus a 60000 ms SSH/cleanup grace, and is
+// configurable above that floor.
 //
 // The profile points at this file. The updater writes an immutable generation
 // pointer; this launcher mounts the generation as a child Cordis plugin and
@@ -29,6 +31,31 @@ const log = (message) => { try { appendFileSync(logPath, new Date().toISOString(
 
 export const name = 'mindie-agent-dsh'
 export const inject = ['tools', 'agents', 'llm']
+
+// DSH's native Bash timeoutMs maximum is 600000. The MCP client timeout must
+// exceed that inner wait plus SSH setup, MCP tools/call framing, JSON drain and
+// child cleanup; equality would cut the call off exactly when it is still legal.
+export const NATIVE_TOOL_CALL_MAX_MS = 600000
+export const REMOTE_CALL_GRACE_MS = 60000
+
+export function remoteToolCallTimeoutMs(env = process.env) {
+  const native = Number(env?.MINDIE_DSH_NATIVE_TOOL_CALL_MAX_MS ?? NATIVE_TOOL_CALL_MAX_MS)
+  const grace = Number(env?.MINDIE_DSH_REMOTE_CALL_GRACE_MS ?? REMOTE_CALL_GRACE_MS)
+  const derived = (Number.isFinite(native) && native > 0 ? native : NATIVE_TOOL_CALL_MAX_MS)
+    + (Number.isFinite(grace) && grace > 0 ? grace : REMOTE_CALL_GRACE_MS)
+  const requested = Number(env?.MINDIE_DSH_REMOTE_TOOL_CALL_TIMEOUT_MS)
+  return Number.isFinite(requested) && requested > derived ? requested : derived
+}
+
+function sessionStateDir(binding, sessionId) {
+  // One MCP process and one state root per agent session. A shared root would
+  // let session B read or stop session A's job by opaque job_id.
+  const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
+  if (!safe || safe === '.' || safe === '..') {
+    throw new Error('MindIE remote MCP requires a filesystem-safe agent session id')
+  }
+  return path.join(binding.stateDir, 'remote', safe)
+}
 
 function pointerPath() {
   return path.join(paths.dataHome, 'update', 'current.json')
@@ -89,7 +116,7 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
           env: {
             MINDIE_DSH_CONFIG: binding.configFile,
             MINDIE_DSH_STATE_DIR: binding.stateDir,
-            REMOTE_DEV_STATE_DIR: path.join(binding.stateDir, 'remote'),
+            REMOTE_DEV_STATE_DIR: sessionStateDir(binding, sessionId),
             MINDIE_DIAGNOSTICS_CONFIG: path.join(binding.configHome, 'diagnostics.json'),
             // Trusted launcher binding; never derived from tool arguments.
             REMOTE_DEV_HARNESS_PROFILE: 'dsh',
@@ -99,18 +126,25 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
             // already prefers REMOTE_DEV_SESSION_ID, and empty values keep a
             // stale parent scope out of the child entirely.
             CLAUDE_SESSION_ID: '',
+            CLAUDE_CODE_SESSION_ID: '',
             CODEX_SESSION_ID: '',
             CODEX_RUN_ID: '',
+            CODEX_THREAD_ID: '',
           },
-          toolCallTimeoutMs: 600000, failOnStartupError: true,
+          toolCallTimeoutMs: remoteToolCallTimeoutMs(), failOnStartupError: true,
         })
         mounted.set(sessionId, fiber)
       }
+      const detach = async (agent) => {
+        const sessionId = agent?.session?.id
+        const fiber = mounted.get(sessionId)
+        if (!fiber) return
+        mounted.delete(sessionId)
+        await fiber?.dispose?.()
+      }
       for (const agent of child.agents.list()) await attach(agent)
       child.on('agent/created', ({ agent }) => attach(agent))
-      child.on('agent/disposed', ({ agent }) => {
-        mounted.delete(agent?.session?.id)
-      })
+      child.on('agent/disposed', ({ agent }) => detach(agent))
       child.effect(() => async () => {
         for (const [sessionId, fiber] of mounted) {
           mounted.delete(sessionId)
