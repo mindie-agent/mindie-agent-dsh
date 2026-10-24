@@ -9,26 +9,6 @@ from mindie_knowledge.loop.activation import Admission
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import knowledge_mcp
 import mindie_sidecar
-import setup as setup_mod
-
-
-def test_installation_sync_requires_an_existing_manual_session(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    monkeypatch.setenv("MINDIE_DSH_DATA_HOME", str(tmp_path))
-    monkeypatch.delenv("MINDIE_DSH_SESSION_ID", raising=False)
-    gate = Admission(tmp_path / "admission.sqlite3")
-    with patch.object(setup_mod, "run") as run:
-        assert setup_mod.sync_feed(timeout=5) == {"status": "inactive"}
-        monkeypatch.setenv("MINDIE_DSH_SESSION_ID", "session")
-        gate.associate("session", project_root=str(tmp_path), not_before=1.0)
-        assert setup_mod.sync_feed(timeout=5) == {"status": "inactive"}
-        gate.activate("parent", project_root=str(tmp_path))
-        assert setup_mod.sync_feed(timeout=5) == {"status": "inactive"}
-        run.assert_not_called()
-        gate.activate("session", project_root=str(tmp_path))
-        run.return_value = SimpleNamespace(returncode=0, stdout='[{"status":"unchanged"}]', stderr="")
-        assert setup_mod.sync_feed(timeout=5)["status"] == "ready"
-        run.assert_called_once()
 
 
 @pytest.mark.parametrize("state", ["missing", "automatic", "other-session", "revoked"])

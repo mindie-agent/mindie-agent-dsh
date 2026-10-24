@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import sys
 import tarfile
 import tempfile
@@ -36,6 +37,27 @@ def release(tag, *, draft=False, prerelease=False, version=None):
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_release_checks_never_start_the_knowledge_loop(self):
+        from unittest import mock
+        for candidate in (False, True):
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                engine = root / "engine.json"
+                engine.write_text(json.dumps(dict(domain="test", root=str(root / "corpus"))))
+                with mock.patch.dict("os.environ", {
+                    "MINDIE_DSH_DATA_HOME": str(root),
+                    "MINDIE_DSH_ENGINE_CONFIG": str(engine),
+                }), mock.patch.object(updater, "fetch_releases", return_value=[release("v0.1.2")] if candidate else []), \
+                        mock.patch.object(updater, "setup_candidate"), \
+                        mock.patch.object(updater, "run", side_effect=AssertionError("release check started knowledge")):
+                    if candidate:
+                        package = updater.update_dir() / "generations/v0.1.2/package"
+                        package.mkdir(parents=True)
+                        (package / "package.json").write_text(json.dumps(dict(version="0.1.2")))
+                    result = updater.check("web", "0.1.1", "https://example.invalid")
+                    self.assertEqual(result["state"], "applied" if candidate else "up-to-date")
+                    self.assertFalse((root / "corpus").exists())
+
     def test_only_newer_formal_releases_are_selected(self):
         values = [
             release("v0.0.1"),
