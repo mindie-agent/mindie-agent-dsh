@@ -310,8 +310,11 @@ class HostDistillRouteTests(unittest.TestCase):
     def test_mcp_explain_forwards_batch_closure_arguments(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts"))
         import knowledge_mcp
+        from mindie_knowledge.loop.activation import Admission
         from mindie_knowledge.loop import transport
 
+        Admission(self.state / "admission.sqlite3").activate(
+            "native-fixture", project_root=str(self.state))
         arguments = {
             "refs": ["mindie://vllm-ascend/units/unit-a@1"],
             "conditions": {"soc": "Ascend910B"},
@@ -335,7 +338,9 @@ class HostDistillRouteTests(unittest.TestCase):
         route.forward_domain = None
         connection = object()
         config = {"engine_config": str(self.state / "engine.json")}
-        with mock.patch.object(knowledge_mcp, "_route", return_value=route), \
+        with mock.patch.dict(os.environ, MINDIE_DSH_SESSION_ID="native-fixture",
+                             MINDIE_DSH_DATA_HOME=str(self.state)), \
+                mock.patch.object(knowledge_mcp, "_route", return_value=route), \
                 mock.patch.object(
                     knowledge_mcp, "knowledge_connection", return_value=connection,
                 ), \

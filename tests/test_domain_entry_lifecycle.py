@@ -22,6 +22,45 @@ from domain_harness_support import (  # noqa: E402
 
 
 class DomainEntryLifecycleTests(DomainHarnessTestCase):
+    def test_plugin_reload_restores_only_the_same_manual_session(self):
+        self._install_both()
+        admission = _fixture_module.Admission(self.admission_path)
+        admission.deactivate(SESSION)
+        self._run_domain_harness([{"tool": "mindie_entry", "args": {"op": "status"}}])
+        token = admission.knowledge_lease(SESSION)["token"]
+        operations = [
+            {"tool": "mindie_entry", "args": {"op": "status"}},
+            {"tool": "knowledge_query", "args": {"query": "gradedfeedbackprobe"}},
+        ]
+        # Each harness invocation loads a new native plugin instance.
+        resumed = self._run_domain_harness(operations, activate=False)
+        self.assertTrue(resumed["results"][0]["value"]["activated"])
+        self.assertTrue(resumed["results"][1]["ok"], resumed)
+        self.assertEqual(admission.knowledge_lease(SESSION)["token"], token)
+        fresh = self._run_domain_harness(operations, activate=False, session="new-session")
+        self.assertFalse(fresh["results"][0]["value"]["activated"])
+        self.assertFalse(fresh["results"][1]["ok"], fresh)
+        self.assertEqual(fresh["llmCalls"], 0)
+        self.assertIsNone(admission.knowledge_lease("new-session"))
+
+    def test_factual_status_without_activation_does_not_enable_knowledge(self):
+        admission = _fixture_module.Admission(self.admission_path)
+        admission.deactivate(SESSION)
+        payload = self._run_domain_harness([
+            {"tool": "mindie_entry", "args": {"op": "status"}},
+            {"tool": "mindie_entry", "args": {"op": "sharing-status"}},
+            {"tool": "knowledge_query", "args": {"query": "gradedfeedbackprobe"}},
+        ], activate=False)
+        self.assertFalse(payload["activated"])
+        self.assertEqual(payload["llmCalls"], 0)
+        for result in payload["results"][:2]:
+            self.assertTrue(result["ok"], result)
+            self.assertFalse(result["value"]["activated"])
+            self.assertNotIn("next", result["value"])
+        self.assertFalse(payload["results"][2]["ok"])
+        self.assertIn("not activated", payload["results"][2]["error"])
+        self.assertIsNone(admission.knowledge_lease(SESSION))
+
     def test_native_entry_default_init_does_not_activate_target(self):
         payload = self._run_domain_harness([
             {"tool": "mindie_entry", "args": {"op": "init"}},
@@ -235,6 +274,7 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
             {"inactive"},
         )
         self.assertFalse(results[2]["value"]["activated"])
+        self.assertNotIn("next", results[2]["value"])
 
         self.assertIsNone(default_admission.active_lease(SESSION))
         self.assertIsNone(self.target_admission.active_lease(SESSION))
@@ -272,9 +312,10 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
             _fixture_module.Admission(self.admission_path).active_lease(SESSION),
         )
         self.assertIsNone(self.target_admission.active_lease(SESSION))
+        self.assertTrue(results[2]["ok"])
         self.assertFalse(results[2]["value"]["activated"])
 
-    def test_native_entry_deactivate_partial_keeps_host_state(self):
+    def test_native_entry_deactivate_partial_reports_actual_default_authority(self):
         self.target_admission.activate(SESSION, project_root=str(self.project))
         target_config = json.loads(
             self.target_engine_config.read_text(encoding="utf-8"),
@@ -294,7 +335,7 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
         self.assertIn("partial", results[1]["error"])
         self.assertIn(self.target_domain, results[1]["error"])
         self.assertTrue(results[2]["ok"])
-        self.assertTrue(results[2]["value"]["activated"])
+        self.assertFalse(results[2]["value"]["activated"])
         self.assertIsNone(
             _fixture_module.Admission(self.admission_path).active_lease(SESSION),
         )
@@ -318,6 +359,7 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
             _fixture_module.Admission(self.admission_path).active_lease(SESSION),
         )
         self.assertIsNotNone(self.target_admission.active_lease(SESSION))
+        self.assertTrue(results[2]["ok"])
         self.assertFalse(results[2]["value"]["activated"])
 
     def test_missing_registered_deactivation_helper_fails_without_revoking(self):

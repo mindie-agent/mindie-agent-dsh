@@ -250,11 +250,12 @@ class DomainHarnessTestCase(unittest.TestCase):
         env.update(extra)
         return env
 
-    def _run_domain_harness(self, operations, *, with_raw=False):
+    def _run_domain_harness(self, operations, *, with_raw=False, activate=True, session=SESSION):
         env = self._harness_env(
             DOMAIN_OPERATIONS=json.dumps(operations),
             DOMAIN_CWD=str(self.project),
-            DOMAIN_SESSION=SESSION,
+            DOMAIN_SESSION=session,
+            DOMAIN_SKIP_ACTIVATION="0" if activate else "1",
         )
         completed = subprocess.run(
             [shutil.which("node"), str(HARNESS)], env=env,

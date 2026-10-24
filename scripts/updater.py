@@ -236,17 +236,6 @@ def setup_candidate(package: Path, python: str) -> None:
         raise UpdateError("candidate setup failed: " + detail[-800:])
 
 
-def sync_feed(timeout: int = 90) -> dict:
-    engine = mp.engine_config()
-    if not engine.is_file():
-        return {"status": "skipped", "detail": "engine configuration is missing"}
-    code, detail = run(
-        [sys.executable, "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(engine)],
-        timeout=timeout,
-    )
-    return {"status": "ok" if code == 0 else "failed", "detail": "" if code == 0 else detail[-500:]}
-
-
 def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     update_dir().mkdir(parents=True, exist_ok=True)
     status = {
@@ -256,7 +245,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     atomic_json(status_path(), status)
     candidate = choose(fetch_releases(api), current)
     if candidate is None:
-        status.update(state="up-to-date", checked_at=time.time(), feed=sync_feed())
+        status.update(state="up-to-date", checked_at=time.time())
         atomic_json(status_path(), status)
         return status
     _version_tuple, tag, asset_url, sums_url = candidate
@@ -288,7 +277,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     write_current(package, tag, previous if isinstance(previous, dict) else None)
     status.update(
         state="applied", checked_at=time.time(), previous=previous.get("generation"),
-        generation=str(package), feed=sync_feed(), needs_host_reload=False,
+        generation=str(package), needs_host_reload=False,
         detail="generation pointer switched; the stable launcher reloads it",
     )
     atomic_json(status_path(), status)
@@ -328,7 +317,7 @@ def default_current_version() -> str:
         raise
     except (OSError, ValueError):
         pass
-    return "0.1.0"
+    return "0.1.1"
 
 
 def record_update_failure(error: Exception, args) -> int:

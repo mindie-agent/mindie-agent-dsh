@@ -2,8 +2,6 @@
 // Uses the real host3.mjs tool registry, real Python sidecar, Service, Engine
 // and Store; only the DSH native LLM boundary is stubbed.
 
-import { existsSync } from 'node:fs'
-import path from 'node:path'
 import { apply } from '../host3.mjs'
 
 // This is a pytest-driven harness, not a standalone node:test file. When the
@@ -22,6 +20,7 @@ if (!Array.isArray(operations) || operations.length === 0) {
 
 let llmCalls = 0
 const tools = new Map()
+const listeners = new Map()
 const disposers = []
 const ctx = {
   tools: { register(tool) { tools.set(tool.name, tool) } },
@@ -34,7 +33,7 @@ const ctx = {
       yield { type: 'finish', reason: { kind: 'stop' } }
     },
   },
-  on() {},
+  on(event, callback) { listeners.set(event, callback) },
   effect(callback) {
     const dispose = callback()
     if (typeof dispose === 'function') disposers.push(dispose)
@@ -42,10 +41,6 @@ const ctx = {
 }
 
 apply(ctx)
-const endpointFile = path.join(process.env.MINDIE_DSH_STATE_DIR, 'summary-endpoint.json')
-for (let index = 0; index < 200 && !existsSync(endpointFile); index += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 25))
-}
 
 const session = {
   id: process.env.DOMAIN_SESSION || 'manual-A',
@@ -58,11 +53,23 @@ const exec = {
 const entry = tools.get('mindie_entry')
 if (!entry) throw new Error('mindie_entry is not registered')
 let activated = false
-try {
-  activated = Boolean(JSON.parse(await entry.execute({ op: 'init' }, exec)).activated)
-} catch {
-  activated = false
+if (process.env.DOMAIN_SKIP_ACTIVATION !== '1') {
+  const userMsg = { source: { kind: 'user' }, content: [{ type: 'text', text: '/mindie-agent' }] }
+  await listeners.get('agent/pre-step')(
+    { agent: exec.agent, messages: [userMsg] },
+    async () => ({ kind: 'enter', messages: [userMsg] }),
+  )
+  try {
+    activated = Boolean(JSON.parse(await entry.execute({ op: 'init' }, exec)).activated)
+  } catch {
+    activated = false
+  }
 }
+const followUp = { source: { kind: 'user' }, content: [{ type: 'text', text: 'Continue the task' }] }
+await listeners.get('agent/pre-step')(
+  { agent: exec.agent, messages: [followUp] },
+  async () => ({ kind: 'enter', messages: [followUp] }),
+)
 
 const results = []
 for (const operation of operations) {
