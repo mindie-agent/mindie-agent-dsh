@@ -30,7 +30,7 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 RUN_DEADLINE: float | None = None
 INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
@@ -50,7 +50,7 @@ PUBLIC_FEEDS = [
     },
 ]
 COMPONENTS = {
-    "mindie-knowledge": "0.13.1",
+    "mindie-knowledge": "0.13.2",
     "remote-dev": "0.10.5",
     "mindie-diagnostics": "0.5.1",
 }
@@ -302,32 +302,6 @@ def publish_binding(previous, adapter, engine) -> dict:
     return result
 
 
-def sync_feed(*, timeout: int) -> dict[str, Any]:
-    progress("synchronizing the public knowledge feed")
-    completed = run(
-        [str(runtime_python()), "-m", "mindie_knowledge.loop.cli", "sync", "--config", str(mp.engine_config())],
-        timeout=timeout,
-    )
-    if completed.returncode != 0:
-        return {"status": "unavailable", "error": tail(completed.stderr or completed.stdout)}
-    raw = completed.stdout.strip()
-    try:
-        rows = json.loads(raw)
-    except ValueError:
-        return {"status": "unavailable", "error": "sync returned non-JSON output: " + tail(raw or completed.stderr)}
-    if not isinstance(rows, list):
-        return {"status": "unavailable", "error": "sync returned a non-list result"}
-    feeds = [
-        {k: row.get(k) for k in ("repository", "status", "commit", "revision", "checked") if k in row}
-        for row in rows if isinstance(row, dict)
-    ]
-    ok = bool(feeds) and all(item.get("status") in {"synced", "unchanged"} for item in feeds)
-    result: dict[str, Any] = {"status": "ready" if ok else "unavailable", "feeds": feeds}
-    if not ok:
-        result["error"] = "one or more feeds did not report synced/unchanged"
-    return result
-
-
 def report_setup_failure(error: Exception) -> None:
     if not runtime_python().is_file():
         progress("diagnostic storage unavailable: runtime installation did not complete")
@@ -346,10 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     global RUN_DEADLINE, INSTALL_RUNTIME_DIR
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", default=None, help="interpreter to pass to uv sync (default 3.11)")
-    parser.add_argument("--no-sync", action="store_true", help="do not synchronize the knowledge feed")
-    parser.add_argument("--require-sync", action="store_true", help="exit nonzero when feed sync is unavailable")
     parser.add_argument("--dry-run", action="store_true", help="validate prerequisites and print the plan only")
-    parser.add_argument("--sync-timeout", type=int, default=900, help="seconds allowed for one feed sync")
     parser.add_argument("--install-timeout", type=int, default=900, help="seconds allowed for uv sync")
     parser.add_argument("--total-timeout", type=float, default=None,
                         help="shared budget for all setup subprocesses")
@@ -379,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                         "schema": SCHEMA, "status": "dry-run", "version": VERSION,
                         "python": sys.version.split()[0], "uv": shutil.which("uv"),
                         "components": COMPONENTS, "paths": paths,
-                        "sync": "skipped" if args.no_sync else "planned",
+                        "knowledge": {"status": "inactive"},
                     },
                     ensure_ascii=False, indent=2, sort_keys=True,
                 )
@@ -409,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         adapter['domain_configs'] = prepare_domains(adapter, engine)
         publication = publish_binding(previous, adapter, engine)
         paths.update(engine_config=adapter['engine_config'], venv_dir=adapter['venv_dir'], venv_python=adapter['python'])
-        knowledge = {"status": "skipped"} if args.no_sync else sync_feed(timeout=args.sync_timeout)
+        knowledge = {"status": "inactive"}
         update = install_updater()
         reporting_process = run(
             [str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
@@ -421,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
             reporting = json.loads(reporting_process.stdout)
         except ValueError as exc:
             raise SetupError("reporter activation did not return JSON") from exc
-        status = "ready" if knowledge.get("status") in {"ready", "skipped"} else "partial"
+        status = "ready"
         if reporting.get("status") not in {"running", "disabled", "needs_choice"}:
             status = "partial"
         summary = {
@@ -438,9 +409,6 @@ def main(argv: list[str] | None = None) -> int:
             ),
         }
         print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-        if args.require_sync and knowledge.get("status") not in {"ready", "skipped"}:
-            progress("knowledge feed sync is unavailable (--require-sync)")
-            return 1
         return 0
     except SetupError as exc:
         progress("failed: " + str(exc))

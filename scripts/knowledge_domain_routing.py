@@ -136,7 +136,7 @@ def target_lease(
     try:
         from mindie_knowledge.loop.activation import Admission
 
-        lease = Admission(admission_path).active_lease(session)
+        lease = Admission(admission_path).knowledge_lease(session)
     except Exception as exc:  # noqa: BLE001 - report an unusable target lease store
         raise DomainRoutingError(
             f"cannot read the selected domain lease: {type(exc).__name__}: {exc}"

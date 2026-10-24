@@ -394,21 +394,28 @@ class BridgeProtocolTests(unittest.TestCase):
 
         # (1) knowledge_mcp.call_knowledge routes from a real local engine config;
         # the knowledge service is reached only through the mocked transport.
-        config = {"engine_config": str(engine_config)}
-        for name, raw, method in (
-                ("knowledge_query", query_raw, "query"),
-                ("knowledge_explain", explain_raw, "explain")):
-            engine_result = real_explore_result(method)
-            served = json.loads(json.dumps(engine_result))
-            with self.subTest(adapter="call_knowledge", method=method), \
-                    mock.patch.object(
-                        knowledge_mcp, "knowledge_connection", return_value=object()), \
-                    mock.patch(
-                        "mindie_knowledge.loop.transport.rpc", return_value=served) as rpc:
-                delivered = knowledge_mcp.call_knowledge(name, dict(raw), config)
-            self.assertEqual(rpc.call_args.args[1], method)
-            self.assertEqual(rpc.call_args.args[2]["mode"], "explore")
-            assert_verbatim(delivered)
+        data_home = root / "data"
+        data_home.mkdir()
+        with mock.patch.dict(os.environ, {
+                "MINDIE_DSH_SESSION_ID": session,
+                "MINDIE_DSH_DATA_HOME": str(data_home)}):
+            from mindie_knowledge.loop.activation import Admission
+            Admission(data_home / "admission.sqlite3").activate(session, project_root=str(root))
+            config = {"engine_config": str(engine_config)}
+            for name, raw, method in (
+                    ("knowledge_query", query_raw, "query"),
+                    ("knowledge_explain", explain_raw, "explain")):
+                engine_result = real_explore_result(method)
+                served = json.loads(json.dumps(engine_result))
+                with self.subTest(adapter="call_knowledge", method=method), \
+                        mock.patch.object(
+                            knowledge_mcp, "knowledge_connection", return_value=object()), \
+                        mock.patch(
+                            "mindie_knowledge.loop.transport.rpc", return_value=served) as rpc:
+                    delivered = knowledge_mcp.call_knowledge(name, dict(raw), config)
+                self.assertEqual(rpc.call_args.args[1], method)
+                self.assertEqual(rpc.call_args.args[2]["mode"], "explore")
+                assert_verbatim(delivered)
 
         # (2) mindie_sidecar.op_rpc dispatches with a real adapter config and a
         # real local lease, so its own admission and routing run for real.
@@ -417,8 +424,6 @@ class BridgeProtocolTests(unittest.TestCase):
             "python": sys.executable, "engine_config": str(engine_config),
             "state_dir": str(root / "state"), "venv_dir": str(root / "venv"),
         }), encoding="utf-8")
-        data_home = root / "data"
-        data_home.mkdir()
         with mock.patch.dict(os.environ, {
                 "MINDIE_DSH_CONFIG": str(config_file),
                 "MINDIE_DSH_DATA_HOME": str(data_home)}):

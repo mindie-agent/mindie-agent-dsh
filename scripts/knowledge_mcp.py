@@ -33,7 +33,7 @@ import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 PROTOCOL_FALLBACK = "2025-11-25"
 MAX_ERROR_CHARS = 1200
 
@@ -305,14 +305,16 @@ def _payload(args: dict[str, Any], route: routing.Route, identity: dict[str, Any
 
 def session_identity() -> str:
     value = os.environ.get("MINDIE_DSH_SESSION_ID")
-    return value.strip() if isinstance(value, str) and value.strip() and len(value) <= 256 else "dsh"
+    if not isinstance(value, str) or not value.strip() or len(value) > 256:
+        raise RuntimeError("native DSH session identity required; invoke /mindie-agent in this task")
+    return value.strip()
 
 
 def activation_token(session: str) -> str:
     """Read the existing active native lease; never accept a token from tool args."""
     from mindie_knowledge.loop.activation import Admission
 
-    lease = Admission(str(data_home() / "admission.sqlite3")).active_lease(session)
+    lease = Admission(str(data_home() / "admission.sqlite3")).knowledge_lease(session)
     token = lease.get("token") if isinstance(lease, dict) else None
     if not isinstance(token, str) or not token:
         raise RuntimeError("this task is not activated; invoke /mindie-agent first")
@@ -387,6 +389,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     from mindie_knowledge.loop.transport import FeedUnavailableError, rpc
 
     session = session_identity()
+    # Covers query, explain, distill and sync before connection or feed work.
+    activation_token(session)
     if name == "knowledge_distill":
         _distill_arguments(args)
         try:

@@ -1,6 +1,6 @@
 ---
 name: mindie-agent
-description: Manually activated MindIE Agent for Ascend NPU AI Infra work in DeepSeek Harness — entry configuration, Ascend knowledge, experience capture, and the remote-dev NPU tool set.
+description: Manually enable Ascend knowledge, domain workflows, feedback, distillation and background experience capture for the current DeepSeek Harness session. Configured deterministic tools remain available without this entry.
 whenToUse: Only when the user explicitly types /mindie-agent for an Ascend NPU, vLLM-Ascend, AscendC, Triton, NPU testing, tuning, or troubleshooting task.
 disable-model-invocation: true
 ---
@@ -10,6 +10,16 @@ disable-model-invocation: true
 You are in the MindIE Agent mode for the current task. Work inside the user's
 native DSH session; do not create a parallel workflow or require a special
 session mode.
+
+Query, explain, feedback, distillation, sync and background Stop capture all
+require the user's explicit `/mindie-agent` entry in this task. Topic matching,
+installation and saved contribution consent never activate knowledge. New chats,
+forks and subagents need their own entry.
+
+Configured deterministic tools (resource probes/leases, monitoring, profiling,
+simulation calculations, local diagnostics and factual status checks) remain
+available independently of this entry. Their normal interfaces do not require
+loading knowledge or experience context.
 
 ## Setup on demand
 

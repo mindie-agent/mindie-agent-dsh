@@ -23,7 +23,7 @@ def effective_reporting(view: dict, saved: dict) -> dict:
         return dict(view, enabled=False, status="unavailable", consent=saved)
     if not saved.get("choice_revision"):
         return dict(view, enabled=False, status="needs_choice", consent=saved,
-                    detail="Choose contribution again to authorize knowledge sharing and sanitized fault Issues together.")
+                    detail="The saved choice does not authorize sanitized fault reporting.")
     if saved.get("choice") != "contribute":
         return dict(view, enabled=False, status="disabled", consent=saved)
     return dict(view, consent=saved)
@@ -55,7 +55,7 @@ def failure(operation, stage, error, *, reportable=True, category=None) -> dict:
         receipt = record_failure(
             "mindie-agent-dsh", operation, stage=stage,
             category=category or ("internal" if reportable else "caller"),
-            exception=error, host="dsh", version="0.1.0", reportable=reportable,
+            exception=error, host="dsh", version="0.1.1", reportable=reportable,
         )
         return {key: receipt[key] for key in ("incident_id", "record_ref", "logging_failed") if key in receipt}
     except TimeoutError:

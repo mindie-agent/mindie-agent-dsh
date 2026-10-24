@@ -24,7 +24,7 @@ import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 
 MAX_LINE = 256 * 1024
-ADAPTER_VERSION = "0.1.0"
+ADAPTER_VERSION = "0.1.1"
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
 DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
 DISTILL_INPUT_OPTIONAL = {"repetitions"}
@@ -139,8 +139,23 @@ def ensure_default_sharing() -> None:
 
 
 def lease_view(session: str) -> dict[str, Any]:
-    row = admission().inspect(session)
-    return {"status": row.get("status"), "enabled": bool(row.get("enabled")), "project_root": row.get("project_root")}
+    row = knowledge_lease(session)
+    return {"enabled": row is not None, "project_root": row.get("project_root") if row else None}
+
+
+def knowledge_lease(session: str) -> dict[str, Any] | None:
+    from mindie_knowledge.loop.activation import AdmissionUnavailable
+    try:
+        return admission().knowledge_lease(session)
+    except AdmissionUnavailable as exc:
+        raise SidecarError(f"admission check failed: {type(exc).__name__}: {exc}") from exc
+
+
+def manual_lease(session: str, token: str) -> dict[str, Any]:
+    lease = knowledge_lease(session)
+    if lease is None or lease["token"] != token:
+        raise SidecarError("this task is not activated; invoke /mindie-agent first")
+    return lease
 
 
 def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
@@ -238,6 +253,17 @@ def op_status(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(session, str) or not session:
         raise SidecarError("session is required")
     return {"lease": lease_view(session), "sharing": public_settings()}
+
+
+def op_resume(args: dict[str, Any]) -> dict[str, Any]:
+    """Restore the host cache from existing authority without granting entry."""
+    session = args.get("session")
+    if not isinstance(session, str) or not session:
+        raise SidecarError("session is required")
+    lease = knowledge_lease(session)
+    if lease is None:
+        return {"activated": False}
+    return {**lease, "sharing": public_settings()}
 
 
 def _registered_domain_deactivator():
@@ -547,6 +573,7 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
         raise SidecarError("session is required")
     if not isinstance(token, str) or not token:
         raise SidecarError("this task is not activated; invoke /mindie-agent first")
+    manual_lease(session, token)
     if not isinstance(method, str) or method not in {"query", "explain", "feedback", "distill"}:
         raise SidecarError("unknown knowledge operation")
     if not isinstance(payload, dict):
@@ -601,14 +628,17 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def op_sync(_args: dict[str, Any]) -> dict[str, Any]:
+def op_sync(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge.loop.transport import rpc
+
+    manual_lease(args.get("session"), args.get("token"))
 
     return {"feeds": rpc(connection(), "sync", {}, timeout=120.0)}
 
 
 OPS = {
     "activate": op_activate,
+    "resume": op_resume,
     "status": op_status,
     "deactivate": op_deactivate,
     "configure": op_configure,
