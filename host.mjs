@@ -1,7 +1,10 @@
 // Stable Host launcher for mindie-agent-dsh.
 //
 // [Role] Mounts the committed `host3.mjs` generation and hot-swaps it when
-// `current.json` changes, without restarting DSH.
+// `current.json` changes. The `host.mjs` launcher itself is loaded by DSH at
+// startup and is NOT hot-replaced; a native package update therefore records
+// needs_host_reload=true and only a natural host reload/new process activates
+// launcher changes. Existing sessions keep the loaded generation.
 // [Invariants] A missing/corrupt generation pointer falls back to the bundled
 // seed and never leaves the previous fiber unmounted.
 // [Timeouts & Locks] One 5s pointer poll; no network/model/child work.
@@ -12,8 +15,9 @@
 //
 // The profile points at this file. The updater writes an immutable generation
 // pointer; this launcher mounts the generation as a child Cordis plugin and
-// swaps it when the pointer changes, so an update does not require replacing
-// the loaded bundle or restarting DSH. The bundled host3.mjs is the seed.
+// swaps the child generation when the pointer changes. A host3-only change
+// does not restart DSH; changing this launcher or native profile wiring needs
+// the natural host reload boundary above. The bundled host3.mjs is the seed.
 
 import { createRequire } from 'node:module'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
