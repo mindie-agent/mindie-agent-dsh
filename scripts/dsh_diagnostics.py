@@ -55,7 +55,7 @@ def failure(operation, stage, error, *, reportable=True, category=None) -> dict:
         receipt = record_failure(
             "mindie-agent-dsh", operation, stage=stage,
             category=category or ("internal" if reportable else "caller"),
-            exception=error, host="dsh", version="0.1.3", reportable=reportable,
+            exception=error, host="dsh", version="0.1.4", reportable=reportable,
         )
         return {key: receipt[key] for key in ("incident_id", "record_ref", "logging_failed") if key in receipt}
     except TimeoutError:

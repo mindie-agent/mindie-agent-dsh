@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.4 — 2026-10-25
+
+- Pin remote-dev `0.10.7` (`4c40cb5d302ddb8400ff6abb7dc47873b931eaa9`) and
+  align `mindie-diagnostics` at `0.5.4`
+  (`5ae643e19223f2181ecdbaa3edaf464137c4805e`); the recorder claims first/free
+  log slots before reader coordination, fixing the old ~101 ms setup CI
+  regression. Keep the 660000 ms remote host timeout and bounded true
+  head/tail log previews with raw-log refs.
+- Preserve real command exit/result when a secondary preview read degrades;
+  mark `preview_degraded` in structured output and native text.
+- Document the natural host reload boundary: native package updates set
+  `needs_host_reload=true`; `host.mjs` itself is not hot-replaced and only a
+  host restart/new process activates launcher changes, while host3 generation
+  switching remains idle-gated.
+- Run the DSH contract checks on Ubuntu, macOS, and Windows.
+
+## 0.1.3 — 2026-10-25
+
+- Align the shared runtime with the released `mindie-diagnostics 0.5.3`,
+  preserving local-only visibility for network, credential, cancellation, and
+  local precondition failures without replaying uncertain external writes.
+- Route updater-internal failures through the shared diagnostic recorder.
+
 ## 0.1.2 — 2026-10-24
 
 - Add independent formal GitHub Release auto-update discovery and side-by-side
