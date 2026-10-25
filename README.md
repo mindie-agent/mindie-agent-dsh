@@ -82,7 +82,7 @@
    - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.4`（或 `#v0.0.2`）。
 
 4. **核对插件安装状态**：
-   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.3 / remote-dev 0.10.7 / mindie-diagnostics 0.5.3`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
+   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.3 / remote-dev 0.10.7 / mindie-diagnostics 0.5.4`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
    - 提醒用户打开**新会话**后输入 `/mindie-agent` 即可唤醒昇腾领域知识与 Skill，而 `remote-dev` 远端 NPU 工具在日常对话中默认自动触发。
 
    验证成功后继续第 5 步，完成首次配置后一起汇报安装结果。
@@ -129,7 +129,7 @@ uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setu
   "components": {
     "mindie-knowledge": "0.13.3",
     "remote-dev": "0.10.7",
-    "mindie-diagnostics": "0.5.3"
+    "mindie-diagnostics": "0.5.4"
   },
   "knowledge": { "status": "inactive" }
 }
@@ -212,7 +212,7 @@ flowchart TB
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
   GEN --> KS["mindie-knowledge 0.13.3<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
-  GEN --> DIAG["mindie-diagnostics 0.5.3<br/>本地有界诊断 & 统一贡献开关故障上报"]
+  GEN --> DIAG["mindie-diagnostics 0.5.4<br/>本地有界诊断 & 统一贡献开关故障上报"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
   GEN --> RD["remote-dev 0.10.7<br/>remote_dev.mcp.server"]
   RD --> NPU[("远端昇腾主机 / Docker 容器")]
@@ -236,7 +236,7 @@ flowchart TB
 
 ## `0.1.4` 范围与已知限制
 
-- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.3`（`38a42f6f778cfa555d8918fdcacd12cee4a181f5`）、`remote-dev 0.10.7`（`2bd3a9e7c89a49cb9d495405a87316f5ea3064ec`）、`mindie-diagnostics 0.5.3`（`1c465a18e4db59a0889557971b59d6233d8ae726` 升级至 `1c465a18e4db59a0889557971b59d6233d8ae726`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
+- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.3`（`38a42f6f778cfa555d8918fdcacd12cee4a181f5`）、`remote-dev 0.10.7`（`4c40cb5d302ddb8400ff6abb7dc47873b931eaa9`）、`mindie-diagnostics 0.5.4`（`5ae643e19223f2181ecdbaa3edaf464137c4805e`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
 - **`remote-dev` 状态跨会话共享**：远端作业记录位于 `~/.local/share/mindie-agent/dsh/state/remote`，在当前 Host 下跨会话可见。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活且无运行中任务时定时检查正式插件 Release 与各官方组件仓正式 Release（详见 [`docs/releases/mindie-agent-dsh-0.1.2.md`](docs/releases/mindie-agent-dsh-0.1.2.md)）。`host.mjs` 的 `entryFor()` 优先读取 `paths.configFile`（`config.json`）中的 `package_dir` 作为权威适配器绑定（`current.json` 仅在无该字段的 legacy seed 情形下作兼容回退），`remote-dev` Python 解释器与 `host3.mjs` 均由该权威绑定决定；纯组件更新直接构建旁路 `uv` 环境并更新权威适配器绑定（无需重装原生插件定义）；插件级更新通过 `dsh plugin add`/`list --json` 回读校验并标记 `needs_host_reload=True`（原生插件定义变更需重载宿主生效）；DSH 停止期间不依赖操作系统级后台常驻计划任务。

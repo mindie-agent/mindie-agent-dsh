@@ -2,10 +2,12 @@
 
 ## 0.1.4 — 2026-10-25
 
-- Pin remote-dev `0.10.7` (`2bd3a9e7c89a49cb9d495405a87316f5ea3064ec`) and
-  align `mindie-diagnostics` at the released `0.5.3`
-  (`1c465a18e4db59a0889557971b59d6233d8ae726`); keep the 660000 ms remote
-  host timeout and bounded true head/tail log previews with raw-log refs.
+- Pin remote-dev `0.10.7` (`4c40cb5d302ddb8400ff6abb7dc47873b931eaa9`) and
+  align `mindie-diagnostics` at `0.5.4`
+  (`5ae643e19223f2181ecdbaa3edaf464137c4805e`); the recorder claims first/free
+  log slots before reader coordination, fixing the old ~101 ms setup CI
+  regression. Keep the 660000 ms remote host timeout and bounded true
+  head/tail log previews with raw-log refs.
 - Preserve real command exit/result when a secondary preview read degrades;
   mark `preview_degraded` in structured output and native text.
 - Document the natural host reload boundary: native package updates set
