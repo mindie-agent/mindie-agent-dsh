@@ -1,12 +1,12 @@
 [project]
 name = "mindie-agent-dsh-runtime"
-version = "0.1.4"
+version = "0.1.5"
 description = "Pinned component runtime for the MindIE Agent DeepSeek Harness adapter"
 requires-python = ">=3.11"
 dependencies = [
   "mindie-diagnostics @ git+https://github.com/mindie-agent/diagnostics@5ae643e19223f2181ecdbaa3edaf464137c4805e",
   "mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@38a42f6f778cfa555d8918fdcacd12cee4a181f5",
-  "remote-dev @ git+https://github.com/mindie-agent/remote-dev@4c40cb5d302ddb8400ff6abb7dc47873b931eaa9",
+  "remote-dev @ git+https://github.com/mindie-agent/remote-dev@4b1c5cab5d36cdaff79d27e4288c6d5f60667c72",
 ]
 
 [tool.uv]
