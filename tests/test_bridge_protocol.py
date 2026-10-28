@@ -17,6 +17,7 @@ EXPECTED_TOOLS = {
     "knowledge_query",
     "knowledge_explain",
     "knowledge_distill",
+    "knowledge_feedback",
     "knowledge_sync",
 }
 
@@ -191,7 +192,6 @@ class BridgeProtocolTests(unittest.TestCase):
         )
         self.assertNotIn("_session_id", str(distill))
         self.assertNotIn("_activation", str(distill))
-        self.assertNotIn("knowledge_feedback", {tool["name"] for tool in tools})
 
     def test_expanded_optional_arguments_pass_argument_validation(self) -> None:
         responses = exchange(
@@ -297,7 +297,7 @@ class BridgeProtocolTests(unittest.TestCase):
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "tools/call",
-                    "params": {"name": "knowledge_feedback", "arguments": {}},
+                    "params": {"name": "unknown_knowledge_tool", "arguments": {}},
                 },
                 {
                     "jsonrpc": "2.0",

@@ -131,7 +131,7 @@ def target_lease(
     if not isinstance(admission_path, str) or not admission_path:
         raise DomainRoutingError(
             f"selected engine configuration for {domain!r} has no admission_path; "
-            "feedback and distillation require that domain's existing lease"
+            "feedback, distillation and feed sync require that domain's existing lease"
         )
     try:
         from mindie_knowledge.loop.activation import Admission

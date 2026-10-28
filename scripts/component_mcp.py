@@ -22,7 +22,11 @@ def handle(message, *, cancel=None):
     if method == "initialize":
         result = {"protocolVersion": params.get("protocolVersion", "2025-11-25"),
                   "capabilities": {"tools": {}},
-                  "serverInfo": {"name": "mindie-agent-dsh-tools", "version": "0.1.0"}}
+                  "serverInfo": {
+                      "name": "mindie-agent-dsh-tools",
+                      "version": json.loads((component_tools.paths.PACKAGE_DIR / "package.json")
+                                            .read_text(encoding="utf-8"))["version"],
+                  }}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

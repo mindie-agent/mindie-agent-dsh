@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+import sysconfig
 import tempfile
 import time
 
@@ -100,6 +102,8 @@ def command(adapter, component):
         return [adapter["python"], "-I", "-m", "mindie_diagnostics.cli"]
     executable_name = "mindie-" + component
     executable = shutil.which(executable_name, path=str(Path(adapter["python"]).parent))
+    if executable is None and Path(adapter["python"]).absolute() == Path(sys.executable).absolute():
+        executable = shutil.which(executable_name, path=sysconfig.get_path("scripts"))
     executable = executable or shutil.which(executable_name)
     if executable is None:
         raise FileNotFoundError(
@@ -113,7 +117,7 @@ def run(command_argv, *, timeout, max_output, cancel, cwd=None):
     from remote_dev.core.local_process import OwnedProcess
 
     deadline = time.monotonic() + timeout
-    environment = {"MINDIE_DIAGNOSTICS_CONFIG": str(paths.diagnostics_config())}
+    environment = {"MINDIE_DIAGNOSTICS_CONFIG": str(paths.diagnostics_config()), "PYTHONPATH": ""}
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         status = "completed"
         cleanup_error = None

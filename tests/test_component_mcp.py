@@ -61,7 +61,11 @@ def test_real_profiler_inventory_and_cli_error(installed, tmp_path):
     assert "unknown command 'does-not-exist'" in error["structuredContent"]["stderr"]
 
 
-def test_real_sim_help_and_missing_case(installed, tmp_path):
+def test_real_sim_help_and_missing_case(installed, tmp_path, monkeypatch):
+    shadow = tmp_path / "ambient" / "mindie_sim"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("raise RuntimeError('ambient source shadowed installed runtime')\n")
+    monkeypatch.setenv("PYTHONPATH", str(shadow.parent))
     help_result = call("sim", {"argv": ["--help"]})
     assert not help_result["isError"], help_result
     assert "predict" in help_result["structuredContent"]["stdout"]
@@ -70,6 +74,25 @@ def test_real_sim_help_and_missing_case(installed, tmp_path):
     assert missing["structuredContent"]["exit_code"] == 1
     assert "absent.json" in missing["structuredContent"]["result"]["reason"]
     assert missing["structuredContent"]["result"]["status"] == "error"
+
+
+def test_runtime_scripts_directory_precedes_path(installed, tmp_path, monkeypatch):
+    executable = component_tools.command(json.loads(installed.read_text()), "sim")[0]
+    python_dir = str(Path(sys.executable).parent)
+    scripts_dir = str(tmp_path / "python-scripts")
+    monkeypatch.setattr(component_tools.sysconfig, "get_path", lambda key: scripts_dir)
+    lookups = []
+
+    def which(name, *, path=None):
+        lookups.append(path)
+        # Model the global-Python scripts layout using the real installed CLI.
+        return executable if path == scripts_dir else None
+
+    monkeypatch.setattr(component_tools.shutil, "which", which)
+    result = call("sim", {"argv": ["hardware", "--soc", "Ascend910B"]})
+    assert not result["isError"], result
+    assert result["structuredContent"]["result"]["command"] == "hardware"
+    assert lookups == [python_dir, scripts_dir]
 
 
 def test_real_sim_relative_output_uses_explicit_workdir(installed, tmp_path):

@@ -16,6 +16,7 @@ import mindie_sidecar
     ("knowledge_query", {"query": "KDA"}),
     ("knowledge_explain", {"ref": "mindie://test/units/kda@1"}),
     ("knowledge_distill", {"inputs": [], "task_state": "in_flight"}),
+    ("knowledge_feedback", {"ref": "mindie://test/units/kda@1", "rating": "up"}),
     ("knowledge_sync", {}),
 ])
 def test_stdio_knowledge_denial_precedes_connection(tmp_path, monkeypatch, state, name, arguments):
