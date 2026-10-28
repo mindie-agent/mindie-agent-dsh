@@ -9,8 +9,8 @@
       "commit": "38a42f6f778cfa555d8918fdcacd12cee4a181f5"
     },
     "remote-dev": {
-      "version": "0.11.0",
-      "commit": "153813703a3cc64c695dd8e5f19e8a173e144dda"
+      "version": "0.11.1",
+      "commit": "2a750ec8c74d7f053410d48dd820aeb542e7d3b1"
     },
     "mindie-diagnostics": {
       "version": "0.5.4",
