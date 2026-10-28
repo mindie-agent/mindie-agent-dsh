@@ -321,6 +321,17 @@ def activation_token(session: str) -> str:
     return token
 
 
+def discoverable_tools() -> list[dict[str, Any]]:
+    """The optional stdio knowledge surface follows its native session lease."""
+    session = os.environ.get("MINDIE_DSH_SESSION_ID", "").strip()
+    database = data_home() / "admission.sqlite3"
+    if not session or not database.is_file():
+        return []
+    from mindie_knowledge.loop.activation import Admission
+
+    return TOOLS if Admission(str(database)).knowledge_lease(session) else []
+
+
 def _reference_text(value: Any, label: str) -> str | None:
     if value is None:
         return None
@@ -505,7 +516,11 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
     if method == "notifications/initialized":
         return None
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": ident, "result": {"tools": TOOLS}}
+        try:
+            return {"jsonrpc": "2.0", "id": ident, "result": {"tools": discoverable_tools()}}
+        except Exception as exc:
+            return {"jsonrpc": "2.0", "id": ident,
+                    "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
     if method != "tools/call":
         return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not found"}}
     name = params.get("name")

@@ -5,8 +5,8 @@
   "plugin_version": "0.1.5",
   "runtime_components": {
     "mindie-knowledge": {
-      "version": "0.13.3",
-      "commit": "38a42f6f778cfa555d8918fdcacd12cee4a181f5"
+      "version": "0.13.4",
+      "commit": "6e921b205c00d592c25f849653cbfb72b73fe318"
     },
     "remote-dev": {
       "version": "0.10.8",

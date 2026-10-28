@@ -82,7 +82,7 @@
    - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.5`（或 `#v0.0.2`）。
 
 4. **核对插件安装状态**：
-   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.3 / remote-dev 0.10.8 / mindie-diagnostics 0.5.4`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
+   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.4 / remote-dev 0.10.8 / mindie-diagnostics 0.5.4`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
    - 提醒用户打开**新会话**后输入 `/mindie-agent` 即可唤醒昇腾领域知识与 Skill，而 `remote-dev` 远端 NPU 工具在日常对话中默认自动触发。
 
    验证成功后继续第 5 步，完成首次配置后一起汇报安装结果。
@@ -127,7 +127,7 @@ uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setu
   "status": "ready",
   "activation": { "status": "active" },
   "components": {
-    "mindie-knowledge": "0.13.3",
+    "mindie-knowledge": "0.13.4",
     "remote-dev": "0.10.8",
     "mindie-diagnostics": "0.5.4"
   },
@@ -182,6 +182,7 @@ plugin_manager(action="install_bundle",
 | --- | --- | --- |
 | 昇腾领域知识、工程经验、测试与排障参考 | **当前会话手动触发** `/mindie-agent <需求>` | 在当前会话显式输入一次 `/mindie-agent` 注入 Skill 并激活会话租约，随后在本会话后续轮次可持续调用 `mindie_entry` 与知识工具（`knowledge_query` / `knowledge_explain` / `knowledge_distill` / `knowledge_feedback`）；历史知识仅作参考，以当前环境实测为准 |
 | 远端昇腾服务器 / 容器操作与事实状态查询 | **默认常驻**，无需斜杠命令 | 直接用自然语言描述远端操作，Agent 调用 `mcp__remote-dev__remote_*`；只读事实状态查询 `mindie_entry(op="status" \| "reporting-status")` 同样无需 `/mindie-agent` |
+| Profiling、仿真、资源租约与本地诊断 | **默认常驻**，无需斜杠命令 | `mcp__mindie-tools__profiler`、`sim`、`coordinator`、`diagnostics_status`、`diagnostics_bundle` 和 `mindie_status` 调用已安装的组件 CLI。 |
 | 知识源刷新 | 由已启用 `/mindie-agent` 会话内的 `knowledge_sync` 触发 | 仅在当前会话已通过 `/mindie-agent` 激活且语料不可用/过期或用户要求最新知识时调用一次，不轮询 |
 | 公开经验沉淀与工具故障上报 | **统一贡献开关控制 + 已激活会话后台运行** | 显式选择 `contribute` 后，在已通过 `/mindie-agent` 激活的会话中，每次回合结束（`agent/turn-stopping`）在后台完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布，并开启脱敏故障上报（未调用 `/mindie-agent` 的普通会话不触发采集） |
 
@@ -211,7 +212,7 @@ flowchart TB
     HPLUG --> GEN
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
-  GEN --> KS["mindie-knowledge 0.13.3<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
+  GEN --> KS["mindie-knowledge 0.13.4<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
   GEN --> DIAG["mindie-diagnostics 0.5.4<br/>本地有界诊断 & 统一贡献开关故障上报"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
   GEN --> RD["remote-dev 0.10.8<br/>remote_dev.mcp.server"]
@@ -225,6 +226,10 @@ flowchart TB
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | 暴露 `/mindie-agent` 显式入口 Skill（`disable-model-invocation: true`） | 否 |
 | `mindie-agent-host` | `./host.mjs`（在 `mindie-agent-generation` 子纤维中同代挂载 `./host3.mjs` 与 `@deepseek-ai/dsh-mcp-client`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_distill`、`knowledge_sync`）、挂载同代锁定的 `remote-dev 0.10.8` MCP 服务（`remote_dev.mcp.server`）、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接并在无运行中任务时按权威适配器绑定（`paths.configFile` 的 `package_dir` 与 `venvPython`；`current.json` 仅作缺少该字段的 legacy seed 兼容回退）同代热切换 | 否 |
 
+Host 按会话挂载 remote-dev 与 `scripts/component_mcp.py`，会话退出或切换代数时一起回收。组件调用默认使用会话工作目录，也可用绝对路径 `cwd` 选择其他工作树。`argv` 不经过 shell 展开，例如 `{"argv":["inventory","--root","./capture"],"cwd":"/absolute/workspace"}`。调用保留退出码、标准输出与标准错误，执行期限最多 600 秒并预留清理时间；大报告使用组件输出文件。本地诊断包仅导出，不上传。`npu-top` 是面向人的看板，不进入 MCP 目录。
+
+Profiler、sim、coordinator 保持独立可选安装。命令按 MindIE 配置中的 `component_commands`、运行时 Python 同目录、`PATH` 顺序解析；未安装时返回明确错误。例如独立安装可配置 `"component_commands": {"sim": ["/absolute/path/mindie-sim"]}`。开发与 CI 使用锁定的 `component-contracts` 依赖组安装已核实组件版本。
+
 - **不覆盖**任何 DSH 内置行或预设，仅通过 `cordis.patch.yml` 执行 `insert`；DSH 标准预设改动不会被本适配器遮蔽。
 - `package.json` 仅声明精确的 `@deepseek-ai/dsh@0.2.0-rc.2` 可选 peer 依赖，安装时不会把第二个 DSH 运行时拉入 profile。
 
@@ -236,9 +241,9 @@ flowchart TB
 
 ## `0.1.5` 范围与已知限制
 
-- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.3`（`38a42f6f778cfa555d8918fdcacd12cee4a181f5`）、`remote-dev 0.10.8`（`4b1c5cab5d36cdaff79d27e4288c6d5f60667c72`）、`mindie-diagnostics 0.5.4`（`5ae643e19223f2181ecdbaa3edaf464137c4805e`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
+- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.4`（`6e921b205c00d592c25f849653cbfb72b73fe318`）、`remote-dev 0.10.8`（`4b1c5cab5d36cdaff79d27e4288c6d5f60667c72`）、`mindie-diagnostics 0.5.4`（`5ae643e19223f2181ecdbaa3edaf464137c4805e`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
-- **`remote-dev` 状态跨会话共享**：远端作业记录位于 `~/.local/share/mindie-agent/dsh/state/remote`，在当前 Host 下跨会话可见。
+- **`remote-dev` 状态按会话隔离**：每个 Agent 会话使用 `~/.local/share/mindie-agent/dsh/state/remote` 下独立的目录。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活且无运行中任务时定时检查正式插件 Release 与各官方组件仓正式 Release（详见 [`docs/releases/mindie-agent-dsh-0.1.2.md`](docs/releases/mindie-agent-dsh-0.1.2.md)）。`host.mjs` 的 `entryFor()` 优先读取 `paths.configFile`（`config.json`）中的 `package_dir` 作为权威适配器绑定（`current.json` 仅在无该字段的 legacy seed 情形下作兼容回退），`remote-dev` Python 解释器与 `host3.mjs` 均由该权威绑定决定；纯组件更新直接构建旁路 `uv` 环境并更新权威适配器绑定（无需重装原生插件定义）；插件级更新通过 `dsh plugin add`/`list --json` 回读校验并标记 `needs_host_reload=True`（原生插件定义变更需重载宿主生效）；DSH 停止期间不依赖操作系统级后台常驻计划任务。
 - **基准测试边界**：`mindie-bench` 已支持 DSH 作为 L1/L2 G0–G2 原生评测 harness（详见 [`docs/benchmark.md`](docs/benchmark.md)），G3 原生采集评测在 `mindie-bench` 侧暂未接入 DSH。
 
@@ -246,8 +251,11 @@ flowchart TB
 
 ```bash
 # 离线契约、协议与组件单元测试（不写用户目录）
-pytest -q
-node --test tests/test_summary_endpoint.mjs
+uv sync --locked --no-editable --no-dev --group component-contracts
+uv pip install -r requirements-dev.txt
+npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
+uv run --no-sync python -m pytest -q
+node --test tests/test_*.mjs
 
 # 只检查前置条件与路径，不构建运行时
 uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run

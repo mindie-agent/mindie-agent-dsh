@@ -40,12 +40,13 @@ test('an idle generation switch replaces host and per-session remote MCP', async
     export const name = 'fixture-mcp';
     export function apply(ctx, config) {
       globalThis.__mindieGenerationEvents.push([
-        'remote', config.command,
-        config.env?.REMOTE_DEV_SESSION_ID,
-        config.env?.REMOTE_DEV_HARNESS_PROFILE,
+        config.serverName, config.command,
+        config.env?.REMOTE_DEV_SESSION_ID || config.env?.MINDIE_DSH_SESSION_ID,
+        config.serverName === 'remote-dev' ? config.env?.REMOTE_DEV_HARNESS_PROFILE : config.args[0],
       ]);
       ctx.effect(() => () => globalThis.__mindieGenerationEvents.push(
-        ['remote-dispose', config.command, config.env?.REMOTE_DEV_SESSION_ID]));
+        [config.serverName + '-dispose', config.command,
+         config.env?.REMOTE_DEV_SESSION_ID || config.env?.MINDIE_DSH_SESSION_ID]));
     }
   `)
   const publish = (index) => writeFileSync(path.join(config, 'config.json'), JSON.stringify({
@@ -98,29 +99,36 @@ test('an idle generation switch replaces host and per-session remote MCP', async
     const first = makeAgent('session-one')
     await created({ agent: first })
     assert.deepEqual(events.slice(1), [
-      ['remote', path.join(root, 'python-0'), 'session-one', 'dsh'],
+      ['remote-dev', path.join(root, 'python-0'), 'session-one', 'dsh'],
+      ['mindie-tools', path.join(root, 'python-0'), 'session-one',
+        path.join(generations[0], 'scripts', 'component_mcp.py')],
     ])
 
     publish(1)
     first.status = 'running'
     await poll()
-    assert.equal(events.length, 2)
+    assert.equal(events.length, 3)
     first.status = 'idle'
     await poll()
-    assert.deepEqual(events.slice(2), [
-      ['remote-dispose', path.join(root, 'python-0'), 'session-one'],
+    assert.deepEqual(events.slice(3), [
+      ['mindie-tools-dispose', path.join(root, 'python-0'), 'session-one'],
+      ['remote-dev-dispose', path.join(root, 'python-0'), 'session-one'],
       ['host-dispose', 'one'],
       ['host', 'two'],
-      ['remote', path.join(root, 'python-1'), 'session-one', 'dsh'],
+      ['remote-dev', path.join(root, 'python-1'), 'session-one', 'dsh'],
+      ['mindie-tools', path.join(root, 'python-1'), 'session-one',
+        path.join(generations[1], 'scripts', 'component_mcp.py')],
     ])
 
     const second = makeAgent('session-two')
     await createdHandler().listeners.get('agent/created')({ agent: second })
-    assert.deepEqual(events.slice(6), [
-      ['remote', path.join(root, 'python-1'), 'session-two', 'dsh'],
+    assert.deepEqual(events.slice(9), [
+      ['remote-dev', path.join(root, 'python-1'), 'session-two', 'dsh'],
+      ['mindie-tools', path.join(root, 'python-1'), 'session-two',
+        path.join(generations[1], 'scripts', 'component_mcp.py')],
     ])
     await poll()
-    assert.equal(events.length, 7)
+    assert.equal(events.length, 11)
   } finally {
     for (const dispose of ctx.effects.toReversed()) await dispose?.()
     process.env = prior

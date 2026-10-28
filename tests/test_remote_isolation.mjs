@@ -57,14 +57,16 @@ test('remote MCP is scoped per agent session and disposed with the agent', async
     export const name = 'fixture-mcp';
     export function apply(ctx, config) {
       globalThis.__mindieRemoteConfigs.push({
-        session: config.env.REMOTE_DEV_SESSION_ID,
+        server: config.serverName,
+        session: config.env.REMOTE_DEV_SESSION_ID || config.env.MINDIE_DSH_SESSION_ID,
         state: config.env.REMOTE_DEV_STATE_DIR,
         timeoutMs: config.toolCallTimeoutMs,
         claude: config.env.CLAUDE_SESSION_ID,
         codex: config.env.CODEX_SESSION_ID,
+        cwd: config.cwd,
       });
       ctx.effect(() => () => globalThis.__mindieRemoteDisposed.push(
-        config.env.REMOTE_DEV_SESSION_ID));
+        [config.serverName, config.env.REMOTE_DEV_SESSION_ID || config.env.MINDIE_DSH_SESSION_ID]));
     }
   `)
   writeFileSync(path.join(configHome, 'config.json'), JSON.stringify({
@@ -76,7 +78,7 @@ test('remote MCP is scoped per agent session and disposed with the agent', async
   const agents = []
   const ctx = context([], agents)
   const makeAgent = (id) => {
-    const agent = { session: { id }, ctx: context([], agents), status: 'idle' }
+    const agent = { session: { id, header: { cwd: root } }, ctx: context([], agents), status: 'idle' }
     agents.push(agent)
     return agent
   }
@@ -93,7 +95,8 @@ test('remote MCP is scoped per agent session and disposed with the agent', async
   await created({ agent: first })
   await created({ agent: second })
   const bySession = Object.fromEntries(
-    globalThis.__mindieRemoteConfigs.map((item) => [item.session, item]))
+    globalThis.__mindieRemoteConfigs.filter((item) => item.server === 'remote-dev')
+      .map((item) => [item.session, item]))
   assert.deepEqual(Object.keys(bySession).sort(), ['session-one', 'session-two'])
   assert.notEqual(bySession['session-one'].state, bySession['session-two'].state)
   assert.match(bySession['session-one'].state, /remote[/\\]session-one$/)
@@ -104,7 +107,12 @@ test('remote MCP is scoped per agent session and disposed with the agent', async
   assert.equal(bySession['session-one'].codex, '')
 
   await disposed({ agent: second })
-  assert.deepEqual(globalThis.__mindieRemoteDisposed, ['session-two'])
+  assert.deepEqual(globalThis.__mindieRemoteDisposed, [
+    ['mindie-tools', 'session-two'], ['remote-dev', 'session-two'],
+  ])
+  const components = globalThis.__mindieRemoteConfigs.filter((item) => item.server === 'mindie-tools')
+  assert.equal(components.length, 2)
+  assert.ok(components.every((item) => item.cwd === root && item.timeoutMs > 605000))
   assert.equal(launcher.remoteToolCallTimeoutMs({}), 660000)
   assert.equal(launcher.remoteToolCallTimeoutMs({
     MINDIE_DSH_REMOTE_TOOL_CALL_TIMEOUT_MS: '700000'}), 700000)

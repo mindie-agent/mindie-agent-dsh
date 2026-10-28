@@ -112,6 +112,12 @@ class BridgeProtocolTests(unittest.TestCase):
         return env
 
     def test_initialize_and_tool_catalog(self) -> None:
+        from mindie_knowledge.loop.activation import Admission
+
+        env = self._env()
+        env["MINDIE_DSH_SESSION_ID"] = "protocol-session"
+        Admission(Path(env["MINDIE_DSH_DATA_HOME"]) / "admission.sqlite3").activate(
+            "protocol-session", project_root=env["MINDIE_DSH_STATE_DIR"])
         responses = exchange(
             [
                 {
@@ -122,7 +128,7 @@ class BridgeProtocolTests(unittest.TestCase):
                 },
                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             ],
-            self._env(),
+            env,
         )
         self.assertEqual(len(responses), 2)
         self.assertEqual(responses[0]["result"]["protocolVersion"], "2026-07-28")

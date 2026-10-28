@@ -1,6 +1,6 @@
 # MindIE Agent for DeepSeek Harness — host composition patch.
 #
-# This bundle adds three Host rows and overrides no shipped row and no shipped
+# This bundle adds two Host rows and overrides no shipped row and no shipped
 # preset. The only DSH packages it uses are stable (non-experimental):
 #
 #   @deepseek-ai/dsh-skill-filesystem  (the provider the standard preset uses)
@@ -8,7 +8,7 @@
 #
 # The knowledge tool surface is this package's own Host plugin; the published
 # mindie-knowledge runtime still owns capture, redaction and indexing. The rows
-# are Host rows, so the skill, native tools and remote-dev MCP are inherited by
+# are Host rows, so the skill, native tools and per-session MCP clients are inherited by
 # every agent preset, including the shipped `standard` preset. Nothing here
 # shadows or rewrites the standard composition.
 #
