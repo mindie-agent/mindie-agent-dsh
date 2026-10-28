@@ -20,8 +20,8 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#装好之后怎么用">使用方式</a> ·
   <a href="#架构与稳定性边界">架构</a> ·
-  <a href="#012-的贡献与故障上报">贡献与故障上报</a> ·
-  <a href="#012-范围与已知限制">已知限制</a>
+  <a href="#015-的贡献与故障上报">贡献与故障上报</a> ·
+  <a href="#015-范围与已知限制">已知限制</a>
 </p>
 
 ---
@@ -31,7 +31,7 @@
 它面向昇腾（Ascend）NPU AI Infra 设计、开发与测试全流程，当前 `0.1.5` 已交付 **`vLLM-Ascend` 特性开发与测试**、**`AscendC` / `Triton` 算子实现验证**等能力（更多昇腾基础软件方向按路线图持续扩展）：
 
 - **`/mindie-agent` 领域知识、Skill 与经验沉淀入口**：按需调用 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_distill`、`knowledge_feedback`、`knowledge_sync`，检索 `knowledge-vllm-ascend` 工程案例，并按 `L1`/`L2` 基础基线、`L3` Hermes 收敛与 `L4` RSI 去偏探索推进任务；开启贡献时自动完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布；
-- **`remote-dev` 远端 NPU 工具集**：在远端昇腾服务器或容器内读写文件、执行命令、运行测试并轮询长耗时后台任务；
+- **远端开发与本地组件工具**：`remote-dev` 负责远端文件读写、命令执行与后台任务管理；`mindie-tools` 提供本地诊断、状态查询，以及 `profiler`、`sim`、`coordinator` 的调用入口。两组工具默认可用；
 - **生态支持**：当前 `v0.1.5`（配套主产品 `0.1.1`）同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）与 DeepSeek Harness（本仓库）。
 
 项目遵循 [MindIE Agent 工程设计原则](https://github.com/mindie-agent/mindie-agent/blob/main/docs/design-principles.md) 的薄适配层架构：本仓库专注于 DSH Host 组合、会话采集与本地代数切换，而多领域分层路由、分片索引、`L1–L4` 分级知识单元校验与社区发布门禁均由共享组件 [`mindie-knowledge`](https://github.com/mindie-agent/knowledge) 统一承载。
@@ -172,7 +172,7 @@ plugin_manager(action="install_bundle",
 验证标准：
 
 1. 技能由 `/mindie-agent` 显式注入（不进入模型自动目录），并调用 `mindie_entry(op="init")` 绑定当前任务；
-2. Host 工具列表包含 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_sync`，MCP 工具列表包含 `mcp__remote-dev__remote_*`；
+2. Host 工具列表包含 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_distill`、`knowledge_feedback`、`knowledge_sync`，MCP 工具列表包含 `mcp__remote-dev__remote_*` 与 `mcp__mindie-tools__*`（`profiler`、`sim`、`coordinator`、`diagnostics_status`、`diagnostics_bundle`、`mindie_status`）；
 3. 知识检索返回带 `ref` 的引用组，`knowledge_explain` 能读取指定条目或块正文；
 4. 远端操作使用真实 host / port / container，长耗时任务可通过 `remote_job_*` 轮询。
 
@@ -181,8 +181,8 @@ plugin_manager(action="install_bundle",
 | 能力 | 触发方式 | 说明 |
 | --- | --- | --- |
 | 昇腾领域知识、工程经验、测试与排障参考 | **当前会话手动触发** `/mindie-agent <需求>` | 在当前会话显式输入一次 `/mindie-agent` 注入 Skill 并激活会话租约，随后在本会话后续轮次可持续调用 `mindie_entry` 与知识工具（`knowledge_query` / `knowledge_explain` / `knowledge_distill` / `knowledge_feedback`）；历史知识仅作参考，以当前环境实测为准 |
-| 远端昇腾服务器 / 容器操作与事实状态查询 | **默认常驻**，无需斜杠命令 | 直接用自然语言描述远端操作，Agent 调用 `mcp__remote-dev__remote_*`；只读事实状态查询 `mindie_entry(op="status" \| "reporting-status")` 同样无需 `/mindie-agent` |
-| Profiling、仿真、资源租约与本地诊断 | **默认常驻**，无需斜杠命令 | `mcp__mindie-tools__profiler`、`sim`、`coordinator`、`diagnostics_status`、`diagnostics_bundle` 和 `mindie_status` 调用已安装的组件 CLI。 |
+| 远端昇腾服务器 / 容器操作与事实状态查询 | **默认常驻**，无需斜杠命令 | 直接用自然语言描述远端操作，Agent 调用 `mcp__remote-dev__remote_*`；只读事实状态查询 `mindie_entry(op="status" \| "reporting-status")` 与 `mcp__mindie-tools__mindie_status` 同样无需 `/mindie-agent` |
+| Profiling、仿真、资源租约与本地诊断 | **默认常驻**，无需斜杠命令 | `mcp__mindie-tools__diagnostics_status`、`diagnostics_bundle` 与 `mindie_status` 直接使用锁定运行时；`mcp__mindie-tools__profiler`、`sim`、`coordinator` 调用独立安装的可选组件 CLI（或 `component_commands` 配置命令） |
 | 知识源刷新 | 由已启用 `/mindie-agent` 会话内的 `knowledge_sync` 触发 | 仅在当前会话已通过 `/mindie-agent` 激活且语料不可用/过期或用户要求最新知识时调用一次，不轮询 |
 | 公开经验沉淀与工具故障上报 | **统一贡献开关控制 + 已激活会话后台运行** | 显式选择 `contribute` 后，在已通过 `/mindie-agent` 激活的会话中，每次回合结束（`agent/turn-stopping`）在后台完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布，并开启脱敏故障上报（未调用 `/mindie-agent` 的普通会话不触发采集） |
 
@@ -216,6 +216,7 @@ flowchart TB
   GEN --> DIAG["mindie-diagnostics 0.5.4<br/>本地有界诊断 & 统一贡献开关故障上报"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
   GEN --> RD["remote-dev 0.10.8<br/>remote_dev.mcp.server"]
+  GEN --> MT["mindie-tools MCP<br/>scripts/component_mcp.py"]
   RD --> NPU[("远端昇腾主机 / Docker 容器")]
 ```
 
@@ -224,11 +225,20 @@ flowchart TB
 | Host 行 ID | 使用的插件 / 入口 | 核心职责 | 是否 experimental |
 | --- | --- | --- | --- |
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | 暴露 `/mindie-agent` 显式入口 Skill（`disable-model-invocation: true`） | 否 |
-| `mindie-agent-host` | `./host.mjs`（在 `mindie-agent-generation` 子纤维中同代挂载 `./host3.mjs` 与 `@deepseek-ai/dsh-mcp-client`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_distill`、`knowledge_sync`）、挂载同代锁定的 `remote-dev 0.10.8` MCP 服务（`remote_dev.mcp.server`）、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接并在无运行中任务时按权威适配器绑定（`paths.configFile` 的 `package_dir` 与 `venvPython`；`current.json` 仅作缺少该字段的 legacy seed 兼容回退）同代热切换 | 否 |
+| `mindie-agent-host` | `./host.mjs`（在 `mindie-agent-generation` 子纤维中同代挂载 `./host3.mjs` 与 `@deepseek-ai/dsh-mcp-client`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_distill`、`knowledge_sync`）、按会话挂载同代锁定的 `remote-dev 0.10.8`（`remote_dev.mcp.server`）与 `mindie-tools`（`scripts/component_mcp.py`）MCP 服务、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接并在无运行中任务时按权威适配器绑定（`paths.configFile` 的 `package_dir` 与 `venvPython`；`current.json` 仅作缺少该字段的 legacy seed 兼容回退）同代热切换 | 否 |
 
-Host 按会话挂载 remote-dev 与 `scripts/component_mcp.py`，会话退出或切换代数时一起回收。组件调用默认使用会话工作目录，也可用绝对路径 `cwd` 选择其他工作树。`argv` 不经过 shell 展开，例如 `{"argv":["inventory","--root","./capture"],"cwd":"/absolute/workspace"}`。调用保留退出码、标准输出与标准错误，执行期限最多 600 秒并预留清理时间；大报告使用组件输出文件。本地诊断包仅导出，不上传。`npu-top` 是面向人的看板，不进入 MCP 目录。
+#### `mindie-tools` 本地诊断与分析组件服务（`scripts/component_mcp.py`）
 
-Profiler、sim、coordinator 保持独立可选安装。命令按 MindIE 配置中的 `component_commands`、运行时 Python 同目录、`PATH` 顺序解析；未安装时返回明确错误。例如独立安装可配置 `"component_commands": {"sim": ["/absolute/path/mindie-sim"]}`。开发与 CI 使用锁定的 `component-contracts` 依赖组安装已核实组件版本。
+`host.mjs` 为每个会话挂载 `remote-dev` 与 `mindie-tools`（`scripts/component_mcp.py`），在所有会话中默认可用，无需先执行 `/mindie-agent`，并在会话结束或版本切换时自动回收（交互式终端看板 `npu-top` 仅供人工在终端使用，不注册为 MCP 工具）：
+
+| 工具名 | 用途 | 安装要求 | 调用参数与返回结果 |
+| --- | --- | --- | --- |
+| `mindie_status`<br/>`diagnostics_status`<br/>`diagnostics_bundle` | 查看当前运行时路径与版本、本地诊断与上报状态，或导出脱敏后的本地诊断包（仅保存在本地，不自动上传） | **内置可用**（直接使用插件自带的 Python 运行时） | `diagnostics_status` 可选传 `config`；`diagnostics_bundle` 必传 `root`（可选 `operation_id`、`output`） |
+| `profiler`<br/>`sim`<br/>`coordinator` | 调用 `mindie-profiler`（采集剖析）、`mindie-sim`（性能仿真）、`mindie-coordinator`（设备探测与租约）命令行工具 | **按需独立安装**（插件默认不自带）。先查找配置的 Python 环境，再查 `PATH`，也可用 `~/.config/mindie-agent/dsh/config.json` 的 `component_commands` 指定 | 传入参数数组 `argv`（如 `["--help"]`），可选绝对路径 `cwd`；返回 `component`、`status`、`exit_code`、`stdout`、`stderr`、`output_truncated`（仅在 `stdout` 为 JSON 时附带 `result`） |
+
+相对路径默认按当前会话的工作目录解析，也可用绝对路径 `cwd` 指定其他目录。`argv` 直接传给组件，不经过 shell 展开。若可选组件未安装，调用会返回明确提示；本地与 CI 测试通过 `component-contracts` 依赖组安装对应版本。
+
+单次调用超时默认 120 秒（`timeout_ms=120000`）、最多可设 10 分钟（`600000`）；输出默认最多 64 KiB（`max_output_tokens=16384`）、最多可设 1 MiB（`262144`），两路输出合计按每 token 4 字节计，大报告建议保存到文件。
 
 - **不覆盖**任何 DSH 内置行或预设，仅通过 `cordis.patch.yml` 执行 `insert`；DSH 标准预设改动不会被本适配器遮蔽。
 - `package.json` 仅声明精确的 `@deepseek-ai/dsh@0.2.0-rc.2` 可选 peer 依赖，安装时不会把第二个 DSH 运行时拉入 profile。
@@ -261,9 +271,9 @@ node --test tests/test_*.mjs
 uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
 ```
 
-### `0.1.2` 发布基准测试（Release Benchmark）
+### `0.1.5` 发布基准测试（Release Benchmark）
 
-本仓库随 `0.1.2` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
+本仓库随 `0.1.5` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
 - [`benchmarks/release.json`](benchmarks/release.json)（由 `benchmarks/release.py` 执行）测量 100 条消息的 DSH v4 `session.v4.jsonl.zstd` 公开对话提取与隐藏推理过滤延迟（用例 `public-transcript`，指标 `public_100_message_parse_latency`，单位 `us/op`）。
 - 上述 CPU 微基准仅证明本地解析的耗时基线，与常备昇腾 A2/A3 NPU 真机集成验收及 `mindie-bench` 端到端 Agent 研发任务评估相互独立。详见 [`docs/benchmark.md`](docs/benchmark.md) 与 [`docs/verification.md`](docs/verification.md)。
 
