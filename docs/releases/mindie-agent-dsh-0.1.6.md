@@ -15,6 +15,10 @@ submission state, and separate key-maintenance facts.
 
 The DSH adapter uses the shared remote-dev MCP server for authentication and safe failure hints. Existing native loading and historical host compatibility evidence remain unchanged.
 
+Setup receipts now read the plugin version from `package.json` and baseline
+component versions from the existing compatibility manifest. This removes
+stale duplicate version literals from installation reports.
+
 The active runtime pins are:
 
 | Component | Version / tag | Source commit |
