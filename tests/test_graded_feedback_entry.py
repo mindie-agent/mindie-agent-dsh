@@ -114,6 +114,38 @@ class GradedFeedbackEntryTests(unittest.TestCase):
 
 
 class MultiDomainRoutingTests(DomainHarnessTestCase):
+    def test_mcp_feedback_requires_target_lease_and_records_exact_ref(self):
+        _default_unit, target_unit = self._install_both()
+        observed = knowledge_mcp.handle({
+            "id": 1, "method": "tools/call",
+            "params": {"name": "knowledge_query", "arguments": {
+                "query": "gradedfeedbackprobe", "include_unknown": True,
+                "domain": self.target_domain,
+            }},
+        })["result"]["structuredContent"]["results"][0]
+        request = {
+            "id": 1, "method": "tools/call",
+            "params": {"name": "knowledge_feedback", "arguments": {
+                "ref": observed["feedback_ref"], "rating": "up",
+                "reason": "Confirmed through the standalone MCP bridge.",
+            }},
+        }
+        denied = knowledge_mcp.handle(request)["result"]
+        self.assertTrue(denied["isError"])
+        self.assertIn("no active admission lease", denied["content"][0]["text"])
+        self.assertEqual(self._votes(self.target_store), [])
+
+        self._ensure_target_lease()
+        accepted = knowledge_mcp.handle(request)["result"]
+        self.assertFalse(accepted["isError"], accepted)
+        self.assertEqual(accepted["structuredContent"]["revision"], target_unit.revision)
+        votes = self._votes(self.target_store)
+        self.assertEqual(len(votes), 1)
+        self.assertEqual(votes[0]["entry_id"], UNIT_ID)
+        self.assertEqual(votes[0]["revision"], str(target_unit.revision))
+        self.assertEqual(votes[0]["rating"], "up")
+        self.assertEqual(self._votes(self.store), [])
+
     def test_explicit_domain_query_selects_independent_store_and_revision(self):
         default_unit, target_unit = self._install_both()
 

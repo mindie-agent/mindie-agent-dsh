@@ -12,17 +12,24 @@ jobs:
     uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@484b80621aaf9293c559786d0ef2174c79a0dbb4
     with:
       benchmark-ref: 484b80621aaf9293c559786d0ef2174c79a0dbb4
-      release-notes-path: docs/releases/mindie-agent-dsh-0.1.6.md
+      release-notes-path: docs/releases/mindie-agent-dsh-0.1.7.md
       version-files: |
         package.json
         pyproject.toml
       setup-command: |
-        uv sync --locked && uv pip install -r requirements-dev.txt pytest
+        uv sync --locked --no-editable --group component-contracts
+        uv pip install -r requirements-dev.txt pytest
+        npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
       test-command: |
         .venv/bin/python -m pytest -q -m "not live_npu"
         node --check paths.cjs
+        node --check host.mjs
+        node --check host3.mjs
+        node tests/test_summary_endpoint.mjs
         node --test tests/test_manual_entry_host.mjs
         node --test tests/test_generation_launcher.mjs
+        node --test tests/test_remote_isolation.mjs
+        node --test tests/test_summary_host.mjs
       node: true
       build-command: |
         npm pack --pack-destination "$RELEASE_ASSETS_DIR"

@@ -46,7 +46,8 @@ const VERSION = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 ).version
 const CALL_TIMEOUT_MS = 2 * 60 * 1000
-const SYNC_TIMEOUT_MS = 125 * 1000
+// Two admission reads, 120s CLI work, 5s process cleanup and framing headroom.
+const SYNC_TIMEOUT_MS = 140 * 1000
 // Six-second shared revocation budget plus local status/cleanup headroom.
 const DEACTIVATE_TIMEOUT_MS = 30 * 1000
 
@@ -661,10 +662,12 @@ export function apply(ctx) {
       'Synchronize the configured public knowledge feed once. Model-free and ' +
         'network-bound. Use only when the corpus is unavailable/stale or the user ' +
         'explicitly asks for the latest knowledge; never in a retry loop.',
-      { type: 'object', properties: {}, additionalProperties: false },
-      async (_args, exec) => {
+      { type: 'object', properties: { domain: { type: 'string' } }, additionalProperties: false },
+      async (args, exec) => {
         const { session, state } = await requireState(exec)
-        const result = await sidecar.call('sync', { session: session.id, token: state.token }, exec.signal, SYNC_TIMEOUT_MS)
+        const { _tool_error: isError, ...result } = await sidecar.call(
+          'sync', { session: session.id, token: state.token, domain: args.domain }, exec.signal, SYNC_TIMEOUT_MS)
+        if (isError) throw new Error(text(result))
         return text(result)
       },
     ),

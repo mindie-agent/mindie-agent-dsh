@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """[Role] Thin stdio MCP bridge exposing MindIE knowledge tools for DeepSeek Harness.
 [Invariants] Re-executes into the configured venv interpreter when available; never activates tasks, never accepts tool-supplied identity tokens, and never mutates corpus rows directly. Distillation requires the existing active native lease and an explicit task_state; a Stop does not imply completion.
-[Timeouts & Locks] RPC calls bounded at 30.0s (query/explain/feedback), 120.0s (sync), and 2 redaction scans + identity + summary worker + 20s receipt/cleanup (distill).
-[Side-Effect Policy] Read-only query/explain RPCs, explicit feed sync, and explicit activated distill; writes JSON-RPC responses to stdout and diagnostics to stderr.
+[Timeouts & Locks] RPC calls bounded at 30.0s (query/explain/feedback); sync uses 120.0s CLI work plus 5s cleanup; distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup.
+[Side-Effect Policy] Read-only query/explain RPCs and explicit activated feedback, feed sync and distill; writes JSON-RPC responses to stdout and diagnostics to stderr.
 """
 
 from __future__ import annotations
@@ -31,9 +31,10 @@ from mindie_paths import (  # noqa: E402
 )
 import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
+from knowledge_sync import sync_feeds  # noqa: E402
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
-SERVER_VERSION = "0.1.2"
+SERVER_VERSION = json.loads((HERE.parent / "package.json").read_text(encoding="utf-8"))["version"]
 PROTOCOL_FALLBACK = "2025-11-25"
 MAX_ERROR_CHARS = 1200
 
@@ -171,16 +172,41 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "knowledge_feedback",
+        "description": (
+            "Record an optional usefulness vote or usage event for the exact feedback_ref "
+            "returned by query/explain. A mindie://DOMAIN reference uses that domain's "
+            "existing session lease and consent. " + GATED
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string"},
+                "rating": {"type": "string", "enum": ["up", "down"]},
+                "reason": {"type": "string", "maxLength": 1000},
+                "event_type": {"type": "string", "enum": ["discovered", "loaded", "applied", "evaluated"]},
+                "run_id": {"type": "string", "maxLength": 256},
+                "step_id": {"type": "string", "maxLength": 256},
+                "outcome": {"type": "string", "enum": ["supported", "refuted", "inconclusive"]},
+                "evidence_source": {
+                    "type": "string", "enum": ["agent_declared", "run_manifest_verified", "ablation_verified"],
+                },
+            },
+            "required": ["ref"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "knowledge_sync",
         "description": (
             "Synchronize the configured public knowledge feed once. Model-free, "
-            "read-only with respect to the corpus, and network-bound. "
+            "refreshes the selected local corpus and is network-bound. "
             + GATED
             + " Call it only when knowledge_query reports the corpus unavailable "
             "or stale, or when the user explicitly asks for the latest knowledge. "
             "Never call it in a retry loop."
         ),
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {"type": "object", "properties": {"domain": DOMAIN_PROPERTY}, "additionalProperties": False},
     },
 ]
 
@@ -326,6 +352,17 @@ def activation_token(session: str) -> str:
     return token
 
 
+def discoverable_tools() -> list[dict[str, Any]]:
+    """The optional stdio knowledge surface follows its native session lease."""
+    session = os.environ.get("MINDIE_DSH_SESSION_ID", "").strip()
+    database = data_home() / "admission.sqlite3"
+    if not session or not database.is_file():
+        return []
+    from mindie_knowledge.loop.activation import Admission
+
+    return TOOLS if Admission(str(database)).knowledge_lease(session) else []
+
+
 def _reference_text(value: Any, label: str) -> str | None:
     if value is None:
         return None
@@ -394,7 +431,7 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     from mindie_knowledge.loop.transport import FeedUnavailableError, rpc
 
     session = session_identity()
-    # Covers query, explain, distill and sync before connection or feed work.
+    # Every knowledge call requires manual entry before connection or feed work.
     activation_token(session)
     if name == "knowledge_distill":
         _distill_arguments(args)
@@ -428,7 +465,18 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         return rpc(knowledge_connection(config, str(route.selected_path)), "distill",
                    payload, timeout=_distill_timeout())
     if name == "knowledge_sync":
-        return rpc(knowledge_connection(config), "sync", {}, timeout=120.0)
+        route = _route(args, config)
+        if route.cross_domain:
+            routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+        return sync_feeds(config["python"], route.selected_path)
+    if name == "knowledge_feedback":
+        route = _route(args, config)
+        lease = (routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+                 if route.cross_domain else None)
+        payload = _payload(args, route, {
+            "_session_id": session, "_activation": lease["token"] if lease else activation_token(session),
+        })
+        return rpc(knowledge_connection(config, str(route.selected_path)), "feedback", payload, timeout=30.0)
     if name == "knowledge_query":
         if not args.get("query") and not args.get("continuation"):
             raise ValueError("knowledge_query requires `query` or `continuation`")
@@ -480,6 +528,9 @@ def failure(message: str, *, error=None) -> dict[str, Any]:
 
 def success(payload: Any, *, distill=False) -> dict[str, Any]:
     is_error = False
+    if isinstance(payload, dict) and "_tool_error" in payload:
+        payload = dict(payload)
+        is_error = payload.pop("_tool_error")
     if distill:
         from mindie_knowledge.graded.distill import result_view
         payload, is_error = result_view(payload)
@@ -510,7 +561,11 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
     if method == "notifications/initialized":
         return None
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": ident, "result": {"tools": TOOLS}}
+        try:
+            return {"jsonrpc": "2.0", "id": ident, "result": {"tools": discoverable_tools()}}
+        except Exception as exc:
+            return {"jsonrpc": "2.0", "id": ident,
+                    "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
     if method != "tools/call":
         return {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not found"}}
     name = params.get("name")

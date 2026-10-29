@@ -10,6 +10,7 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 | `scripts/mindie_paths.py` | Canonical path authority mirroring `paths.cjs` | Pure path resolution (`data_home`, `config_home`, `config_file`, `engine_config`, `state_dir`, `venv_dir`). Must stay byte-for-byte aligned with `paths.cjs`. |
 | `scripts/mindie_sidecar.py` | Warm JSON-line sidecar for DSH Host plugin | Dispatches `activate`, `resume` (restores host cache from existing `knowledge_lease` authority without granting entry), `status`, `deactivate`, `configure`, `reporting`, `rpc`, `sync`. `op_rpc` and `op_sync` verify `manual_lease(session, token)` (`admission().knowledge_lease(session)`) before executing; never retries failed RPCs. |
 | `scripts/knowledge_mcp.py` | Thin stdio MCP bridge (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`) | Re-executes into configured venv Python (`MINDIE_DSH_NO_REEXEC=1` disables re-exec); requires `MINDIE_DSH_SESSION_ID` and an active `knowledge_lease(session)` (`entry_enabled=1`) before connecting or syncing feeds. |
+| `scripts/component_mcp.py` & `scripts/component_tools.py` | Default per-session MCP surface for profiler, sim, coordinator, diagnostics and factual status | Static discovery without knowledge state; shell-free CLI arguments, bounded output, cancellation and explicit working directory. |
 | `scripts/capture_stop.py` | Detached Stop-hook capture handoff | Reads one Stop envelope (`<= 256 KiB`) from stdin, calls `capture_hook`, appends receipt to `capture.log` (`1 MiB` rotation), never emits to stdout. |
 | `scripts/dsh_organizer.py` | Loopback summary worker (`mindie-summary-outcome/1`) | Calls active DSH session's loopback summary endpoint (`summary-endpoint.json`); returns `returned`, `failed`, or `outcome_unknown` without retrying uncertain calls. |
 | `scripts/dsh_transcript.py` | DSH v4 `.jsonl.zstd` public-transcript reader | Streams concatenated zstd frames (`<= 32 MiB`), extracts only `user/message` (`source.kind == "user"`) and `assistant/message` `text` blocks, maintains monotonic byte-offset cursors. |
@@ -40,6 +41,10 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
 ## 4. Verification Commands
 
 ```bash
-# Run full unit & contract test suite (< 5s)
-/Volumes/data/code/mindie-release-20261014/codex-interrupt-final-env-20261016/bin/python -m pytest
+# Install locked runtime and real component contracts
+uv sync --locked --no-editable --no-dev --group component-contracts
+uv pip install -r requirements-dev.txt
+npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
+uv run --no-sync python -m pytest -q
+node --test tests/test_*.mjs
 ```

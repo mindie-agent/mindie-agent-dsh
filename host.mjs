@@ -7,7 +7,8 @@
 // launcher changes. Existing sessions keep the loaded generation.
 // [Invariants] A missing/corrupt generation pointer falls back to the bundled
 // seed and never leaves the previous fiber unmounted.
-// [Timeouts & Locks] One 5s pointer poll; no network/model/child work.
+// [Timeouts & Locks] One 5s pointer poll; component calls allow 600s plus
+// cleanup inside the 660s MCP client deadline. No model calls.
 // [Side-Effect Policy] Reads `current.json`; mounts/disposes Cordis fibers and
 // writes only the launcher log. Remote MCP toolCallTimeoutMs is derived from
 // the 600000 ms native Bash maximum plus a 60000 ms SSH/cleanup grace, and is
@@ -49,6 +50,22 @@ export function remoteToolCallTimeoutMs(env = process.env) {
     + (Number.isFinite(grace) && grace > 0 ? grace : REMOTE_CALL_GRACE_MS)
   const requested = Number(env?.MINDIE_DSH_REMOTE_TOOL_CALL_TIMEOUT_MS)
   return Number.isFinite(requested) && requested > derived ? requested : derived
+}
+
+export function componentMcpConfig(binding, entry, agent) {
+  return {
+    serverName: 'mindie-tools', transport: 'stdio', command: binding.venvPython,
+    args: [path.join(path.dirname(entry), 'scripts', 'component_mcp.py')],
+    cwd: agent?.session?.header?.cwd || path.dirname(entry),
+    env: {
+      MINDIE_DSH_CONFIG: binding.configFile,
+      MINDIE_DSH_STATE_DIR: binding.stateDir,
+      MINDIE_DSH_SESSION_ID: agent.session.id,
+      MINDIE_DIAGNOSTICS_CONFIG: path.join(binding.configHome, 'diagnostics.json'),
+    },
+    toolCallTimeoutMs: NATIVE_TOOL_CALL_MAX_MS + REMOTE_CALL_GRACE_MS,
+    failOnStartupError: true,
+  }
 }
 
 function sessionStateDir(binding, sessionId) {
@@ -137,7 +154,16 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
           },
           toolCallTimeoutMs: remoteToolCallTimeoutMs(), failOnStartupError: true,
         })
-        mounted.set(sessionId, fiber)
+        let components
+        try {
+          components = await agent.ctx.plugin(remote, componentMcpConfig(binding, entry, agent))
+        } catch (error) {
+          await fiber?.dispose?.()
+          throw error
+        }
+        mounted.set(sessionId, { dispose: async () => {
+          try { await components?.dispose?.() } finally { await fiber?.dispose?.() }
+        } })
       }
       const detach = async (agent) => {
         const sessionId = agent?.session?.id
