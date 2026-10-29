@@ -214,6 +214,31 @@ def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
     return payload
 
 
+def prepare_bound_runtime() -> bool:
+    """Let a new candidate complete an old updater's core-only runtime once."""
+    global INSTALL_RUNTIME_DIR
+    config = mp.config_file()
+    if not config.is_file() or not json.loads(config.read_text()).get("component_commands"):
+        return False
+    # The old updater supplies 600s. The later probe/configuration/publication
+    # stages share 180s through run(), plus five seconds for this child's cleanup.
+    outer = min(575, RUN_DEADLINE - time.monotonic() - 185) if RUN_DEADLINE is not None else 575
+    if outer <= 5:
+        raise SetupError("setup has no remaining component preparation budget")
+    completed = run(
+        [str(runtime_python()), "-I", str(HERE / "component_update.py"),
+         str(mp.PACKAGE_DIR), str(runtime_python()), "--ensure-bound", "--timeout", str(outer - 5)],
+        timeout=outer,
+    )
+    if completed.returncode:
+        raise SetupError("bound component preparation failed: " + tail(completed.stderr))
+    artifact = json.loads(completed.stdout)
+    if artifact is None:
+        return False
+    INSTALL_RUNTIME_DIR = Path(artifact["python"]).parent.parent
+    return True
+
+
 def install_redactor(*, timeout: int = 300) -> str:
     progress("installing the deterministic transcript redactor")
     completed = run(
@@ -297,7 +322,7 @@ def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
         write_private(path, engine)
     if not activate:
         return dict(status='prepared')
-    outer = min(35, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 35
+    outer = min(50, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 50
     if outer <= 5:
         raise SetupError('setup has no remaining idle handoff and cleanup budget')
     completed = run([str(runtime_python()), str(HERE / 'install_binding.py')],
@@ -311,7 +336,10 @@ def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
     return result
 
 
-def report_setup_failure(error: Exception) -> None:
+def report_setup_failure(error: Exception, *, activation=None) -> None:
+    if activation is not None and activation.get("status") == "active":
+        print(json.dumps(dict(schema=SCHEMA, status="partial", activation=activation,
+                              error=str(error)), sort_keys=True))
     if not runtime_python().is_file():
         progress("diagnostic storage unavailable: runtime installation did not complete")
         return
@@ -343,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(mp.diagnostics_config())
     started = time.time()
+    publication = None
     try:
         check_host()
         INSTALL_RUNTIME_DIR = mp.data_home() / 'runtimes' / runtime_identity() / 'venv'
@@ -398,6 +427,8 @@ def main(argv: list[str] | None = None) -> int:
         if probe is None:
             sync_runtime(args.python, timeout=args.install_timeout)
             probe = probe_runtime()
+        if prepare_bound_runtime():
+            probe = probe_runtime()
         adapter = adapter_configuration()
         adapter["components"] = probe["versions"]
         redactor = install_redactor()
@@ -442,13 +473,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except SetupError as exc:
         progress("failed: " + str(exc))
-        report_setup_failure(exc)
+        report_setup_failure(exc, activation=publication)
         return 1
     except TimeoutError:
         raise
     except OSError as exc:
         progress("failed: " + f"{type(exc).__name__}: {exc}")
-        report_setup_failure(exc)
+        report_setup_failure(exc, activation=publication)
         return 1
 
 
