@@ -41,6 +41,8 @@ def adapter_config() -> dict[str, Any]:
         raise SidecarError("MindIE runtime is not initialized; run: " + mp.setup_command())
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise SidecarError(f"cannot read runtime configuration: {type(exc).__name__}: {exc}") from exc
     if not isinstance(data, dict):
@@ -85,6 +87,8 @@ def public_settings() -> dict[str, Any]:
     engine = engine_path()
     try:
         data = json.loads(Path(engine).read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise SidecarError(
             f"cannot read engine configuration {engine}: "
@@ -334,6 +338,8 @@ def _gh(*arguments: str) -> str:
         completed = subprocess.run(
             [executable, *arguments], capture_output=True, text=True, timeout=90, check=False
         )
+    except TimeoutError:
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         raise SidecarError(f"gh could not run: {type(exc).__name__}") from exc
     if completed.returncode != 0:
@@ -448,6 +454,8 @@ def connection(engine: str | None = None):
 def _require_distill_runtime() -> None:
     try:
         from mindie_knowledge.graded import distill
+    except TimeoutError:
+        raise
     except Exception as exc:
         raise SidecarError(
             "the installed knowledge runtime has no C6 distillation support; update the paired runtime"
@@ -600,6 +608,8 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
             raise SidecarError(
                 "this task is not activated; invoke /mindie-agent first"
             ) from exc
+        except TimeoutError:
+            raise
         except Exception as exc:
             raise SidecarError(
                 f"admission check failed: {type(exc).__name__}: {exc}. "

@@ -74,6 +74,8 @@ def _selector():
 def _declared_domain(path: Path) -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise DomainRoutingError(f"cannot read the default engine configuration: {path}") from exc
     domain = data.get("domain") if isinstance(data, dict) else None
@@ -125,6 +127,8 @@ def target_lease(
     path = Path(engine_config_path)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise DomainRoutingError(f"cannot read the selected engine configuration: {path}") from exc
     admission_path = data.get("admission_path") if isinstance(data, dict) else None
@@ -137,6 +141,8 @@ def target_lease(
         from mindie_knowledge.loop.activation import Admission
 
         lease = Admission(admission_path).knowledge_lease(session)
+    except TimeoutError:
+        raise
     except Exception as exc:  # noqa: BLE001 - report an unusable target lease store
         raise DomainRoutingError(
             f"cannot read the selected domain lease: {type(exc).__name__}: {exc}"

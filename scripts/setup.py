@@ -116,6 +116,8 @@ def run(
         raise SetupError(f"command exceeded {timeout}s: {' '.join(argv)}") from exc
     except subprocess.SubprocessError as exc:
         raise SetupError(f"command tree cleanup failed: {exc}") from exc
+    except TimeoutError:
+        raise
     except OSError as exc:
         raise SetupError(f"could not run {argv[0]}: {exc}") from exc
 

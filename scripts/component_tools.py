@@ -24,18 +24,30 @@ CAPTURE_LIMIT_BYTES = 1024 * 1024
 
 DESCRIPTIONS = {
     "profiler": (
-        "Inspect and analyze Ascend profiling captures with mindie-profiler. "
-        "Pass CLI argv, e.g. ['inventory', '--root', '/capture'] or "
-        "['analyze', '--root', '/capture', '--full-range']. Supports correlate, "
-        "compare and sql; use ['--help'] for the installed parser. "
-        "Use --output for large reports. Device capture requires an appropriate NPU lease."
+        "Inspect and analyze Ascend profiling captures using mindie-profiler. "
+        "Pass CLI arguments as an argv array, e.g. ['inventory', '--root', '/capture'] "
+        "or ['analyze', '--root', '/capture', '--full-range']. Commands: inventory, analyze, correlate, "
+        "compare and sql. ['-h'] or ['--help'] enumerates the installed commands "
+        "and a subcommand's --help documents its options; an unknown first "
+        "non-option word exits 2 listing the valid choices, and legacy "
+        "option-first analyze arguments are still accepted. Use --output for "
+        "large reports. Offline parsing needs no NPU lease; device capture still "
+        "requires one. Profiler exports need explicit identity and boundary "
+        "mapping before sim consumption; they are not automatically a sim Case "
+        "or calibration input."
     ),
     "sim": (
-        "Calculate operators, graphs/models and serving constraints from explicit "
-        "input files with mindie-sim. Pass CLI argv; use ['--help'] and the "
-        "installed subcommand's --help for its parser. Partial studies "
-        "keep their report and nonzero exit. Predictions are not measured accuracy. "
-        "Check CPU/RAM needs and use remote-dev when local resources are insufficient."
+        "Model hardware-neutral operators, pure graphs/models and serving constraints "
+        "using mindie-sim and explicit input files. Pass CLI arguments as an argv "
+        "array, e.g. ['graph', '/case.json', '--phase', 'prefill', '--tokens', '32', "
+        "'--scope', 'model', '--output', '/report.json']. Use ['--help'] for the "
+        "installed parser; operators, graph and predict have distinct boundaries. "
+        "Study enumerates declared candidates; accuracy compares independent "
+        "matched observations. A partial study keeps its report with a nonzero exit. "
+        "Output-file calls may have empty stdout; the exit code and stderr remain "
+        "available. Predictions do not establish measured hardware accuracy. "
+        "Check CPU/RAM needs before large runs and use remote-dev "
+        "on a suitable host when local resources are insufficient."
     ),
     "coordinator": (
         "Manage host inventory, probe CPU/RAM/NPU capacity and acquire, inspect or "
