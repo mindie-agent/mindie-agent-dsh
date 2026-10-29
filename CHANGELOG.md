@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.8 — 2026-10-29
+
+- Make knowledge loading depend on missing task information, permitting direct
+  local fixes without mandatory query/explain calls after manual entry.
+- Pair with `mindie-knowledge 0.13.6` for bounded prerequisite-closure loading
+  and shared standard component command discovery.
+- Preserve external standard component version floors during native updates,
+  rebind managed commands after idle activation, and retain custom wrappers.
+- Complete core-only preparation from older updaters before activating an
+  optional-component binding; retain concurrent binding and active-session
+  protections.
+- Keep the installed-profile timer and native reload boundary explicit. The
+  development pilot's complex-task non-regression gate did not pass; this
+  release does not claim a general agent cost improvement.
+
 ## 0.1.4 — 2026-10-25
 
 - Pin remote-dev `0.10.7` (`4c40cb5d302ddb8400ff6abb7dc47873b931eaa9`) and
