@@ -94,6 +94,8 @@ def update_config() -> dict:
     else:
         try:
             value = json.loads(config_path().read_text(encoding="utf-8"))
+        except TimeoutError:
+            raise
         except (OSError, ValueError) as exc:
             raise UpdateError(
                 f"update configuration is unreadable: {type(exc).__name__}"
@@ -125,7 +127,9 @@ def fetch_releases(api: str) -> list:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             raw = response.read(4 * 1024 * 1024 + 1)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except TimeoutError:
+        raise
+    except (urllib.error.URLError, OSError) as exc:
         raise UpdateError(f"release lookup failed: {type(exc).__name__}") from exc
     if len(raw) > 4 * 1024 * 1024:
         raise UpdateError("release lookup exceeds the limit")
@@ -175,7 +179,9 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
                 if total > limit:
                     raise UpdateError("release asset exceeds the limit")
                 stream.write(chunk)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except TimeoutError:
+        raise
+    except (urllib.error.URLError, OSError) as exc:
         raise UpdateError(f"release asset download failed: {type(exc).__name__}") from exc
 
 
@@ -200,6 +206,8 @@ def extract(asset: Path, destination: Path) -> Path:
                 if member.name.startswith("/") or ".." in Path(member.name).parts:
                     raise UpdateError("release archive contains an unsafe path")
             archive.extractall(destination)
+    except TimeoutError:
+        raise
     except (OSError, tarfile.TarError) as exc:
         raise UpdateError(f"release archive could not be extracted: {type(exc).__name__}") from exc
     package = destination / "package"
@@ -290,6 +298,8 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         package = extract(asset, generation)
         try:
             manifest = json.loads((package / "package.json").read_text(encoding="utf-8"))
+        except TimeoutError:
+            raise
         except (OSError, ValueError) as exc:
             raise UpdateError("candidate package.json is invalid") from exc
         if manifest.get("version") != tag.lstrip("v"):

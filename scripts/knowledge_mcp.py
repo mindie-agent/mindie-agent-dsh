@@ -238,6 +238,8 @@ def read_config() -> dict[str, Any]:
         raise ConfigError("MindIE runtime is not initialized; run: " + setup_command())
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise ConfigError(
             f"cannot read the MindIE runtime configuration at {path}: {type(exc).__name__}: {exc}. Re-run: {setup_command()}"
@@ -299,6 +301,8 @@ def knowledge_connection(config: dict[str, Any], engine_path: str | None = None)
     selected = str(Path(engine_path or config["engine_config"]).resolve())
     try:
         return ensure_service(selected)
+    except TimeoutError:
+        raise
     except Exception as exc:
         raise RuntimeError(
             "the local knowledge service could not be started: "
@@ -437,6 +441,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         _distill_arguments(args)
         try:
             from mindie_knowledge.graded import distill
+        except TimeoutError:
+            raise
         except Exception as exc:
             raise RuntimeError(
                 "the installed knowledge runtime has no C6 distillation support; update the paired runtime"

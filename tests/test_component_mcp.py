@@ -61,7 +61,7 @@ def test_real_profiler_inventory_and_cli_error(installed, tmp_path):
     assert "unknown command 'does-not-exist'" in error["structuredContent"]["stderr"]
 
 
-def test_real_sim_help_and_missing_case(installed, tmp_path, monkeypatch):
+def test_real_sim_help_and_invalid_command(installed, tmp_path, monkeypatch):
     shadow = tmp_path / "ambient" / "mindie_sim"
     shadow.mkdir(parents=True)
     (shadow / "__init__.py").write_text("raise RuntimeError('ambient source shadowed installed runtime')\n")
@@ -69,11 +69,10 @@ def test_real_sim_help_and_missing_case(installed, tmp_path, monkeypatch):
     help_result = call("sim", {"argv": ["--help"]})
     assert not help_result["isError"], help_result
     assert "predict" in help_result["structuredContent"]["stdout"]
-    missing = call("sim", {"argv": ["predict", "--input", str(tmp_path / "absent.json")]})
+    missing = call("sim", {"argv": ["invalid-component-operation"]})
     assert missing["isError"]
-    assert missing["structuredContent"]["exit_code"] == 1
-    assert "absent.json" in missing["structuredContent"]["result"]["reason"]
-    assert missing["structuredContent"]["result"]["status"] == "error"
+    assert missing["structuredContent"]["exit_code"] == 2
+    assert "invalid-component-operation" in missing["structuredContent"]["stderr"]
 
 
 def test_runtime_scripts_directory_precedes_path(installed, tmp_path, monkeypatch):
@@ -89,19 +88,19 @@ def test_runtime_scripts_directory_precedes_path(installed, tmp_path, monkeypatc
         return executable if path == scripts_dir else None
 
     monkeypatch.setattr(component_tools.shutil, "which", which)
-    result = call("sim", {"argv": ["hardware", "--soc", "Ascend910B"]})
+    result = call("sim", {"argv": ["--help"]})
     assert not result["isError"], result
-    assert result["structuredContent"]["result"]["command"] == "hardware"
+    assert "predict" in result["structuredContent"]["stdout"]
     assert lookups == [python_dir, scripts_dir]
 
 
-def test_real_sim_relative_output_uses_explicit_workdir(installed, tmp_path):
+def test_real_profiler_relative_output_uses_explicit_workdir(installed, tmp_path):
     workdir = tmp_path / "workspace"
     workdir.mkdir()
-    result = call("sim", {"argv": ["hardware", "--soc", "Ascend910B", "--output", "result.json"],
+    result = call("profiler", {"argv": ["inventory", "--root", str(ROOT / "tests/fixtures/profiler/rank_0"), "--output", "result.json"],
                           "cwd": str(workdir)})
     assert not result["isError"], result
-    assert json.loads((workdir / "result.json").read_text())["command"] == "hardware"
+    assert json.loads((workdir / "result.json").read_text())["rank_count"] == 1
     assert not (tmp_path / "result.json").exists()
 
 
@@ -211,3 +210,110 @@ def test_launcher_registers_and_calls_through_native_dsh_mcp_client(installed, t
     value = json.loads(result.stdout)
     assert value["rank_count"] == 1
     assert value["status"] == "configured"
+
+
+@pytest.fixture
+def sim_gate(installed):
+    # The new model contract may be tested before its independent release;
+    # an explicit installed interpreter never replaces the plugin runtime.
+    runtime = os.environ.get("MINDIE_SIM_CONTRACT_PYTHON")
+    if runtime is None:
+        import importlib.metadata
+        from packaging.version import Version
+        if Version(importlib.metadata.version("mindie-sim")) < Version("0.8.0"):
+            pytest.skip("new sim contract requires MINDIE_SIM_CONTRACT_PYTHON (sim >= 0.8)")
+        runtime = sys.executable
+    value = json.loads(installed.read_text())
+    value.setdefault("component_commands", {})["sim"] = [runtime, "-I", "-m", "mindie_sim"]
+    installed.write_text(json.dumps(value))
+    return call
+
+
+@pytest.fixture
+def sim_case(tmp_path):
+    path = tmp_path / "case.json"
+    path.write_text(json.dumps({
+        "machine": {
+            "name": "synthetic-cli-control", "num_devices": 1,
+            "device": {"memory_bytes": 1024**3, "compute_units": 4,
+                       "compute_peaks": {"bf16": 16e9, "fp32": 8e9},
+                       "rates": {"memory": 8e9, "vector": 4e9}},
+        },
+        "model": {"name": "control", "layers": 1, "hidden_size": 32,
+                  "num_heads": 4, "num_kv_heads": 2, "head_dim": 8,
+                  "intermediate_size": 64, "vocab_size": 128},
+        "workload": {"requests": [{"id": "r", "prompt_tokens": 4, "output_tokens": 2}]},
+        "runtime": {"max_num_batched_tokens": 8, "max_model_len": 128, "graph_mode": "none"},
+    }))
+    return path
+
+
+def test_sim_installed_cli_keeps_operator_graph_and_serving_boundaries(sim_gate, sim_case, tmp_path):
+    operators = sim_gate("sim", {"argv": [
+        "operators", str(sim_case), "--phase", "prefill", "--tokens", "4", "--scope", "model",
+    ]})
+    assert not operators["isError"], operators
+    isolated = operators["structuredContent"]["result"]
+    assert isolated["boundary"] == "sum_of_isolated_device_programs"
+    graph_path = tmp_path / "graph.json"
+    graph = sim_gate("sim", {"argv": [
+        "graph", str(sim_case), "--phase", "prefill", "--tokens", "4",
+        "--scope", "model", "--output", str(graph_path),
+    ]})
+    assert not graph["isError"], graph
+    assert graph["structuredContent"]["stdout"] == ""
+    result = json.loads(graph_path.read_text())
+    assert result["boundary"] == "device_graph"
+    assert result["operator_occurrences"] == isolated["operator_occurrences"]
+    assert result["isolated"]["operator_sum_ms"] == pytest.approx(isolated["operator_sum_ms"])
+    prediction_path = tmp_path / "prediction.json"
+    serving = sim_gate("sim", {"argv": [
+        "predict", str(sim_case), "--output", str(prediction_path),
+    ]})
+    assert not serving["isError"], serving
+    prediction = json.loads(prediction_path.read_text())
+    assert prediction["metric_boundary"] == "device_token_commit"
+    assert prediction["requests"][0]["generated_tokens"] == 2
+
+
+def test_sim_preserves_real_cli_error_and_exit_status(sim_gate, tmp_path):
+    bad = sim_gate("sim", {"argv": [
+        "graph", str(tmp_path / "absent.json"), "--phase", "prefill", "--tokens", "4",
+    ]})
+    assert bad["isError"]
+    value = bad["structuredContent"]
+    assert value["exit_code"] == 2
+    assert value["stdout"] == ""
+    error = json.loads(value["stderr"])
+    assert error["status"] == "failed"
+    assert str(tmp_path / "absent.json") in error["error"]
+
+
+def test_sim_partial_study_keeps_success_and_failure_in_the_nonzero_cli_result(
+    sim_gate, sim_case, tmp_path,
+):
+    manifest = tmp_path / "study.json"
+    manifest.write_text(json.dumps({
+        "candidates": [
+            {"id": "ordinary", "case": sim_case.name},
+            {"id": "unavailable", "case": sim_case.name, "overrides": {
+                "runtime": {"kernels": {"lowerings": {
+                    "gqa_attention": "unavailable_source_implementation",
+                }}},
+            }},
+        ],
+        "probes": [{"id": "prefill", "phase": "prefill", "tokens": 4}],
+    }))
+    response = sim_gate("sim", {"argv": ["study", str(manifest)]})
+    assert response["isError"]
+    value = response["structuredContent"]
+    assert value["exit_code"] == 2
+    report = value["result"]
+    assert report["status"] == "partial"
+    evaluations = {row["candidate"]: row for row in report["evaluations"]}
+    assert evaluations["ordinary"]["status"] == "modeled"
+    assert evaluations["ordinary"]["operators"]["operator_sum_ms"] > 0
+    assert evaluations["unavailable"]["status"] == "failed"
+    assert "unavailable_source_implementation" in evaluations["unavailable"]["error"]
+    assert {row["candidate"] for ranking in report["rankings"]
+            for row in ranking["candidates"]} == {"ordinary"}

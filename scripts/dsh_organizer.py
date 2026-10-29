@@ -46,6 +46,8 @@ def endpoint() -> dict:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ConfigurationError("the DSH summary endpoint is not running") from exc
+    except TimeoutError:
+        raise
     except (OSError, ValueError) as exc:
         raise ConfigurationError("the DSH summary endpoint file is unreadable") from exc
     if not isinstance(value, dict):
