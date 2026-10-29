@@ -19,6 +19,9 @@ import time
 import mindie_paths as paths
 
 
+CAPTURE_LIMIT_BYTES = 1024 * 1024
+
+
 DESCRIPTIONS = {
     "profiler": (
         "Inspect and analyze Ascend profiling captures with mindie-profiler. "
@@ -132,7 +135,8 @@ def run(command_argv, *, timeout, max_output, cancel, cwd=None):
                 if time.monotonic() >= deadline:
                     status = "timeout"
                     break
-                if os.fstat(stdout.fileno()).st_size + os.fstat(stderr.fileno()).st_size > max_output:
+                # A presentation budget truncates the reply, not the CLI's business outcome.
+                if os.fstat(stdout.fileno()).st_size + os.fstat(stderr.fileno()).st_size > CAPTURE_LIMIT_BYTES:
                     status = "output_limit"
                     break
                 try:

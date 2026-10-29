@@ -122,14 +122,32 @@ def test_real_coordinator_inventory_and_local_diagnostics(installed, tmp_path):
 def test_completed_large_output_keeps_cli_failure_and_both_streams(installed):
     value = json.loads(installed.read_text())
     value["component_commands"] = {"sim": [sys.executable, "-c",
-        "import sys; print('x'*10000); print('business failure',file=sys.stderr); sys.exit(3)"]}
+        "import sys,time; print('x'*10000,flush=True); time.sleep(0.15); "
+        "print('business failure',file=sys.stderr); sys.exit(3)"]}
     installed.write_text(json.dumps(value))
     result = call("sim", {"argv": [], "max_output_tokens": 256})
     assert result["isError"]
+    assert result["structuredContent"]["status"] == "completed"
     assert result["structuredContent"]["exit_code"] == 3
     assert "business failure" in result["structuredContent"]["stderr"]
     assert result["structuredContent"]["output_truncated"]
     assert len(result["structuredContent"]["stdout"]) + len(result["structuredContent"]["stderr"]) <= 1024
+
+
+def test_running_cli_stops_at_capture_limit(installed):
+    value = json.loads(installed.read_text())
+    value["component_commands"] = {"sim": [sys.executable, "-c",
+        "import sys,time; sys.stdout.write('x'*(2*1024*1024)); "
+        "sys.stdout.flush(); time.sleep(30)"]}
+    installed.write_text(json.dumps(value))
+    result = call("sim", {"argv": [], "max_output_tokens": 256, "timeout_ms": 2000})
+    assert result["isError"]
+    result = result["structuredContent"]
+    assert result["status"] == "output_limit"
+    assert result["exit_code"] is not None
+    assert result["output_truncated"]
+    assert not result["automatic_retry"]
+    assert len(result["stdout"]) + len(result["stderr"]) <= 1024
 
 
 def test_stdio_cancel_interrupts_owned_process_and_allows_next_call(installed, tmp_path):
