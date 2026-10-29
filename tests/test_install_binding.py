@@ -3,6 +3,7 @@ from contextlib import closing
 import json
 from pathlib import Path
 import sys
+import subprocess
 import threading
 import time
 
@@ -77,11 +78,35 @@ def test_failed_pointer_publication_restores_old_owner_admission(tmp_path, monke
     assert lifecycle.inspect_retirement(previous['engine_config']) is None
 
 
-def test_changed_profile_defers_before_retiring_current_owner(tmp_path):
+@pytest.mark.parametrize("field", ["domain_configs", "component_commands"])
+def test_changed_profile_defers_before_retiring_current_owner(tmp_path, field):
     path, previous, candidate, _ = bindings(tmp_path)
-    changed = {**previous, 'domain_configs': {**previous['domain_configs'], 'custom': '/custom.engine.json'}}
+    value = ({**previous['domain_configs'], 'custom': '/custom.engine.json'} if field == "domain_configs"
+             else {"profiler": ["/user/custom-profiler", "--mode"]})
+    changed = {**previous, field: value}
     path.write_text(json.dumps(changed))
     result = install_binding.activate(path, previous, candidate, timeout=3)
     assert result == dict(status='deferred', reason='installation_changed')
     assert json.loads(path.read_text()) == changed
     assert lifecycle.inspect_retirement(previous['engine_config']) is None
+
+
+def test_standard_component_binding_moves_with_the_idle_runtime(tmp_path):
+    import component_tools
+
+    path, previous, candidate, _ = bindings(tmp_path)
+    previous["component_commands"] = {
+        "profiler": [sys.executable, "-m", "mindie_profiler"],
+        "sim": ["/user/custom-simulator", "--mode"],
+    }
+    candidate["python"] = sys.executable
+    path.write_text(json.dumps(previous))
+    result = install_binding.activate(path, previous, candidate, timeout=5)
+    assert result["status"] == "active"
+    active = json.loads(path.read_text())
+    assert active["component_commands"]["sim"] == previous["component_commands"]["sim"]
+    command = component_tools.command(active, "profiler")
+    assert command == [sys.executable, "-I", "-X", "utf8", "-m", "mindie_profiler"]
+    executed = subprocess.run(command + ["--help"], capture_output=True, text=True, timeout=5)
+    assert executed.returncode == 0, executed.stderr
+    assert "inventory" in executed.stdout

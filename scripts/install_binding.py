@@ -9,6 +9,7 @@ the native adapter JSON. Never changes consent or invokes models/publication.
 from __future__ import annotations
 
 import json
+from importlib.metadata import version
 from pathlib import Path
 import sys
 import time
@@ -18,9 +19,15 @@ from mindie_knowledge.loop.locks import StartLock
 from mindie_knowledge.markdown import _atomic_write_text
 
 
-def activate(path, previous, candidate, *, timeout=30):
+def activate(path, previous, candidate, *, timeout=45):
     path = Path(path)
     deadline = time.monotonic() + timeout
+    from mindie_knowledge.component_bindings import managed_commands, rebind_commands, validate_command_floor
+    if previous.get("component_commands"):
+        components = {name: {"version": version(name)}
+                      for name, _python, _module in managed_commands(previous).values()}
+        validate_command_floor(previous, components, timeout=min(15, max(0, deadline - time.monotonic())))
+        candidate = dict(candidate, component_commands=rebind_commands(previous, candidate["python"], components))
     lock = StartLock(path.with_name(path.name + '.setup.lock'))
     lock.acquire(wait=max(0, deadline - time.monotonic()))
     try:

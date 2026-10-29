@@ -22,6 +22,26 @@ Remote and component tools remain available in every session without `/mindie-ag
 - `remote-dev` MCP tools (`mcp__remote-dev__remote_*` for remote file read/write, command execution, and background job management) and read-only status checks (`mindie_entry(op="status" | "reporting-status")` and `mcp__mindie-tools__mindie_status`).
 - `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `profiler`, `sim`, and `coordinator` (which run the optional `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
 
+## Retrieve for a missing decision
+
+The explicit entry initializes this DSH task; it does not prescribe a
+`knowledge_query` call or a `reuse` reading phase before work.
+
+- Inspect the implicated code and necessary callers. If they explain the
+  violated invariant and support a verifiable fix, proceed with zero knowledge
+  calls. A filename or stack frame alone does not establish the cause.
+- Obtain missing environment or execution facts with the smallest relevant
+  probe. Use native knowledge tools when a missing contract, mechanism or
+  method could change the next action; conditions must be observed facts.
+- Reuse complete rules still visible. An exact ref returned earlier can go
+  straight to `knowledge_explain`: use `refs` even for one graded unit, observed
+  `conditions`, visible `known_refs` and an explicit `token_budget`. Copy the
+  revision URI exactly; use a focused query only to discover a missing ref.
+- Stop reading when the next action and its required premises are clear. New
+  evidence or failed verification can reopen retrieval. Retain correctness,
+  NPU lease and acceptance checks. Skipping a read needs no feedback call and
+  leaves this task's activation and authorized Stop capture unchanged.
+
 ## Setup on demand
 
 - **Installation, first-use GitHub authentication, enterprise-network token login or authentication repair**: read [GitHub Sign-In](references/github-authentication.md). Reuse a working login; otherwise guide browser login or token creation/input and verify credential reuse.
@@ -74,9 +94,9 @@ Remote and component tools remain available in every session without `/mindie-ag
 
 ## Knowledge tools
 
-Use the two-step progressive flow: discover with bounded navigation, then load
-only the selected body closure. These fields are additive; omitting them keeps
-the previous single-query/single-ref/`rating` behavior.
+Use discovery only for a missing reference, and load only the body closure
+needed for the current decision. Existing exact references can be read directly.
+Single `ref` reads retain legacy task/block navigation.
 
 - `knowledge_query` — one concise bilingual query (when the user's request is in
   Chinese or mixed Chinese-English, always include canonical English technical
@@ -85,21 +105,21 @@ the previous single-query/single-ref/`rating` behavior.
   (selecting the default domain or a registered `domain_configs` Engine/Feed
   such as `"vllm-ascend"` or `"operators"`), `conditions`, `continuation`,
   `domain_path`, `token_budget`, `include_unknown`, and `include_archived`.
-  During initial discovery (before all declared condition keys are known), pass
-  `include_unknown=true` (for example with `navigation_only=true` and
-  `token_budget=3000`) so `cards` and `foundation_cards` return
-  `condition_unknown` candidates and their `missing_conditions`; read the cards
-  first instead of expanding every body. `include_archived` defaults to `false`
+  When discovery needs to expose unknown applicability conditions, use
+  `include_unknown=true` and `navigation_only=true` within the chosen
+  `token_budget`. Inspect `missing_conditions` and probe the relevant missing
+  facts before adopting a candidate; do not expand every body. `include_archived` defaults to `false`
   so archived/superseded units stay out of ordinary discovery; use `true` only
   to investigate an old or replaced conclusion. Supports `mode` (`"reuse"`
   default, `"diagnose"`, or `"explore"` for RSI mode), `goal`,
   `bottleneck_summary`, `ledger_entries`, and `native_subcontext`.
-- `knowledge_explain` — the second step. Pass one actual returned single-line
-  `ref` (`mindie://<domain>/units/<id>@<revision>`, a positive integer revision)
-  or `unit_ref` for a compatible single read, or pass `refs=[...]` with
-  `token_budget=12000` (and optional `conditions`, `known_refs`, `mode`, `goal`,
-  `bottleneck_summary`, `ledger_entries`, `native_subcontext`) to assemble a
-  batch dependency closure (`units` + `requires`). Shared prerequisites appear
+- `knowledge_explain` — read only rules needed for the next action. Copy actual
+  returned revision references (`mindie://<domain>/units/<id>@<revision>`, a
+  positive integer revision) into `refs=[...]`, even for one graded unit, with
+  observed `conditions`, visible `known_refs` and an explicit `token_budget`.
+  Optional `mode`, `goal`, `bottleneck_summary`, `ledger_entries` and
+  `native_subcontext` retain their existing behavior. This assembles the
+  dependency closure (`units` + `requires`). Shared prerequisites appear
   once, complete bodies are never truncated, and `unresolved` distinguishes
   `condition_unknown`, `condition_mismatch`, `budget_excluded`,
   `removed_or_superseded` (with `superseded_by`), and `not_found`. `known_refs`
@@ -181,7 +201,7 @@ Knowledge tiers (L1 constraints/measurements, L2 procedures, L3 decision branche
 L4 transformations), evidence strength and the current work mode are independent.
 Hermes is experience revision across tiers; exploration does not require an L4 result.
 
-- **Apply complete, relevant knowledge (`mode="reuse"`)**: begin in default `mode="reuse"` by querying the matching domain (`domain="vllm-ascend"` for model/serving tasks or `domain="operators"` for AscendC/Triton/operator kernel tasks) with observed conditions, then call `knowledge_explain` to read the selected `L1`/`L2`/`L3` bodies and their prerequisites. Unknown conditions need verification. Use `L3` workflow branches to choose the initial action.
+- **Apply relevant knowledge when needed (`mode="reuse"`)**: follow the missing-decision policy above. Select the matching domain and read complete selected rules with observed conditions and required premises. Probe unknown facts and choose `L3` branches from current observations; `reuse` is the retrieval mode, not a requirement to retrieve before acting.
 - **Transition from partial `L3` experience to RSI exploration (`mode="explore"`)**: when a baseline probe, prior attempt log, or initial `L3` workflow attempt shows that standard `L3` heuristics only partially solve the problem or stall below the target speedup/latency/accuracy due to a structural bottleneck (such as per-layer GM materialization round-trips, `.contiguous()` view clones, host `.item()`/`.cpu()` D2H syncs, unmerged multi-dimensional loops, or unfused BF16→FP32 cast stores), **explicitly switch to RSI mode** by calling `knowledge_query` (and/or `knowledge_explain` on the target `L4` mutator `ref`) with:
   - `mode="explore"`,
   - `goal="<concise optimization or structural code-transformation goal>"`,

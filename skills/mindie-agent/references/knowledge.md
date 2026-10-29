@@ -41,6 +41,8 @@ and calls that omit these fields keep their previous shape.
   while preserving `changed` and per-domain outcomes (`domains[]`), keeping
   partial failure and already-revoked side effects distinct.
 
+Knowledge loading follows the [entry decision policy](../SKILL.md#retrieve-for-a-missing-decision). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
+
 ## Query (`knowledge_query`)
 
 - `query` is a concise engineering phrase, not a full prompt.
@@ -111,17 +113,17 @@ and calls that omit these fields keep their previous shape.
 
 ## Explain (`knowledge_explain`)
 
-This is the second step of progressive loading: use the cards from
-`knowledge_query`, then load only the selected body closure.
+Load only the body closure needed for the current decision. A known exact
+reference does not require a new `knowledge_query`.
 
 - Pass the actual returned `ref` (`mindie://<domain>/units/<id>@<revision>`,
-  a positive integer revision) or `unit_ref` for a graded unit, or a task/block
+  a positive integer revision) in `refs` for a graded unit, or a task/block
   `ref` for legacy material—routed by the `mindie://<domain>/...` URI authority;
   **never** pass a bare `id` or rewrite the returned revision URI. A single
-  `ref` keeps the historical response contract and top-level compatibility
-  fields.
-- Pass `refs=[...]` (with optional `conditions`, `known_refs`, and
-  `token_budget` 1–16000) for a batch closure. The service computes
+  graded `ref` uses the same complete-body dependency closure and final-response
+  token budget as `refs`; its top-level compatibility fields require a delivered body.
+- Pass `refs=[...]`, including for one unit, with observed `conditions`,
+  visible `known_refs`, and explicit `token_budget` 1–16000 for a graded closure. The service computes
   `needed = closure(S) - visible_complete_refs`, emits shared prerequisites once
   in dependency order, and never truncates a complete body to fit the budget.
   `unresolved[]` distinguishes `condition_unknown`, `condition_mismatch`,
@@ -137,9 +139,12 @@ This is the second step of progressive loading: use the cards from
   ancestor; a unit with a missing/unknown premise or a mismatch is not
   `ready_to_apply`. Conflicting `mindie://` domain authorities across `refs`
   are rejected, and routing uses `ref` or the first `refs` item.
-- **Graded unit (`kind: "graded_unit"`)**: a single read returns `ref`,
+- **Graded unit (`kind: "graded_unit"`)**: only when a single read delivers the
+  requested unit does it add `kind: "graded_unit"`, `ref`,
   `unit_ref`, `feedback_ref` (equal to `ref`), `id`, `revision`, `frontmatter`,
-  `content`, and `inherits_from_closure`. A batch read returns `units[]`,
+  `content`, and `inherits_from_closure`. If no body is delivered, inspect
+  `unresolved` and the supplied `known_refs`; exact bodies already visible are
+  not resent. A batch read returns `units[]`,
   `requires[]`, `unresolved[]`, and `usage` metadata. Record `id`
   (`unit_id`) and integer `revision` when citing a unit in `PROGRESS.md` or
   `experiment-ledger.jsonl`.
