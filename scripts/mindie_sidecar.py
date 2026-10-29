@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[Role] Long-lived JSON-line sidecar serving DSH Host-plugin entry, admission, and knowledge RPCs.
 [Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs. Optional target activation uses the shared domain helper and never replaces the default host token.
-[Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; target activation reuses Admission's 5s write budget; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
+[Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s plus 5s process cleanup, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; target activation reuses Admission's 5s write budget; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
 [Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations.
 """
 
@@ -22,9 +22,9 @@ import mindie_paths as mp  # noqa: E402
 import dsh_diagnostics as diagnostics  # noqa: E402
 import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
+from knowledge_sync import sync_feeds  # noqa: E402
 
 MAX_LINE = 256 * 1024
-ADAPTER_VERSION = "0.1.2"
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
 DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
 DISTILL_INPUT_OPTIONAL = {"repetitions"}
@@ -629,11 +629,12 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_sync(args: dict[str, Any]) -> dict[str, Any]:
-    from mindie_knowledge.loop.transport import rpc
-
-    manual_lease(args.get("session"), args.get("token"))
-
-    return {"feeds": rpc(connection(), "sync", {}, timeout=120.0)}
+    session = args.get("session")
+    manual_lease(session, args.get("token"))
+    route = _route({"domain": args.get("domain")})
+    if route.cross_domain:
+        routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+    return sync_feeds(adapter_config()["python"], route.selected_path)
 
 
 OPS = {

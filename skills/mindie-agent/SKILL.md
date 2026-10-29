@@ -11,15 +11,16 @@ You are in the MindIE Agent mode for the current task. Work inside the user's
 native DSH session; do not create a parallel workflow or require a special
 session mode.
 
-Query, explain, feedback, distillation, sync and background Stop capture all
-require the user's explicit `/mindie-agent` entry in this task. Topic matching,
-installation and saved contribution consent never activate knowledge. New chats,
-forks and subagents need their own entry.
+`knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_distill`,
+`knowledge_sync`, and background `Stop` capture all require the user's explicit
+`/mindie-agent` entry in this session. Topic matching, plugin installation, and
+saved contribution consent never activate knowledge on their own. New chats,
+forked sessions, and subagents each require their own manual entry.
 
-Configured deterministic tools (resource probes/leases, monitoring, profiling,
-simulation calculations, local diagnostics and factual status checks) remain
-available independently of this entry. Their normal interfaces do not require
-loading knowledge or experience context.
+Remote and component tools remain available in every session without `/mindie-agent`:
+
+- `remote-dev` MCP tools (`mcp__remote-dev__remote_*` for remote file read/write, command execution, and background job management) and read-only status checks (`mindie_entry(op="status" | "reporting-status")` and `mcp__mindie-tools__mindie_status`).
+- `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `profiler`, `sim`, and `coordinator` (which run the optional `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
 
 ## Setup on demand
 
