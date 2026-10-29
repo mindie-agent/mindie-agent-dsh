@@ -52,7 +52,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "knowledge_query",
         "description": (
-            "Search the local MindIE Ascend knowledge corpus (vLLM-Ascend, "
+            "Use when a missing contract, mechanism or method could change the next action. "
+            "Skip retrieval when code and current evidence support a fix and verification; "
+            "probe missing environment facts first. Search the local MindIE Ascend knowledge corpus (vLLM-Ascend, "
             "AscendC/Triton, testing and tuning experience). "
             + GATED
             + " Returns graded rules or task citation groups, each with a readable ref and observed feedback_ref, "
@@ -93,8 +95,11 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "knowledge_explain",
         "description": (
-            "Read one knowledge reference or assemble a batch of graded units. Pass a single `ref` for the "
-            "compatible graded-unit, task or block read, or pass `refs` to compute the shared dependency "
+            "Read only knowledge needed for the next action; an exact returned ref needs no new query. "
+            "For graded units, prefer `refs` even for one unit, with observed `conditions`, fully visible "
+            "`known_refs` and an explicit `token_budget`. Copy revision references exactly. Stop reading "
+            "once the next action and required premises are clear; new evidence can reopen retrieval. "
+            "Single `ref` reads preserve legacy task/block navigation. `refs` computes the shared dependency "
             "closure once: complete unit bodies are never truncated, shared prerequisites appear once, "
             "`known_refs` names complete `id@revision` units still visible after compaction, and "
             "`token_budget` (1-16000) bounds the whole response. `conditions` evaluates applicability and "
