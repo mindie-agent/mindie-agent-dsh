@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.9 — 2026-10-29
+
+- Separate the component reply budget from the fixed 1 MiB execution-output
+  limit. A small `max_output_tokens` now truncates the returned text without
+  killing a CLI before its real exit code and stderr are available.
+- Retain bounded capture, cancellation and timeout cleanup. A running command
+  that exceeds the execution-output limit returns `output_limit` explicitly.
+- Carry the `0.1.8` runtime pins and routing/update changes forward. Its tagged
+  release gate exposed this output race before publication; the existing tag
+  and failure evidence remain unchanged.
+
 ## 0.1.8 — 2026-10-29
 
 - Make knowledge loading depend on missing task information, permitting direct
