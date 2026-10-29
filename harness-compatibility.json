@@ -2,15 +2,15 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.5",
+  "plugin_version": "0.1.6",
   "runtime_components": {
     "mindie-knowledge": {
       "version": "0.13.3",
       "commit": "38a42f6f778cfa555d8918fdcacd12cee4a181f5"
     },
     "remote-dev": {
-      "version": "0.10.8",
-      "commit": "4b1c5cab5d36cdaff79d27e4288c6d5f60667c72"
+      "version": "0.11.1",
+      "commit": "2a750ec8c74d7f053410d48dd820aeb542e7d3b1"
     },
     "mindie-diagnostics": {
       "version": "0.5.4",
@@ -123,6 +123,6 @@
     "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
     "The bundle inserts Host rows and overrides no shipped row or shipped preset.",
     "The platform matrix in docs/verification.md records the 0.0.2 adapter and its pinned runtime. It establishes the referenced host interfaces, not cross-platform acceptance of the 0.0.3 component combination.",
-    "Top-level runtime_components records the current 0.1.5 pin set; the verified entry preserves the historical 0.0.2 evidence."
+    "Top-level runtime_components records the current 0.1.6 pin set; the verified entry preserves the historical 0.0.2 evidence."
   ]
 }

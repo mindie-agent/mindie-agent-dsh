@@ -2,11 +2,11 @@
 #
 # Each pin is the exact component commit selected for this integration:
 #   mindie-agent/diagnostics v0.5.4 -> 5ae643e19223f2181ecdbaa3edaf464137c4805e
-#   mindie-agent/remote-dev  v0.10.8 -> 4b1c5cab5d36cdaff79d27e4288c6d5f60667c72
+#   mindie-agent/remote-dev  v0.11.1 -> 2a750ec8c74d7f053410d48dd820aeb542e7d3b1
 #   mindie-agent/knowledge   v0.13.3 -> 38a42f6f778cfa555d8918fdcacd12cee4a181f5
 #
 # The authoritative transitive lock is uv.lock; this file mirrors its three
 # direct dependencies for humans and for the release checklist.
 mindie-diagnostics @ git+https://github.com/mindie-agent/diagnostics@5ae643e19223f2181ecdbaa3edaf464137c4805e
 mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@38a42f6f778cfa555d8918fdcacd12cee4a181f5
-remote-dev @ git+https://github.com/mindie-agent/remote-dev@4b1c5cab5d36cdaff79d27e4288c6d5f60667c72
+remote-dev @ git+https://github.com/mindie-agent/remote-dev@2a750ec8c74d7f053410d48dd820aeb542e7d3b1
