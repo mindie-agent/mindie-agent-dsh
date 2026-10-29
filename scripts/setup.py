@@ -30,7 +30,7 @@ import setup_process  # noqa: E402
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
 ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = "0.1.5"
+VERSION = json.loads((mp.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))["version"]
 RUN_DEADLINE: float | None = None
 INSTALL_RUNTIME_DIR: Path | None = None
 DOMAIN = "vllm-ascend"
@@ -50,9 +50,10 @@ PUBLIC_FEEDS = [
     },
 ]
 COMPONENTS = {
-    "mindie-knowledge": "0.13.4",
-    "remote-dev": "0.10.8",
-    "mindie-diagnostics": "0.5.4",
+    name: entry["version"]
+    for name, entry in json.loads(
+        (mp.PACKAGE_DIR / "harness-compatibility.json").read_text(encoding="utf-8")
+    )["runtime_components"].items()
 }
 
 
