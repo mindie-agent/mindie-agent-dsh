@@ -25,6 +25,8 @@ jobs:
           python-version: '3.11'
       - name: Install locked runtime and test dependencies
         run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
           python -m pip install uv
           uv sync --locked --no-editable --no-dev --group component-contracts
           uv pip install -r requirements-dev.txt
