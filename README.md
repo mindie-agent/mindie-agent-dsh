@@ -45,8 +45,6 @@
 
 > **插件市场发现**：本仓库标记了 GitHub topic [`dsh-plugin`](https://github.com/topics/dsh-plugin)，支持 DSH 插件市场直接索引发现。
 
-### 方式一：通过提示词交由 Agent 自动安装（推荐）
-
 直接复制下面这句话发送给你的 DeepSeek Harness（或其他支持终端执行的 AI Agent），由其自动完成前置检查、锁定运行时构建与插件 bundle 注册：
 
 ```text
@@ -98,9 +96,7 @@
 
 </details>
 
-### 方式二：手动终端与 Web 页面安装
-
-#### 前置条件
+#### 环境前置条件与持久化路径
 
 | 依赖 | 要求 | 说明 |
 | --- | --- | --- |
@@ -109,76 +105,8 @@
 | Python | `>= 3.11` | 由 `uv` 选择/管理解释器（支持 3.11+） |
 | `uv` | 任意近期版本 | 构建锁定运行时、提供 Python 解释器 |
 | `git` & `gh` | 已安装并完成认证 | 拉取插件与知识源、支持社区知识 PR 与故障上报 |
-| 网络 | 首次安装需要 | 拉取锁定组件与公共知识快照 |
-
-若开启社区贡献或故障上报，请先按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 检查或完成 `gh` 登录（企业网络环境下推荐使用 Personal Access Token）。认证信息由 `gh` 统一保存，供后续知识同步、PR 与 Issue 提交直接复用。
-
-### 第 1 步：构建锁定运行时（先于启用 bundle）
-
-`dsh-mcp-client` 与 Host 插件会在 DSH 启动/启用 bundle 时连接本地运行时，因此请**先**准备好持久化运行时：
-
-```bash
-MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh"
-rm -rf "$MINDIE_TMP"
-git clone --depth 1 --branch v0.1.9 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
-uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
-```
-
-验证标准：命令最终输出的 JSON 报告就绪状态、锁定组件版本与运行时绑定状态（安装与后台更新不启动知识飞轮，`knowledge.status` 为 `"inactive"`，待会话中手动输入 `/mindie-agent` 时再按需激活与同步）：
-
-```json
-{
-  "status": "ready",
-  "activation": { "status": "active" },
-  "components": {
-    "mindie-knowledge": "0.13.6",
-    "remote-dev": "0.11.1",
-    "mindie-diagnostics": "0.5.4"
-  },
-  "knowledge": { "status": "inactive" }
-}
-```
 
 `setup.py` 是幂等的：再次执行会按 `uv.lock` 重新校验运行时、更新持久化脚本并原子刷新运行时配置，不会在安装期启动知识循环。运行时、配置、知识与 `remote-dev` 状态默认位于 `~/.local/share/mindie-agent/dsh` 与 `~/.config/mindie-agent/dsh`；临时克隆目录随后可以删除。
-
-### 第 2 步：在 DSH 中安装并启用 bundle
-
-在 DSH Web 的 **Plugins** 页面安装并启用：
-
-```text
-git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.9
-```
-
-也可以在具备 `plugin_manager` 工具的 Agent 会话中安装：
-
-```text
-plugin_manager(action="install_bundle",
-               target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.9")
-```
-
-> 也可以运行 `dsh plugin --profile <name> add <spec>`。安装后在 **Plugins** 页面确认 `mindie-agent-dsh` 已启用；请勿手改 profile 的 `package.json` 或 `cordis.patch.yml`。
-
-> [!WARNING]
-> **早期 `0.0.2` 安装用户的同版本显式刷新说明**：
-> 历史 `0.0.2` 发布曾对早期 `0.0.2`（源码提交 `828c375d1f546ed653250526465b8075c1691390`）执行授权的一次性同版本替换。以下说明仅适用于继续使用 `0.0.2` 的安装；升级到 `0.1.1` 使用上方的新标签。由于旧版更新器仅自动选择版本号严格大于（`>`）当前版本的发布，已安装早期 `0.0.2` 的环境**不会**自动拉取本次同版本更新；同时 DSH 进程内存中的 Node worker 在进程重启前仍会运行旧代码。
-> 若你仍需使用早期 `0.0.2`，请按 **[同版本显式刷新指南](docs/same-version-refresh.md)** 使用发布对应的完整源码 SHA 显式刷新运行时（`scripts/setup.py`）与插件包（`dsh plugin --profile <name> add "git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>" --ignore-scripts` 或 `plugin_manager(action="install_bundle", ...)`），随后**完整退出并重启 DSH 进程**。刷新过程会完整保留已有的用户授权（`mindie-consent.json`）、社区配置与本地知识材料。
-
-启用后打开**新会话**（已有会话保留其启动时的组合），输入 `/mindie-agent` 即可使用。
-
-### 第 3 步：验证
-
-安装命令完成后，在新会话输入 **`/mindie-agent 帮我完成首次配置`**，按 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md) 完成本次安装引导。Agent 会复用 GitHub 登录，提供工作区创建/复用选择，并在同意后登记到当前客户端；选择当前目录也可完成引导。
-
-```text
-/mindie-agent 我准备在 vllm-ascend 里补一个融合算子的精度测试，请先结合知识库给出测试设计，再用 remote-dev 在远端 NPU 容器里跑通。
-```
-
-验证标准：
-
-1. 技能由 `/mindie-agent` 显式注入（不进入模型自动目录），并调用 `mindie_entry(op="init")` 绑定当前任务；
-2. Host 工具列表包含 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_distill`、`knowledge_feedback`、`knowledge_sync`，MCP 工具列表包含 `mcp__remote-dev__remote_*` 与 `mcp__mindie-tools__*`（`profiler`、`sim`、`coordinator`、`diagnostics_status`、`diagnostics_bundle`、`mindie_status`）；
-3. 知识检索返回带 `ref` 的引用组，`knowledge_explain` 能读取指定条目或块正文；
-4. 远端操作使用真实 host / port / container，长耗时任务可通过 `remote_job_*` 轮询。
 
 ## 装好之后怎么用
 
