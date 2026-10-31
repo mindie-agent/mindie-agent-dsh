@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10 — 2026-10-31
+
+- Align component bridge, post-verification convergence, and `TimeoutError`
+  propagation with `mindie-knowledge 0.13.8`, `remote-dev 0.11.2`, and
+  `mindie-coordinator 0.7.1`.
+
 ## 0.1.9 — 2026-10-29
 
 - Separate the component reply budget from the fixed 1 MiB execution-output
