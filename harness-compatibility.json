@@ -2,7 +2,7 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.9",
+  "plugin_version": "0.1.10",
   "runtime_components": {
     "mindie-knowledge": {
       "version": "0.13.6",
@@ -18,6 +18,30 @@
     }
   },
   "verified": [
+    {
+      "dsh_version": "0.2.1-rc.5",
+      "node": ">=22",
+      "python": ">=3.11",
+      "platforms": [
+        "Windows 11 native"
+      ],
+      "evidence": "docs/verification.md#6-dsh-021-rc5-interface-audit",
+      "plugin_version": "0.1.10",
+      "runtime_components": {
+        "mindie-knowledge": {
+          "version": "0.13.6",
+          "commit": "9af5a82ad557e2120277693854a0571613c8a115"
+        },
+        "remote-dev": {
+          "version": "0.11.1",
+          "commit": "2a750ec8c74d7f053410d48dd820aeb542e7d3b1"
+        },
+        "mindie-diagnostics": {
+          "version": "0.5.4",
+          "commit": "5ae643e19223f2181ecdbaa3edaf464137c4805e"
+        }
+      }
+    },
     {
       "dsh_version": "0.2.0-rc.2",
       "node": ">=22",
@@ -123,6 +147,8 @@
     "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
     "The bundle inserts Host rows and overrides no shipped row or shipped preset.",
     "The platform matrix in docs/verification.md records the 0.0.2 adapter and its pinned runtime. It establishes the referenced host interfaces, not cross-platform acceptance of the 0.0.3 component combination.",
-    "Top-level runtime_components records the current 0.1.9 pin set; the verified entry preserves the historical 0.0.2 evidence."
+    "Top-level runtime_components records the current 0.1.10 pin set; `verified` entries preserve each certification's exact DSH version, adapter version and evidence.",
+    "The optional `@deepseek-ai/dsh` peer range `>=0.2.0-rc.2 <0.2.2-0` spans the certified 0.2.0 and 0.2.1 lines. DSH evaluates these ranges with prereleases included, so `0.2.1-rc.5` is admitted without an exact-version exemption.",
+    "The 0.2.1-rc.5 entry records the Host-interface audit in docs/verification.md plus an installed-profile mount; it does not claim every model-facing path was exercised on that runtime."
   ]
 }
