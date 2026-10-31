@@ -143,16 +143,66 @@ def copy_private(source: Path, destination: Path) -> None:
     os.replace(tmp, destination)
 
 
+_RETAINED_ITEMS = (
+    "pyproject.toml",
+    "uv.lock",
+    "package.json",
+    "product-contract.json",
+    "harness-compatibility.json",
+    "index.cjs",
+    "paths.cjs",
+    "host.mjs",
+    "host3.mjs",
+    "scripts",
+    "skills",
+)
+_TEXT_SUFFIXES = frozenset({".py", ".json", ".md", ".toml", ".lock", ".cjs", ".mjs", ".js"})
+
+
+def _copy_lf_clean(source: Path, destination: Path) -> None:
+    raw = source.read_bytes()
+    if source.suffix in _TEXT_SUFFIXES and b"\r\n" in raw:
+        raw = raw.replace(b"\r\n", b"\n")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    tmp.write_bytes(raw)
+    os.replace(tmp, destination)
+
+
+def stage_retained_package(source_dir: Path | None = None) -> Path:
+    """Persist an LF-clean baseline package under `data_home()/update/generations/v<VERSION>/package`."""
+    src = (source_dir or mp.PACKAGE_DIR).resolve()
+    dest = (mp.data_home() / "update" / "generations" / f"v{VERSION}" / "package").resolve()
+    if src == dest:
+        return dest
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in _RETAINED_ITEMS:
+        item_src = src / item
+        if not item_src.exists():
+            continue
+        item_dst = dest / item
+        if item_src.is_file():
+            _copy_lf_clean(item_src, item_dst)
+        else:
+            for child in item_src.rglob("*"):
+                if any(part in {"__pycache__", ".pytest_cache", ".git", ".venv", "node_modules"} for part in child.parts):
+                    continue
+                if child.is_file() and child.suffix != ".pyc":
+                    _copy_lf_clean(child, item_dst / child.relative_to(item_src))
+    return dest
+
+
 def adapter_configuration() -> dict[str, Any]:
     """Refresh owned install fields without dropping explicitly registered domains."""
     path = mp.config_file()
     previous = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     if not isinstance(previous, dict):
         raise SetupError("existing adapter configuration must be a JSON object")
+    pkg_dir = stage_retained_package() if mp.PACKAGE_DIR.name == "mindie-agent-dsh-install" else mp.PACKAGE_DIR
     config = {**previous,
         "schema": ADAPTER_SCHEMA,
         "version": VERSION,
-        "package_dir": str(mp.PACKAGE_DIR),
+        "package_dir": str(pkg_dir),
         "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
         "python": str(runtime_python()),
         "venv_dir": str(runtime_dir()),
@@ -183,8 +233,23 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
     mp.ensure_private_dir(mp.data_home())
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
     env.setdefault("UV_NO_PROGRESS", "1")
-    if "UV_SYSTEM_CERTS" not in env:
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    env.setdefault("GCM_INTERACTIVE", "never")
+    if "UV_SYSTEM_CERTS" not in env and "UV_NATIVE_TLS" not in env:
+        env["UV_SYSTEM_CERTS"] = "true"
+        env["UV_NATIVE_TLS"] = "true"
+    elif "UV_SYSTEM_CERTS" not in env:
         env.setdefault("UV_NATIVE_TLS", "true")
+    if "GIT_CONFIG_COUNT" not in env:
+        git_pairs = (
+            ("core.longpaths", "true"),
+            ("core.autocrlf", "false"),
+            ("credential.https://github.com.provider", "github"),
+        )
+        env["GIT_CONFIG_COUNT"] = str(len(git_pairs))
+        for idx, (k, v) in enumerate(git_pairs):
+            env[f"GIT_CONFIG_KEY_{idx}"] = k
+            env[f"GIT_CONFIG_VALUE_{idx}"] = v
     argv = [
         "uv", "sync", "--frozen", "--quiet", "--no-dev",
         "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
@@ -294,6 +359,7 @@ def prepare_domains(adapter, engine):
 
 
 def install_updater() -> dict[str, Any]:
+    stage_retained_package()
     directory = mp.data_home() / "update"
     for name in ("updater.py", "component_update.py", "native_update.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
         source = mp.PACKAGE_DIR / "scripts" / name

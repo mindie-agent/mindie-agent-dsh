@@ -248,6 +248,17 @@ def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) ->
         raise UpdateError("candidate setup failed: " + detail[-800:])
 
 
+def resolve_adapter_source(adapter: dict, current: str) -> Path:
+    raw = adapter.get("package_dir")
+    if isinstance(raw, str) and (Path(raw) / "pyproject.toml").is_file():
+        return Path(raw)
+    tag_ver = str(adapter.get("version") or current).lstrip("v")
+    retained = update_dir() / "generations" / f"v{tag_ver}" / "package"
+    if (retained / "pyproject.toml").is_file():
+        return retained
+    return Path(raw) if isinstance(raw, str) and raw else mp.PACKAGE_DIR
+
+
 def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     update_dir().mkdir(parents=True, exist_ok=True)
     pending = read_json(status_path(), {}).get('native', {})
@@ -270,7 +281,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
     if candidate is None:
         from component_update import prepare as component_prepare
         adapter = read_json(mp.config_file(), {})
-        artifact = (component_prepare(adapter.get('package_dir') or mp.PACKAGE_DIR,
+        artifact = (component_prepare(resolve_adapter_source(adapter, current),
                                       adapter['python'], active=True)
                     if adapter.get('python') else None)
         if artifact:

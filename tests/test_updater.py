@@ -183,6 +183,23 @@ class UpdaterTests(unittest.TestCase):
                 updater.write_current(root / "gen", "v0.0.9", None)
                 self.assertEqual(updater.default_current_version(), "0.0.9")
 
+    def test_ephemeral_install_checkout_falls_back_to_retained_generation(self):
+        from unittest import mock
+        import setup
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ephemeral = root / "mindie-agent-dsh-install"
+            with mock.patch.dict(
+                "os.environ",
+                {"MINDIE_DSH_DATA_HOME": str(root / "data"), "MINDIE_DSH_CONFIG_HOME": str(root / "config")},
+            ):
+                staged = setup.stage_retained_package(ROOT)
+                self.assertTrue((staged / "pyproject.toml").is_file())
+                self.assertTrue((staged / "host3.mjs").is_file())
+                adapter = {"package_dir": str(ephemeral), "version": setup.VERSION}
+                self.assertEqual(updater.resolve_adapter_source(adapter, setup.VERSION), staged)
+
 
 if __name__ == "__main__":
     unittest.main()
