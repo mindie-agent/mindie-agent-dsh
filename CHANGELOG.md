@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.10 — 2026-10-31
+
+- Widen the optional `@deepseek-ai/dsh` peer requirement from the exact
+  `0.2.0-rc.2` pin to `>=0.2.0-rc.2 <0.2.2-0`, covering the certified 0.2.0 and
+  0.2.1 lines. DSH evaluates the range with prereleases included, so
+  `0.2.1-rc.5` is admitted without an exact-version exemption.
+- Audit the Host interfaces the adapter uses against DSH `0.2.1-rc.5`
+  (`ctx.tools.register`, the `agent/pre-step` and `agent/turn-stopping`
+  dispatchers, `exec.agent`, `ctx.llm.stream` chunks, the
+  `@deepseek-ai/dsh-mcp-client` stdio config, skill filesystem roots, and
+  `session.v4.jsonl.zstd`), and record the evidence in `docs/verification.md`.
+- Evaluate a candidate's declared DSH requirement in the native updater with
+  npm-semver precedence (`engines.dsh` first, as DSH does) instead of exact
+  string equality, and ship the shared range evaluator with the staged updater
+  scripts. An unsupported or missing requirement now fails loudly.
+
 ## 0.1.9 — 2026-10-29
 
 - Separate the component reply budget from the fixed 1 MiB execution-output
