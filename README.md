@@ -20,8 +20,8 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#装好之后怎么用">使用方式</a> ·
   <a href="#架构与稳定性边界">架构</a> ·
-  <a href="#016-的贡献与故障上报">贡献与故障上报</a> ·
-  <a href="#016-范围与已知限制">已知限制</a>
+  <a href="#019-的贡献与故障上报">贡献与故障上报</a> ·
+  <a href="#019-范围与已知限制">已知限制</a>
 </p>
 
 ---
@@ -88,9 +88,9 @@
    验证成功后继续第 5 步，完成首次配置后一起汇报安装结果。
 
 5. **完成首次配置与开发工作区引导**：
-   - 在本次安装中介绍已有 [用户须知](skills/mindie-agent/references/user-notice.md)，随后执行 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md)。即使未开启贡献，也要提供创建并初始化 `vllm-ascend-workspace`、复用已有目录或继续当前目录的选择；复用已经确认的选择。
-   - 用户同意创建或复用后，自动通过当前宿主的原生项目/工作区入口登记所选路径，核对实际结果。源码初始化使用工作区检出的 `repo_init.py`，复用本次已验证的 GitHub 认证和已有 Fork 配置。
-   - 安装结果同时报告插件、工作区路径、宿主登记与源码初始化状态；需要原生界面操作时明确剩余步骤。
+   - 向用户简要说明 [用户须知](skills/mindie-agent/references/user-notice.md)，再按 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md) 引导配置工作区（无论是否开启社区贡献，都提供创建并初始化 `vllm-ascend-workspace`、复用已有目录或继续使用当前目录三种选择；已有选择直接复用）。
+   - 用户确认目录后，自动将其登记到当前客户端的工作区列表并核对结果；若需拉取源码，调用工作区内的 `repo_init.py` 并直接复用前序已验证的 GitHub 认证与 Fork 配置。
+   - 最后汇总汇报插件状态、工作区路径、客户端登记与源码初始化结果（若仍需用户在界面点选，明确告知操作步骤）。
    - **询问用户是否愿意给主仓点个 Star ⭐**：在汇报末尾主动询问用户：*“如果觉得 MindIE Agent 对你有帮助，需要我顺手帮你在 GitHub 上给主仓 `mindie-agent/mindie-agent` 点个 Star 吗？这能帮助项目更好地成长！⭐”* **严格授权原则**：仅当用户明确表示同意（如回复“好”、“可以”、“yes”等）时才执行以下命令点亮并校验主仓 Star，严禁未经用户同意自动静默执行：
      ```sh
      gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent && gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
@@ -111,7 +111,7 @@
 | `git` & `gh` | 已安装并完成认证 | 拉取插件与知识源、支持社区知识 PR 与故障上报 |
 | 网络 | 首次安装需要 | 拉取锁定组件与公共知识快照 |
 
-需要 GitHub 认证时，先按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 检查已有账号；需要登录才选择浏览器或 Token。企业网络优先 Token：已有则在 `gh` 隐藏提示中输入，没有则引导创建。验证后由 `gh` 保存并供后续同步、PR 和 Issue 操作复用，贡献开关保持原有选择。
+若开启社区贡献或故障上报，请先按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 检查或完成 `gh` 登录（企业网络环境下推荐使用 Personal Access Token）。认证信息由 `gh` 统一保存，供后续知识同步、PR 与 Issue 提交直接复用。
 
 ### 第 1 步：构建锁定运行时（先于启用 bundle）
 
@@ -275,9 +275,9 @@ node --test tests/test_*.mjs
 uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
 ```
 
-### `0.1.5` 发布基准测试（Release Benchmark）
+### `0.1.9` 发布基准测试（Release Benchmark）
 
-本仓库随 `0.1.5` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
+本仓库随 `0.1.9` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
 - [`benchmarks/release.json`](benchmarks/release.json)（由 `benchmarks/release.py` 执行）测量 100 条消息的 DSH v4 `session.v4.jsonl.zstd` 公开对话提取与隐藏推理过滤延迟（用例 `public-transcript`，指标 `public_100_message_parse_latency`，单位 `us/op`）。
 - 上述 CPU 微基准仅证明本地解析的耗时基线，与常备昇腾 A2/A3 NPU 真机集成验收及 `mindie-bench` 端到端 Agent 研发任务评估相互独立。详见 [`docs/benchmark.md`](docs/benchmark.md) 与 [`docs/verification.md`](docs/verification.md)。
 

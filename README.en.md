@@ -20,8 +20,8 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#architecture-and-stability-boundary">Architecture</a> ·
-  <a href="#contribution-and-fault-reporting-in-015">Contribution & Reporting</a> ·
-  <a href="#015-scope-and-known-limits">Limits</a>
+  <a href="#contribution-and-fault-reporting-in-019">Contribution & Reporting</a> ·
+  <a href="#019-scope-and-known-limits">Limits</a>
 </p>
 
 ---
@@ -87,9 +87,9 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
    Continue with step 5 after verification, then report the complete setup result.
 
 5. **Finish first-time setup and development workspace onboarding**:
-   - In this installation, present the existing [user notice](skills/mindie-agent/references/user-notice.md), then follow [Workspace Setup](skills/mindie-agent/references/workspace-setup.md). Offer creating and initializing `vllm-ascend-workspace`, reusing a directory, or keeping the current one even when contribution is disabled. Reuse choices already made.
-   - Approval to create or reuse includes automatically adding the selected path through the current harness's native project/workspace entry and checking the result. Initialize sources through the checkout's `repo_init.py`, reusing the verified GitHub authentication and saved fork configuration.
-   - Report plugin status, workspace path, native registration and source initialization together, including any remaining native UI action.
+   - Walk the user through the [user notice](skills/mindie-agent/references/user-notice.md) and [Workspace Setup](skills/mindie-agent/references/workspace-setup.md) (offering to create and initialize `vllm-ascend-workspace`, reuse an existing directory, or keep the current directory—even when contribution is disabled; reuse any previously saved choices).
+   - Once the user selects a directory, register it in the current client's workspace list and verify the result. If source repositories need to be initialized, run `repo_init.py` from the checkout while reusing the verified GitHub authentication and fork settings.
+   - Report the plugin status, workspace path, client registration, and source initialization together (highlighting any remaining UI step if needed).
    - **Ask if the user would like to Star the main repository ⭐**: At the end of the summary, ask: *"If you found MindIE Agent helpful, would you like me to star `mindie-agent/mindie-agent` on GitHub for you? It helps the project grow! ⭐"* **Strict Consent Rule**: Only run the command if the user explicitly says yes (never run it automatically without consent):
      ```sh
      gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent && gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
@@ -121,7 +121,7 @@ git clone --depth 1 --branch v0.1.9 https://github.com/mindie-agent/mindie-agent
 uv --native-tls run --quiet --no-project --python 3.11 "$MINDIE_TMP/scripts/setup.py"
 ```
 
-Verify that the final JSON reports `"status": "ready"`, the `0.1.5` pinned components, and `"knowledge": { "status": "inactive" }` (knowledge services and feed synchronization stay inactive during setup and background update checks until a session manually invokes `/mindie-agent`):
+Verify that the final JSON reports `"status": "ready"`, the `0.1.9` pinned components, and `"knowledge": { "status": "inactive" }` (knowledge services and feed synchronization stay inactive during setup and background update checks until a session manually invokes `/mindie-agent`):
 
 ```json
 {
@@ -244,13 +244,13 @@ Timeout defaults to 120 seconds (`timeout_ms=120000`) up to 10 minutes (`600000`
 - **No override** of any shipped row or preset — `cordis.patch.yml` only performs `insert` operations, so DSH upgrades to the standard preset are never shadowed.
 - The package declares only an optional exact peer on `@deepseek-ai/dsh@0.2.0-rc.2`, avoiding duplicate DSH runtimes in the profile.
 
-## Contribution and Fault Reporting in `0.1.5`
+## Contribution and Fault Reporting in `0.1.9`
 
 - **Unified Persistent Switch (`mindie-consent.json`)**: Community knowledge sharing and automatic tool fault reporting share a single persistent switch. Explicitly selecting `contribute` configures scoped public knowledge sharing (defaulting to `mindie-agent/knowledge-vllm-ascend` with automatic personal fork resolution) and starts the native background fault reporter; selecting `disabled` stops subsequent outgoing sends for both paths.
 - **Upgrade Preservation & Legacy Re-Confirmation**: Existing `disabled`, `later`, and `read-only` choices stay off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / marked `needs_choice`) do **not** automatically gain fault-upload permission on upgrade or startup until explicitly re-confirmed once by the user.
 - **Three-State Separation**: The system strictly separates (1) local consent configuration written to `mindie-consent.json`, (2) background reporter or organizer worker running, and (3) external GitHub Issue or knowledge PR created. Use `reporting-status` for a read-only check of real worker and queue state, and see **[the contribution notice](skills/mindie-agent/references/user-notice.md)**.
 
-## `0.1.5` Scope and Known Limits
+## `0.1.9` Scope and Known Limits
 
 - **Pinned Runtime Components**: Targets the formal releases of `mindie-knowledge 0.13.6` (`9af5a82ad557e2120277693854a0571613c8a115`), `remote-dev 0.11.1` (`2a750ec8c74d7f053410d48dd820aeb542e7d3b1`), and `mindie-diagnostics 0.5.4` (`5ae643e19223f2181ecdbaa3edaf464137c4805e`; exact commit SHAs are recorded in `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`).
 - **Historical Same-Version Refresh**: `0.0.2` replaced the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Installations staying on `0.0.2` must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
@@ -272,9 +272,9 @@ node --test tests/test_*.mjs
 uv --native-tls run --quiet --no-project --python 3.11 scripts/setup.py --dry-run
 ```
 
-### `0.1.5` Release Benchmarks
+### `0.1.9` Release Benchmarks
 
-Every formal `0.1.5` GitHub Release attaches `benchmark-results.json`, `benchmark-results.md`:
+Every formal `0.1.9` GitHub Release attaches `benchmark-results.json`, `benchmark-results.md`:
 - [`benchmarks/release.json`](benchmarks/release.json) (executed by `benchmarks/release.py`) measures deterministic per-operation latency (`us/op`) for extracting public messages and filtering hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`).
 - These reproducible CPU microbenchmarks measure local parser latency only; they are distinct from standing Ascend A2/A3 NPU live integration acceptance and end-to-end Agent productivity evaluation in `mindie-bench`. See [`docs/benchmark.md`](docs/benchmark.md) and [`docs/verification.md`](docs/verification.md).
 
