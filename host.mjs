@@ -88,6 +88,14 @@ function entryFor() {
     if (typeof installed.package_dir === 'string') {
       const candidate = path.join(installed.package_dir, 'host3.mjs')
       if (existsSync(candidate)) return candidate
+      if (typeof installed.version === 'string' && installed.version) {
+        const retained = path.join(
+          paths.dataHome, 'update', 'generations',
+          'v' + installed.version.replace(/^v/, ''),
+          'package', 'host3.mjs',
+        )
+        if (existsSync(retained)) return retained
+      }
       throw new Error('published adapter host entry is missing: ' + candidate)
     }
   } catch (error) {

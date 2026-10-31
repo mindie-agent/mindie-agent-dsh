@@ -69,6 +69,9 @@ def isolated_host_environment(tmp_path, monkeypatch):
     real_ssh = _REAL_HOME / ".ssh"
     home_ssh = tmp_path / "home" / ".ssh"
     if real_ssh.is_dir() and not home_ssh.exists():
-        home_ssh.symlink_to(real_ssh, target_is_directory=True)
+        try:
+            home_ssh.symlink_to(real_ssh, target_is_directory=True)
+        except OSError:
+            shutil.copytree(real_ssh, home_ssh)
     yield
     _close_failure_recorders()
