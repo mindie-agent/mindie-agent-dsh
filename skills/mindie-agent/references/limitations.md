@@ -1,16 +1,13 @@
-# `0.0.3` Scope, Paths, and Operational Boundaries
+# Scope, Paths, and Operational Boundaries
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.0.3`) is a thin DeepSeek Harness adapter that inserts three Host rows in `cordis.patch.yml` using only stable DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.11`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
-| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes only this skill bundle (`/mindie-agent`, `disable-model-invocation: true`) to every preset |
-| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs`) | Registers `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync`; handles `agent/turn-stopping` zstd v4 capture handoff, model summary bridge, and generation swaps |
-| `mindie-agent-remote-mcp` | `@deepseek-ai/dsh-mcp-client` | Launches the official `remote-dev` MCP server (`remote_dev.mcp.server`) |
-
-No `@deepseek-ai/dsh-experimental-*` package is used and no shipped row or preset is overridden. Because all three rows are inserted at the Host layer, the shipped `standard` preset and other presets inherit them directly.
+| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes `/mindie-agent` (`disable-model-invocation: true`) to every preset |
+| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` plus per-session `remote-dev` and `mindie-tools` MCP servers) | Registers `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync`; handles `agent/turn-stopping` zstd v4 capture handoff, model summary bridge, and idle generation hot-reload |
 
 ## Paths
 
@@ -29,33 +26,34 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.1` Runtime Components
+## Pinned `0.1.11` Runtime Components
 
-`scripts/setup.py` is idempotent: it runs `uv sync --frozen` against `uv.lock`, installs persistent worker scripts, and updates `engine.json` and `diagnostics.json` without starting the knowledge loop or syncing knowledge feeds (`knowledge.status: "inactive"` during installation; feed synchronization runs only inside manually `/mindie-agent`-activated sessions).
+`scripts/setup.py` runs `uv sync --locked` against `uv.lock`, installs persistent worker scripts, and writes `engine.json` and `diagnostics.json` without starting the knowledge service or syncing feeds during installation (`knowledge.status: "inactive"` until `/mindie-agent` is invoked).
 
-Current development runtime pins:
+Current runtime pins:
 
-- `mindie-knowledge` `0.13.2` — integration commit `b616a38f77ca17573e4ed22ee23c08c09adefac7`
-- `remote-dev` `0.10.5` — integration commit `20d34abebeab17bb6a68f0966ac4d627af54be88`
-- `mindie-diagnostics` `0.5.1` — integration commit `fba07e8607ddadde14cea315c9dbda23726c1c79`
+- `mindie-knowledge` `0.13.8` (`9a4325858e6fadb10715275826a7795843cbbdf4`)
+- `remote-dev` `0.11.2` (`85be999811771e03ecc7d78e5e560fac1636e7ef`)
+- `mindie-diagnostics` `0.5.4` (`5ae643e19223f2181ecdbaa3edaf464137c4805e`)
+- `mindie-profiler` `0.5.5` (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`)
+- `mindie-sim` `0.9.0` (`f5608b4943f515c401d2f9b12fffb579a1e2571b`)
+- `mindie-coordinator` `0.7.1` (`d146c55c414bfb92136cf5fb7fa11ae14c673ef0`)
+- `npu-top` `0.3.0` (`ff78215dbe94bb3bd16abc6897878918748b8aee`)
 
-**Upgrade Boundary**: `0.1.1` is a normal semantic-version upgrade selected by the updater (release checks and candidate provisioning never start the knowledge loop). The historical `0.0.2` same-version refresh note remains in `docs/same-version-refresh.md` for installations that stay on `0.0.2`; upgrading to `0.1.1` follows the tag above and still requires a full DSH process restart to load the new plugin generation.
+## Unified Contribution Switch
 
-## Unified Contribution Switch & Three-State Separation
+- Community knowledge sharing and automatic sanitized tool fault reporting share the persistent switch in `mindie-consent.json` (`contribute` enables both; `disabled` turns both off).
+- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades. Legacy knowledge-only `contribute` records lacking `choice_revision` require one explicit user confirmation before fault uploads begin.
+- Keep three states distinct: (1) local consent configuration written, (2) background organizer/reporter worker running, and (3) external GitHub Issue or knowledge PR created. See [the contribution notice](user-notice.md).
 
-- Community knowledge sharing and automatic sanitized tool fault reporting share the single persistent switch in `mindie-consent.json` (`contribute` enables both; `disabled` turns both off).
-- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / `needs_choice`) require one explicit user confirmation before fault uploads begin.
-- Keep three states strictly separate: (1) local consent configuration written, (2) background organizer/reporter worker running, and (3) external GitHub Issue or knowledge PR created. See [the contribution notice](user-notice.md).
+## Operational Notes
 
-## Operational Limits
-
-- `remote-dev` job records under `<data>/state/remote` are shared at the Host level across sessions.
-- Background release checks run while the DSH Host process is alive; no OS-level scheduler runs while DSH is stopped.
-- In `mindie-bench`, DSH is supported for L1/L2 G0–G2 evaluation; G3 native capture evaluation in `mindie-bench` is not yet wired for DSH.
+- `remote-dev` job records under `<data>/state/remote` are isolated per session (`REMOTE_DEV_SESSION_ID`).
+- Background release and flexible component updates run while the DSH Host process is alive and swap generations when all agents are idle.
 
 ## Uninstall
 
 1. Disable `mindie-agent-dsh` in the DSH Plugins page (or via `plugin_manager`).
 2. Optionally stop the local knowledge service:
    `<data>/venv/bin/python -m mindie_knowledge.loop.cli stop --config <config>/engine.json`
-3. Remove `mindie-agent/dsh` under both the data and config roots if you also want to delete local runtime files, knowledge snapshots, and saved settings. Uninstalling the bundle does not delete user data directories automatically.
+3. Remove `mindie-agent/dsh` under both the data and config roots if you also want to delete local runtime files, knowledge snapshots, and saved settings.

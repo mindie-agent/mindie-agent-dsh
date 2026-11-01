@@ -41,7 +41,7 @@ and calls that omit these fields keep their previous shape.
   while preserving `changed` and per-domain outcomes (`domains[]`), keeping
   partial failure and already-revoked side effects distinct.
 
-Knowledge loading follows the [entry decision policy](../SKILL.md#retrieve-for-a-missing-decision). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
+Knowledge loading follows [When to Query Knowledge](../SKILL.md#when-to-query-knowledge). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
 
 ## Query (`knowledge_query`)
 
@@ -214,55 +214,32 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
 - **Release Boundary**: `knowledge_distill` (`related_refs`/`proposal`), usage
   events, multi-domain routing, and graded `knowledge_query`/`knowledge_explain`
   options (`domain_path`, `token_budget`, `include_unknown`, `include_archived`,
-  `refs`, `known_refs`, `conditions`) depend on the paired
-  `mindie-knowledge 0.13.0` runtime. Existing single-`ref` explain, `up`/`down`
-  votes, and calls that omit the new optional fields remain backward
-  compatible. Graded Feeds use the single-line `ID@revision` reference contract
-  on each content repository's `main` branch, with independent Feed sync and
-  revision-bound unit feedback (`feedback_ref` / `/units/<id>@<revision>`). The
-  selected feed revision and installed runtime identity are separate facts; use
-  their own receipts to verify them.
+  `refs`, `known_refs`, `conditions`) are provided by the paired
+  `mindie-knowledge 0.13.8` runtime. Existing single-`ref` explain, `up`/`down`
+  votes, and calls that omit optional fields remain backward compatible.
+  Graded Feeds use the single-line `ID@revision` reference contract on each
+  content repository's `main` branch, with independent Feed sync and
+  revision-bound unit feedback (`feedback_ref` / `/units/<id>@<revision>`).
 
 ## Feedback (`knowledge_feedback`)
 
-- `ref` is the actual returned `feedback_ref`
-  (`mindie://<domain>/units/<id>@<revision>` for a graded unit, where `ref` and
-  `feedback_ref` share the same revision URI value, and the vote is keyed by
-  `unit_id` plus integer `revision`; or the legacy `feedback_ref` for legacy
-  material). Never mix legacy field roles and never pass a bare `id`. Routing
-  follows the `mindie://<domain>/...` URI authority.
-- `rating` (`up`/`down`) is optional. `reason` remains bounded at 1000
-  characters.
+- `ref` is the returned `feedback_ref` (`mindie://<domain>/units/<id>@<revision>` for a graded unit, or the legacy `feedback_ref` for legacy material), routed by the `mindie://<domain>/...` URI authority.
+- `rating` (`up`/`down`) is optional; `reason` is bounded at 1000 characters.
 - One optional four-stage usage event can accompany or replace the vote:
-  - `event_type="discovered"` — a query returned the card. Delivery does not
-    prove the model read or adopted it.
-  - `event_type="loaded"` — the complete body entered visible context. Only the
-    host/caller can confirm this; the service does not infer it from delivery.
-  - `event_type="applied"` — the decision actually uses the unit; bind
-    `run_id` and optional `step_id`.
-  - `event_type="evaluated"` — a real result exists; requires a nonempty
-    `run_id` and `outcome` `supported`/`refuted`/`inconclusive`. Invalid or
-    missing measurements belong to `inconclusive`, not success or refutation.
-- Events are idempotent per `(root, unit_id, revision, event_type, run_id)`;
-  replayed receipts and repeated polling do not inflate counts. A pure
-  `discovered`/`loaded` event needs no rating. Never required at task
-  completion.
+  - `event_type="discovered"` — a query returned the card.
+  - `event_type="loaded"` — the complete body entered visible context.
+  - `event_type="applied"` — the decision uses the unit; bind `run_id` and optional `step_id`.
+  - `event_type="evaluated"` — a verified result exists; requires a nonempty `run_id` and `outcome` (`supported`/`refuted`/`inconclusive`).
+- Events are idempotent per `(root, unit_id, revision, event_type, run_id)`.
 
 ## Sync (`knowledge_sync`)
 
-- Model-free and network-bound. It fetches the configured public feed
-  (`mindie-agent/knowledge-vllm-ascend`, `main`), validates the complete task
-  packages before switching the installed snapshot, and reports one receipt per
-  feed.
-- Call once only when the corpus is unavailable/stale or the user asks for the
-  latest knowledge. Do not poll it.
-- A failed sync does not corrupt the previous installed snapshot; results are
-  reported honestly as unavailable/stale.
+- Fetches the configured public feed (`mindie-agent/knowledge-vllm-ascend`, `main`), validates the task packages before switching the installed snapshot, and reports one receipt per feed.
+- Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge.
 
 ## Service
 
-The tools talk to the local `mindie-knowledge` (`0.13.0`) loopback service. It
-is started on demand and can be inspected or stopped with:
+The tools communicate with the local `mindie-knowledge` (`0.13.8`) loopback service, which starts on demand and can be inspected or stopped with:
 
 ```sh
 "$MINDIE_DSH_DATA_HOME"/venv/bin/python -m mindie_knowledge.loop.cli status \
@@ -270,6 +247,3 @@ is started on demand and can be inspected or stopped with:
 "$MINDIE_DSH_DATA_HOME"/venv/bin/python -m mindie_knowledge.loop.cli stop \
   --config <engine-config>
 ```
-
-The setup summary prints both absolute paths. The service binds loopback only
-and owns its own consumer lock; never start a second copy manually.

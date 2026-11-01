@@ -1,11 +1,13 @@
 # mindie-agent-dsh 0.1.11
 
 This release synchronizes component contract pins with `mindie-sim 0.9.0` and
-`mindie-profiler 0.5.5`, updates the `sim` MCP tool description to document
-catalog/HF model composition (`predict`, `efficiency-breakdown`, `sla-frontier`,
-`pd-disaggregation-solver`, `compose`) and `async_scheduling` delayed HBM
-release alongside explicit case-file workflows, and hardens enterprise-network
-transport, LF source baseline staging, and Windows setup compatibility.
+`mindie-profiler 0.5.5`, updates the `sim`, `profiler`, and `coordinator` MCP
+tool descriptions to document catalog/HF model case synthesis (`compose`),
+evaluation subcommands (`predict`, `efficiency`, `sla`, `sweep --mode pd`,
+`skew`, `graph`), `async_scheduling` delayed HBM release, and `camodel`/`kernels`
+subcommands, streamlines skill prompts and knowledge tool descriptions, and
+hardens enterprise-network transport, LF source baseline staging, and Windows
+setup compatibility.
 
 ## Runtime and verification
 

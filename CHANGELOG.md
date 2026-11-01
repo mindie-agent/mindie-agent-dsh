@@ -4,10 +4,14 @@
 
 - Synchronize component contract pins with `mindie-sim 0.9.0`
   (`f5608b4943f515c401d2f9b12fffb579a1e2571b`) and `mindie-profiler 0.5.5`
-  (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`), and update the `sim` MCP tool
-  description for catalog/HF model composition (`predict`, `efficiency-breakdown`,
-  `sla-frontier`, `pd-disaggregation-solver`, `compose`), `async_scheduling`
-  delayed HBM release, and explicit case-file boundaries.
+  (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`), and update the `sim`,
+  `profiler`, and `coordinator` MCP tool descriptions for catalog/HF model
+  case synthesis (`compose`), evaluation commands (`predict`, `efficiency`,
+  `sla`, `sweep --mode pd`, `skew`, `graph`), `async_scheduling` delayed HBM
+  release, and `camodel`/`kernels` subcommands.
+- Streamline skill prompts, reference documentation, and knowledge tool
+  descriptions to remove defensive filler while preserving all operational
+  contracts.
 
 ## 0.1.10 — 2026-10-31
 

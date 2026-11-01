@@ -269,15 +269,11 @@ export function distillCallTimeoutMs() {
 }
 
 export const knowledgeDistillDescription =
-  'Distill explicitly selected, already-sanitized evidence through the shared C6 ' +
-  'graded-knowledge pipeline. Requires an activated task and an explicit ' +
-  'verified milestone/completion supplied by the caller; an ordinary Stop is not ' +
-  'completion. Pass optional `related_refs` to compare existing units for an ' +
-  'incremental revision, or a foreground `proposal` (mindie-distill-decision/1) ' +
-  'for deterministic validation without a model call. Only selected inputs, ' +
-  'task_state, related_refs, proposal and an optional configured domain are ' +
-  'accepted; activation comes from the native binding. Requires a live DSH host ' +
-  'summary endpoint and a paired runtime with C6 support; otherwise unavailable.'
+  'Distill verified milestone (`task_state="verified_milestone"`) or completed (`task_state="completed"`) ' +
+  'task evidence into local C5 graded L1-L4 units through the C6 decision pipeline. ' +
+  'Pass `inputs`, `task_state`, optional `related_refs` for incremental revisions, ' +
+  'optional `proposal` (`mindie-distill-decision/1`), and optional `domain`. ' +
+  'Requires an active `/mindie-agent` session.'
 
 export function registerKnowledgeDistill(ctx, {
   tool, sidecar, requireState, text, timeoutMs = distillCallTimeoutMs,
@@ -301,14 +297,11 @@ export function registerKnowledgeDistill(ctx, {
 }
 
 export const entryDescription =
-  'MindIE Agent entry. Use only after the user explicitly invokes `/mindie-agent`. ' +
-  'op=init activates this task and reports the saved contribution choice; optional ' +
-  'domain activates one configured additional domain under that domain\'s own consent and ' +
-  'project scope, without replacing this task default. ' +
-  'op=status is read-only; op=choose records the install-level contribution ' +
-  'choice (contribute or disabled) for public knowledge sharing and sanitized fault reports; ' +
-  'op=deactivate revokes this task across the default and all registered domains, and keeps ' +
-  'host state when any registered domain fails.'
+  'Manage the MindIE Agent session and configuration (`op="init"`, `status`, `choose`, `deactivate`, ' +
+  '`sharing-enable`, `sharing-disable`, `sharing-status`, `reporting-status`, `update-status`, ' +
+  '`update-check`, `update-enable`, `update-disable`). Use `op="init"` after `/mindie-agent` ' +
+  '(with optional `domain` to activate an additional domain), `op="choose"` to save the contribution ' +
+  'preference (`contribute` or `disabled`), and `op="deactivate"` to end the session lease.'
 
 export const entryParameters = {
   type: 'object',

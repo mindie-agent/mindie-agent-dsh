@@ -94,8 +94,6 @@ MCP connection; inspect its original record before starting another one.
 - **No `85°C` Throttling Heuristic**: Never infer thermal throttling from a
   static temperature threshold (such as `85°C`, `used_as_throttling_proof=False`);
   if explicit hardware throttle signal bits are unavailable from `npu-smi`,
-  report throttling status as explicitly `unknown` / `measurement_limitations`.
-- Keep the CPU/source-only checks distinct from actual NPU execution. Record
-  the revision, device, command, output, and limit for real runs.
-- Do not modify the user's unrelated containers, SSH configuration, or other
-  users' live jobs.
+  report throttling status as `unknown` / `measurement_limitations`.
+- Keep CPU/source-only checks distinct from live NPU execution, and record the
+  revision, device, command, and output for hardware runs.
