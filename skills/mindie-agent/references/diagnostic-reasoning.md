@@ -32,9 +32,11 @@ Check shape, dtype, stride, ownership, readiness and lifetime at the boundary
 that first diverges. A matching collective result does not validate the order
 of downstream operations.
 
-When `mindie_debugger` (`mindie_debugger.precision` / `mindie_debugger.aclgraph`) is available on `PYTHONPATH`, choose the
+When `mindie_debugger` (`mindie_debugger.npu_fault_triage` / `mindie_debugger.precision` / `mindie_debugger.aclgraph`) is available on `PYTHONPATH`, choose the
 primitive matching the failure mode to verify the root cause before and after
 your fix:
+- **Multi-rank CANN plog / dmesg / torchrun / HCCL timeout or AICore exception logs**:
+  use `triage_npu_fault_logs(log_dir_or_text)` (from `mindie_debugger.npu_fault_triage`, or CLI `mindie-debugger triage --root <dir>`) to isolate the earliest root-cause rank/operator (`root_cause_rank`, `fault_domain`, `error_codes`) from downstream cascading `HCCL_E_WAIT_TIMEOUT` ranks.
 - **State / buffer / metadata mutation or aliasing across steps or ranks** (e.g.,
   MTP `step 0` `seq_lens`/`cum_query_lens` overwritten after building `step 1`,
   idle-DP `_dummy_run` mutating persistent `GDN`/`KDA`/`Mamba` state, or

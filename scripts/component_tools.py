@@ -49,6 +49,17 @@ DESCRIPTIONS = {
         "mindie-coordinator. Pass CLI argv, e.g. ['hosts', '--action', 'list'] "
         "or ['probe', '--json', '{\"action\":\"hosts\"}']. Use ['--help'] to inspect options."
     ),
+    "debugger": (
+        "Triage Ascend CANN/NPU fault logs and localize vllm-ascend / MindIE-SD "
+        "precision drift, buffer aliasing/stomps, and ACLGraph capture/replay bugs "
+        "using mindie-debugger. Pass CLI arguments as an argv array, e.g. "
+        "['triage', '--root', '/logs'], ['triage', '--file', '/plog.log'], "
+        "['decode-code', '507015'], ['aclgraph', 'guard', '--script', 'repro.py'], "
+        "['aclgraph', 'inspect', '--script', 'repro.py', '--compare-eager'], "
+        "['precision', 'check-call', '--callable', 'pkg.mod:run_op'], "
+        "['precision', 'replay-call', 'capsule.pt'], or ['precision', 'slim-moe', ...]. "
+        "Use ['--help'] to inspect options."
+    ),
 }
 
 

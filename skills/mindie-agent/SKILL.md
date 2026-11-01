@@ -20,7 +20,7 @@ forked sessions, and subagents each require their own manual entry.
 Remote and component tools remain available in every session without `/mindie-agent`:
 
 - `remote-dev` MCP tools (`mcp__remote-dev__remote_*` for remote file read/write, command execution, and background job management) and read-only status checks (`mindie_entry(op="status" | "reporting-status")` and `mcp__mindie-tools__mindie_status`).
-- `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `profiler`, `sim`, and `coordinator` (which run the optional `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
+- `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `debugger`, `profiler`, `sim`, and `coordinator` (which run the `mindie-debugger`, `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
 
 ## When to Query Knowledge
 
@@ -188,6 +188,11 @@ For first-divergence checks, observer effects, history-dependent reproducers,
 independent oracles, progressive scale-up verification (pruned vs. full weights),
 same-topology baseline A/B parity, speculative graph/SLA sweeps, and parent/child
 PR delivery workflows, read [Diagnostic Reasoning](references/diagnostic-reasoning.md).
+When localizing NPU runtime faults, precision drift, buffer aliasing/stomps, or
+`ACLGraph` capture/replay bugs, use `mindie_debugger` (`triage_npu_fault_logs`,
+`StorageGraph`, `MemoryWatchpoint`, `WatchRingBuffer`, `LockstepDiffer`,
+`capture_call`/`replay_call`, `ACLGraphDumper`, `ACLGraphCaptureGuard`,
+`ACLGraphAddressTracker`; details in [Diagnostic Reasoning](references/diagnostic-reasoning.md)).
 
 ## Long-horizon workflow (`PROGRESS.md` & `experiment-ledger.jsonl`)
 
