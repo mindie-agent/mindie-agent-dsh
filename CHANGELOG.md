@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11 — 2026-11-01
+
+- Synchronize component contract pins with `mindie-sim 0.9.0`
+  (`f5608b4943f515c401d2f9b12fffb579a1e2571b`) and `mindie-profiler 0.5.5`
+  (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`), and update the `sim` MCP tool
+  description for catalog/HF model composition (`predict`, `efficiency-breakdown`,
+  `sla-frontier`, `pd-disaggregation-solver`, `compose`), `async_scheduling`
+  delayed HBM release, and explicit case-file boundaries.
+
 ## 0.1.10 — 2026-10-31
 
 - Align component bridge, post-verification convergence, and `TimeoutError`
