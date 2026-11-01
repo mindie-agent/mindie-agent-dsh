@@ -52,14 +52,15 @@ DESCRIPTIONS = {
     "debugger": (
         "Primary diagnostic tool for Ascend CANN/NPU fault logs and vllm-ascend / MindIE-SD "
         "precision drift, buffer aliasing/stomps, and ACLGraph/NPUGraph/UpdatableGraph capture/replay bugs "
-        "using mindie-debugger. Call this tool first when triaging failure logs or graph/precision bugs. "
-        "Pass CLI arguments as an argv array, e.g. "
-        "['triage', '--root', 'logs'], ['triage', '--file', 'logs/failure.log'], "
-        "['decode-code', '507015'], ['aclgraph', 'inspect', '--path', 'vllm_ascend/...'], "
-        "['aclgraph', 'guard', '--script', 'repro.py'], "
-        "['precision', 'check-call', '--callable', 'pkg.mod:run_op'], "
-        "['precision', 'replay-call', 'capsule.pt'], or ['precision', 'slim-moe', ...]. "
-        "Use ['--help'] to inspect options."
+        "using mindie-debugger (runs in its own managed PyTorch venv; static log triage and AST contract "
+        "inspection require no NPU hardware or vllm install). Call this tool first before manual log/code "
+        "grepping whenever triaging a `logs/` directory, failure log, or ACLGraph/precision bug: "
+        "(1) `['triage', '--root', 'logs']` or `['triage', '--file', 'logs/failure.log']` to rank multi-rank "
+        "CANN/worker logs, isolate the root-cause rank/component, and get recommended `aclgraph inspect` targets; "
+        "(2) `['aclgraph', 'inspect', '--path', 'vllm_ascend/...']` to run AST + runtime ACLGraph contract checks "
+        "(missing `out=` buffers, negative `null_block_id` packed-state underflow, stale `_updatable_graph_replay` "
+        "/ PCP `block_table` metadata, TP-sharded partial `device_buffer` writes, padded `ssm_state_indices`); "
+        "(3) `['precision', 'check-call', '--callable', 'pkg.mod:run_op']` or `['decode-code', '507015']`."
     ),
 }
 
