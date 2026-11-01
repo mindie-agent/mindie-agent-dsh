@@ -20,20 +20,16 @@ forked sessions, and subagents each require their own manual entry.
 Remote and component tools remain available in every session without `/mindie-agent`:
 
 - `remote-dev` MCP tools (`mcp__remote-dev__remote_*` for remote file read/write, command execution, and background job management) and read-only status checks (`mindie_entry(op="status" | "reporting-status")` and `mcp__mindie-tools__mindie_status`).
-- `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `debugger`, `profiler`, `sim`, and `coordinator` (which run the `mindie-debugger`, `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
+- `mindie-tools` MCP tools: `diagnostics_status` and `diagnostics_bundle` (included in the plugin runtime; local-only without uploading bundles), plus `debugger`, `profiler`, `sim`, and `coordinator` (which run the optional `mindie-debugger`, `mindie-profiler`, `mindie-sim`, and `mindie-coordinator` CLIs with an `argv` array when installed or configured via `component_commands`, returning `status`, `exit_code`, `stdout`, `stderr`, `output_truncated`, and parsed `result` only when `stdout` is JSON).
 
-## When to Use `debugger` MCP (`mcp__mindie-tools__debugger`) & Knowledge
+## When to Query Knowledge
 
-Calling `/mindie-agent` activates the session lease (`mindie_entry(op="init")`).
+Calling `/mindie-agent` activates the session lease (`mindie_entry(op="init")`); it does not require calling `knowledge_query` before inspecting code.
 
-- **Always run `debugger` MCP (`mcp__mindie-tools__debugger`) first on NPU faults, multi-rank timeouts, `ACLGraph`/`NPUGraph` bugs, and precision/memory-stomp anomalies**:
-  - When the prompt includes an NPU error log, traceback (`EZ9999`, `507011`, `507015`, `EI0002`, `HCCL_E_WAIT_TIMEOUT`, `errcode 264`, `AssertionError`), or a log file / multi-rank log directory: **immediately call `mcp__mindie-tools__debugger`** with `argv=["triage", "--text", "<error_log>"]`, `argv=["triage", "--file", "<path>"]`, or `argv=["triage", "--root", "<log_dir>"]` (and `argv=["decode-code", "<code>"]` when needed) to deterministically decode CANN/HCCL error codes, pinpoint the earliest root-cause rank across cascading timeouts, and classify the fault domain before editing code.
-  - When debugging `ACLGraph` / `NPUGraph` / `UpdatableGraph` capture or replay bugs, buffer aliasing, or precision/routing-replay corruption on an executable script or callable: call `mcp__mindie-tools__debugger` with `argv=["aclgraph", "inspect", "--script", "<script.py>", "--compare-eager"]`, `argv=["aclgraph", "guard", "--script", "<script.py>"]`, or `argv=["precision", "check-call", "--callable", "<mod:fn>"]` (or invoke `mindie_debugger` primitives `ACLGraphVllmInspector`, `ACLGraphDumper`, `ACLGraphAddressTracker`, `MemoryWatchpoint`, `StorageGraph`, `LockstepDiffer`).
-  - Diagnose strictly from local logs, `mcp__mindie-tools__debugger`, and the local repository; never use `web_search`, `web_fetch`, or `git fetch` to look up upstream GitHub commits or patches.
-- **When to Query Knowledge**:
-  - Probe missing environment or hardware facts with a minimal check first. Call `knowledge_query` when an Ascend contract, operator invariant, or tuning workflow would inform the next decision, passing observed facts in `conditions`.
-  - If you already have an exact `mindie://<domain>/units/<id>@<revision>` reference from earlier in the session, pass it directly to `knowledge_explain(refs=[...], conditions=..., known_refs=..., token_budget=...)` without re-querying.
-  - Stop loading references once the next step and its prerequisites are clear; reopen retrieval if new evidence or a failed check requires it.
+- Start by reading the relevant code and callers. If they explain the bug or requirement and support a direct, verifiable fix, proceed without calling knowledge tools.
+- Probe missing environment or hardware facts with a minimal check first. Call `knowledge_query` when an Ascend contract, operator invariant, or tuning workflow would inform the next decision, passing observed facts in `conditions`.
+- If you already have an exact `mindie://<domain>/units/<id>@<revision>` reference from earlier in the session, pass it directly to `knowledge_explain(refs=[...], conditions=..., known_refs=..., token_budget=...)` without re-querying.
+- Stop loading references once the next step and its prerequisites are clear; reopen retrieval if new evidence or a failed check requires it.
 
 ## Task Verification & Scope
 
@@ -192,11 +188,6 @@ For first-divergence checks, observer effects, history-dependent reproducers,
 independent oracles, progressive scale-up verification (pruned vs. full weights),
 same-topology baseline A/B parity, speculative graph/SLA sweeps, and parent/child
 PR delivery workflows, read [Diagnostic Reasoning](references/diagnostic-reasoning.md).
-When localizing NPU runtime faults, precision drift, buffer aliasing/stomps, or
-`ACLGraph` capture/replay bugs, use `mindie_debugger` (`triage_npu_fault_logs`,
-`StorageGraph`, `MemoryWatchpoint`, `WatchRingBuffer`, `LockstepDiffer`,
-`capture_call`/`replay_call`, `ACLGraphDumper`, `ACLGraphCaptureGuard`,
-`ACLGraphAddressTracker`; details in [Diagnostic Reasoning](references/diagnostic-reasoning.md)).
 
 ## Long-horizon workflow (`PROGRESS.md` & `experiment-ledger.jsonl`)
 
