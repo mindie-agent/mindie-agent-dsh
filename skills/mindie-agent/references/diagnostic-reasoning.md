@@ -32,7 +32,7 @@ Check shape, dtype, stride, ownership, readiness and lifetime at the boundary
 that first diverges. A matching collective result does not validate the order
 of downstream operations.
 
-When `mindie_diagnostics.precision` is available on `PYTHONPATH`, choose the
+When `mindie_debugger` (`mindie_debugger.precision` / `mindie_debugger.aclgraph`) is available on `PYTHONPATH`, choose the
 primitive matching the failure mode to verify the root cause before and after
 your fix:
 - **State / buffer / metadata mutation or aliasing across steps or ranks** (e.g.,
@@ -48,6 +48,13 @@ your fix:
 - **Multi-layer progressive divergence (Eager vs. `NPUGraph`, TP/EP/CP vs.
   single-card)**: use `LockstepDiffer` (`LockstepDiffer(ref_mod, cand_mod).compare(...)`)
   or `WatchRingBuffer` (capture-safe device ring buffer + first-fault `NaN`/`Inf` latch).
+- **`ACLGraph` (`torch.npu.NPUGraph`) capture/replay failures or in-graph intermediate layer dumping**:
+  use `ACLGraphDumper` (`with ACLGraphDumper(model, include=..., max_steps=..., device=...) as dumper:`
+  to capture zero-sync on-device intermediate layer outputs across `g.replay()` steps via
+  `dumper.advance_step()` and `dumper.compare_with_eager(eager_fn, *args, step_index=k)`),
+  `ACLGraphCaptureGuard` (to catch `.item()` / `.tolist()` / `bool(tensor)` / `.cpu()` inside
+  `with torch.npu.graph(g):`), and `ACLGraphAddressTracker` (to detect rebound static buffer
+  pointers or unmasked `slot_mapping >= 0` padded tails across replay).
 
 For cross-instance or prefill/decode (PD) disaggregated handoff, do not trust
 lifecycle hook names (`wait_for_layer_load`, `start_load_kv`) or scheduler token
