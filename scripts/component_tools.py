@@ -50,17 +50,16 @@ DESCRIPTIONS = {
         "or ['probe', '--json', '{\"action\":\"hosts\"}']. Use ['--help'] to inspect options."
     ),
     "debugger": (
-        "Primary diagnostic tool for Ascend CANN/NPU fault logs and vllm-ascend / MindIE-SD "
-        "precision drift, buffer aliasing/stomps, and ACLGraph/NPUGraph/UpdatableGraph capture/replay bugs "
-        "using mindie-debugger (runs in its own managed PyTorch venv; static log triage and AST contract "
-        "inspection require no NPU hardware or vllm install). Call this tool first before manual log/code "
-        "grepping whenever triaging a `logs/` directory, failure log, or ACLGraph/precision bug: "
-        "(1) `['triage', '--root', 'logs']` or `['triage', '--file', 'logs/failure.log']` to rank multi-rank "
-        "CANN/worker logs, isolate the root-cause rank/component, and get recommended `aclgraph inspect` targets; "
-        "(2) `['aclgraph', 'inspect', '--path', 'vllm_ascend/...']` to run AST + runtime ACLGraph contract checks "
-        "(missing `out=` buffers, negative `null_block_id` packed-state underflow, stale `_updatable_graph_replay` "
-        "/ PCP `block_table` metadata, TP-sharded partial `device_buffer` writes, padded `ssm_state_indices`); "
-        "(3) `['precision', 'check-call', '--callable', 'pkg.mod:run_op']` or `['decode-code', '507015']`."
+        "Ascend NPU fault triage (`triage`, `decode-code`), ACLGraph/NPUGraph capture/replay & buffer-address "
+        "debugger (`aclgraph`: `guard`, `inspect`), and operator precision/memory-stomp toolkit (`precision`: "
+        "`check-call`, `replay-call`, `inspect-capsule`, `compare-traces`, `watch`) via mindie-debugger. "
+        "Log triage (`['triage', '--root', 'logs']`, `['triage', '--file', 'logs/rank0.log']`, or "
+        "`['decode-code', '507015']`) runs directly without NPU hardware. For NPU-dependent dynamic ACLGraph "
+        "or precision debugging, call `['remote-guide']` (or any `['aclgraph', ...]` / `['precision', ...]` "
+        "command) to stage the pure-Python `mindie_debugger` bundle locally and obtain the exact `remote-dev` "
+        "(`remote_artifact_push` + `remote_bash`) commands and Python API hooks (`ACLGraphCaptureGuard`, "
+        "`ACLGraphAddressTracker`, `ACLGraphDumper`, `ACLGraphVllmInspector`, `capture_call`, `replay_call`) "
+        "to execute inside the remote NPU container."
     ),
 }
 
