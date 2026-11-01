@@ -32,6 +32,23 @@ Check shape, dtype, stride, ownership, readiness and lifetime at the boundary
 that first diverges. A matching collective result does not validate the order
 of downstream operations.
 
+When `mindie_diagnostics.precision` is available on `PYTHONPATH`, choose the
+primitive matching the failure mode to verify the root cause before and after
+your fix:
+- **State / buffer / metadata mutation or aliasing across steps or ranks** (e.g.,
+  MTP `step 0` `seq_lens`/`cum_query_lens` overwritten after building `step 1`,
+  idle-DP `_dummy_run` mutating persistent `GDN`/`KDA`/`Mamba` state, or
+  variable-length chunk workspace stomp): use `StorageGraph`
+  (`StorageGraph(a=t0, b=t1).shares_storage("a", "b")` / `.overlapping_views()`)
+  and `MemoryWatchpoint` (`with MemoryWatchpoint(module_or_None, must_preserve={"state": t}) as wp:`
+  -> `wp.report()`).
+- **Single-operator / reduction / quantization numerical drift vs. FP32 or
+  run-to-run jitter**: use `capture_call` and `replay_call`
+  (`cap = capture_call(fn, *args, **kwargs); replay_call(cap, fn, mode="reference_check", reference_atol=..., reference_rtol=...)`).
+- **Multi-layer progressive divergence (Eager vs. `NPUGraph`, TP/EP/CP vs.
+  single-card)**: use `LockstepDiffer` (`LockstepDiffer(ref_mod, cand_mod).compare(...)`)
+  or `WatchRingBuffer` (capture-safe device ring buffer + first-fault `NaN`/`Inf` latch).
+
 For cross-instance or prefill/decode (PD) disaggregated handoff, do not trust
 lifecycle hook names (`wait_for_layer_load`, `start_load_kv`) or scheduler token
 counters (`num_computed_tokens` while waiting for remote KV) as proof that data
