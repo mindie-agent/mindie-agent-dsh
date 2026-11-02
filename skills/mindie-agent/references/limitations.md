@@ -32,13 +32,14 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 Current runtime pins:
 
-- `mindie-knowledge` `0.13.8` (`9a4325858e6fadb10715275826a7795843cbbdf4`)
-- `remote-dev` `0.11.2` (`85be999811771e03ecc7d78e5e560fac1636e7ef`)
-- `mindie-diagnostics` `0.5.4` (`5ae643e19223f2181ecdbaa3edaf464137c4805e`)
-- `mindie-profiler` `0.5.5` (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`)
-- `mindie-sim` `0.9.0` (`f5608b4943f515c401d2f9b12fffb579a1e2571b`)
-- `mindie-coordinator` `0.7.1` (`d146c55c414bfb92136cf5fb7fa11ae14c673ef0`)
-- `npu-top` `0.3.0` (`ff78215dbe94bb3bd16abc6897878918748b8aee`)
+- `mindie-knowledge` `0.13.10` (`7936a4fda67f6808d8fa73824363a4d7345766e5`)
+- `remote-dev` `0.11.4` (`7c67876d716feb3949e4dbf33eb5e06980ff0d36`)
+- `mindie-diagnostics` `0.5.5` (`f2f2f946c172afc99342a84c0c1ed244f6d44e01`)
+- `mindie-debugger` `0.1.0` (`e9406b2b178335190d5cb59dff4d6985894497ba`)
+- `mindie-profiler` `0.5.6` (`79d97e75bff7351b0472b93c03b072c1cf47f5e7`)
+- `mindie-sim` `0.9.2` (`ced2dba5741af2d98f3a75b2a9cad77b9b94c40d`)
+- `mindie-coordinator` `0.7.3` (`79a8b28eef72d57f965a01c6660849f024fbb1c0`)
+- `npu-top` `0.3.1` (`8f0cb3ec66393812e90e118cd73704070c6027a2`)
 
 ## Unified Contribution Switch
 
