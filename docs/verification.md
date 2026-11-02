@@ -1,6 +1,6 @@
 # Verification Architecture & Evidence (`0.0.2`)
 
-Host target: DeepSeek Harness `>=0.2.0-rc.2 <0.2.2-0`; certified on `0.2.0-rc.2`
+Host target: DeepSeek Harness `>=0.2.0-rc.2 <1.0.0`; certified on `0.2.0-rc.2`
 and `0.2.1-rc.5`.
 
 This document summarizes the verification scope and acceptance evidence for `mindie-agent-dsh` across local contract tests, cross-platform host integration, unified consent and fault-reporting checks, and `mindie-bench` evaluation.
@@ -56,7 +56,7 @@ This document summarizes the verification scope and acceptance evidence for `min
 
 ## 6. DSH `0.2.1-rc.5` Interface Audit
 
-The optional peer range `>=0.2.0-rc.2 <0.2.2-0` is checked against the exact
+The optional peer range `>=0.2.0-rc.2 <1.0.0` is checked against the exact
 contracts this adapter uses. On Windows 11 with DSH `0.2.1-rc.5`
 (`@deepseek-ai/dsh@0.2.1-rc.5`, Node 24.21.0, Python 3.11.4), the `0.1.10`
 adapter mounted in the installed `desktop` profile without an exact-version

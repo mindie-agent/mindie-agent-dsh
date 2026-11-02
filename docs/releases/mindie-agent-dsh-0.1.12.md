@@ -1,62 +1,19 @@
 # mindie-agent-dsh 0.1.12
 
-Paired with MindIE Agent `0.1.6`, this release widens the declared DeepSeek
-Harness compatibility from the exact `0.2.0-rc.2` pin to the certified `0.2.0`
-and `0.2.1` lines. It retains the explicit `/mindie-agent` session gate, the
-native release updater and the pinned runtime components from `0.1.11`.
+This release widens the `@deepseek-ai/dsh` optional peer dependency and
+`harness-compatibility.json` declaration from a single-version point lock
+(`0.2.0-rc.2`) to the forward-compatible `0.x` SemVer range
+`>=0.2.0-rc.2 <1.0.0` (including prerelease versions such as `0.2.1-rc.2`),
+updates `scripts/native_update.py` to evaluate SemVer comparator ranges during
+native bundle updates, and clarifies the remote container CANN `plog` triage
+workflow in the `debugger` MCP tool description.
 
-## Behavior
+## Runtime and verification
 
-- `package.json` declares the optional peer `@deepseek-ai/dsh` as
-  `>=0.2.0-rc.2 <0.2.2-0`. DSH evaluates plugin peers with prereleases
-  included, so DSH `0.2.1-rc.5` is admitted without an exact-version exemption,
-  while `0.2.2-*` and later stay outside the declared range.
-- The native updater checks a candidate's DSH requirement with npm-semver
-  precedence instead of string equality. `engines.dsh` decides alone when
-  present, matching DSH's own precedence; a missing or unsupported requirement
-  fails loudly before any profile write.
-- `scripts/semver_range.py` is a bounded, dependency-free evaluator for the
-  comparator syntax the adapter declares. `setup.py` stages it with the updater
-  scripts so an installed profile can import it from the update directory.
-
-## Interface audit
-
-`docs/verification.md` records the Host-interface audit on Windows 11 with DSH
-`0.2.1-rc.5`: the bundle patch, skill filesystem configuration, MCP stdio
-configuration, `ctx.tools.register`, the `agent/pre-step` and
-`agent/turn-stopping` dispatchers, `agent.options`, `ctx.llm.stream` chunks and
-the v4 `session.v4.jsonl.zstd` transcript all keep the contracts the adapter
-uses. The installed `desktop` profile mounted the adapter
-(`mounted ... host3.mjs`) without an exact-version exemption.
-
-## Runtime and host compatibility
-
-The runtime pins are unchanged from `0.1.11`; the exact source pins are recorded
-in `uv.lock`, `runtime-requirements.txt` and the current `runtime_components`
-entry of `harness-compatibility.json`. Historical `verified` entries retain
-their original versions and evidence.
-
-| Component | Version / Tag | Role | Source commit |
-| --- | --- | --- | --- |
-| `mindie-knowledge` | `0.13.8` / `v0.13.8` | Runtime dependency | `9a4325858e6fadb10715275826a7795843cbbdf4` |
-| `remote-dev` | `0.11.2` / `v0.11.2` | Runtime dependency | `85be999811771e03ecc7d78e5e560fac1636e7ef` |
-| `mindie-diagnostics` | `0.5.4` / `v0.5.4` | Runtime dependency | `5ae643e19223f2181ecdbaa3edaf464137c4805e` |
-| `mindie-profiler` | `0.5.5` / `v0.5.5` | Optional component contract | `7cdd56b6cc9e0e7f603368393497487dd2dbfe39` |
-| `mindie-sim` | `0.9.0` / `v0.9.0` | Optional component contract | `f5608b4943f515c401d2f9b12fffb579a1e2571b` |
-| `mindie-coordinator` | `0.7.1` / `v0.7.1` | Optional component contract | `d146c55c414bfb92136cf5fb7fa11ae14c673ef0` |
-
-The declared native host range is DeepSeek Harness `>=0.2.0-rc.2 <0.2.2-0`,
-certified on `0.2.0-rc.2` (historical evidence) and `0.2.1-rc.5` (the `0.1.10`
-audit recorded in `docs/verification.md`), with Node.js `>=22` and Python
-`>=3.11`.
-
-## Verification scope
-
-- The release workflow installs the exact lock, validates formal first-party
-  dependencies, runs Python and Node contracts, and builds the npm archive.
-  CI checks the adapter on Ubuntu, macOS and Windows.
-- The `0.2.1-rc.5` audit covers composition and protocol surfaces; every
-  model-facing knowledge path was not re-exercised end to end on that runtime.
-- Installed-profile auto-update and native runtime readback are separate
-  post-publication acceptance steps. No model request is needed to trigger the
-  existing idle update timer or inspect the resulting binding.
+The locked runtime selects `mindie-knowledge 0.13.8`
+(`9a4325858e6fadb10715275826a7795843cbbdf4`), `remote-dev 0.11.2`
+(`85be999811771e03ecc7d78e5e560fac1636e7ef`), and `mindie-diagnostics 0.5.4`
+(`5ae643e19223f2181ecdbaa3edaf464137c4805e`), with contract pins at
+`mindie-profiler 0.5.5` (`7cdd56b6cc9e0e7f603368393497487dd2dbfe39`),
+`mindie-sim 0.9.0` (`f5608b4943f515c401d2f9b12fffb579a1e2571b`), and
+`mindie-coordinator 0.7.1` (`d146c55c414bfb92136cf5fb7fa11ae14c673ef0`).

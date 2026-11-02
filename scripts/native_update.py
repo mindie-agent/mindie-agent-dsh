@@ -18,6 +18,14 @@ from mindie_knowledge.loop.process import bounded_run
 from semver_range import SemverRangeError, satisfies
 
 
+def matches_dsh_peer(requirement: str, version: str) -> bool:
+    """Evaluate exact or comparator-range DSH peerDependencies with includePrerelease semantics."""
+    try:
+        return satisfies(version, requirement)
+    except SemverRangeError:
+        return False
+
+
 def installed(native, profile):
     output = bounded_run([native, 'plugin', '--profile', profile, 'list', '--json'], '',
                          timeout=30, max_output=256 * 1024)

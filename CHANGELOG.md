@@ -2,19 +2,13 @@
 
 ## 0.1.12 — 2026-11-02
 
-- Widen the optional `@deepseek-ai/dsh` peer requirement from the exact
-  `0.2.0-rc.2` pin to `>=0.2.0-rc.2 <0.2.2-0`, covering the certified 0.2.0 and
-  0.2.1 lines. DSH evaluates the range with prereleases included, so
-  `0.2.1-rc.5` is admitted without an exact-version exemption.
-- Audit the Host interfaces the adapter uses against DSH `0.2.1-rc.5`
-  (`ctx.tools.register`, the `agent/pre-step` and `agent/turn-stopping`
-  dispatchers, `exec.agent`, `ctx.llm.stream` chunks, the
-  `@deepseek-ai/dsh-mcp-client` stdio config, skill filesystem roots, and
-  `session.v4.jsonl.zstd`), and record the evidence in `docs/verification.md`.
-- Evaluate a candidate's declared DSH requirement in the native updater with
-  npm-semver precedence (`engines.dsh` first, as DSH does) instead of exact
-  string equality, and ship the shared range evaluator with the staged updater
-  scripts. An unsupported or missing requirement now fails loudly.
+- Widen the `@deepseek-ai/dsh` optional peer dependency and compatibility
+  declaration from the exact point lock `0.2.0-rc.2` to the forward-compatible
+  `0.x` range `>=0.2.0-rc.2 <1.0.0` (verified on `0.2.0-rc.2` and `0.2.1-rc.2`),
+  and update `scripts/native_update.py` to evaluate SemVer comparator ranges
+  with prerelease support.
+- Clarify the remote container CANN `plog` triage workflow in the `debugger`
+  MCP tool description.
 
 ## 0.1.11 — 2026-11-01
 

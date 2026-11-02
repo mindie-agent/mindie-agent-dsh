@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.0--rc.2_.._0.2.1-7045F5.svg" alt="DSH 0.2.0-rc.2 through 0.2.1"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
 </p>
 
@@ -100,7 +100,7 @@
 
 | 依赖 | 要求 | 说明 |
 | --- | --- | --- |
-| DeepSeek Harness | `>=0.2.0-rc.2 <0.2.2-0` | `package.json` 的可选 peer 依赖声明该范围（已认证 `0.2.0-rc.2` 与 `0.2.1-rc.5`） |
+| DeepSeek Harness | `>=0.2.0-rc.2 <1.0.0` | `package.json` 的可选 peer 依赖声明兼容 `0.2.0-rc.2`、`0.2.1-rc.2` 及后续 `0.x` 版本 |
 | Node.js | `>= 22` | DSH 运行时要求 |
 | Python | `>= 3.11` | 由 `uv` 选择/管理解释器（支持 3.11+） |
 | `uv` | 任意近期版本 | 构建锁定运行时、提供 Python 解释器 |
@@ -173,7 +173,7 @@ flowchart TB
 单次调用超时默认 120 秒（`timeout_ms=120000`）、最多可设 10 分钟（`600000`）；输出默认最多 64 KiB（`max_output_tokens=16384`）、最多可设 1 MiB（`262144`），两路输出合计按每 token 4 字节计，大报告建议保存到文件。
 
 - **不覆盖**任何 DSH 内置行或预设，仅通过 `cordis.patch.yml` 执行 `insert`；DSH 标准预设改动不会被本适配器遮蔽。
-- `package.json` 仅声明 `@deepseek-ai/dsh` 的语义化版本范围 `>=0.2.0-rc.2 <0.2.2-0` 可选 peer 依赖，安装时不会把第二个 DSH 运行时拉入 profile。
+- `package.json` 仅声明 `@deepseek-ai/dsh`（`>=0.2.0-rc.2 <1.0.0`）可选 peer 依赖，安装时不会把第二个 DSH 运行时拉入 profile。
 
 ## `0.1.12` 的贡献与故障上报
 

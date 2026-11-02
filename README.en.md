@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.0--rc.2_.._0.2.1-7045F5.svg" alt="DSH 0.2.0-rc.2 through 0.2.1"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
 </p>
 
@@ -20,7 +20,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#architecture-and-stability-boundary">Architecture</a> ·
-  <a href="#contribution-and-fault-reporting-in-0111">Contribution & Reporting</a> ·
+  <a href="#contribution-and-fault-reporting-in-0112">Contribution & Reporting</a> ·
   <a href="#0112-scope-and-known-limits">Limits</a>
 </p>
 
@@ -99,7 +99,7 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
 
 | Dependency | Requirement | Why |
 | --- | --- | --- |
-| DeepSeek Harness | `>=0.2.0-rc.2 <0.2.2-0` | The optional peer dependency declares this range (certified: `0.2.0-rc.2` and `0.2.1-rc.5`) |
+| DeepSeek Harness | `>=0.2.0-rc.2 <1.0.0` | The optional peer dependency declares compatibility across `0.2.0-rc.2`, `0.2.1-rc.2`, and subsequent `0.x` releases |
 | Node.js | `>= 22` | DSH runtime requirement |
 | Python | `>= 3.11` | `uv` selects/manages Python 3.11+ |
 | `uv` | a recent release | builds the locked runtime and provides the Python interpreter |
@@ -172,7 +172,7 @@ Relative paths resolve against the current session working directory; use an abs
 Timeout defaults to 120 seconds (`timeout_ms=120000`) up to 10 minutes (`600000`). Combined output defaults to at most 64 KiB (`max_output_tokens=16384`) and can be set up to 1 MiB (`262144`), counted at 4 bytes per token across `stdout` and `stderr`; save large reports to a file.
 
 - **No override** of any shipped row or preset — `cordis.patch.yml` only performs `insert` operations, so DSH upgrades to the standard preset are never shadowed.
-- The package declares only an optional semver peer range on `@deepseek-ai/dsh` (`>=0.2.0-rc.2 <0.2.2-0`), avoiding duplicate DSH runtimes in the profile.
+- The package declares only an optional peer on `@deepseek-ai/dsh` (`>=0.2.0-rc.2 <1.0.0`), avoiding duplicate DSH runtimes in the profile.
 
 ## Contribution and Fault Reporting in `0.1.12`
 

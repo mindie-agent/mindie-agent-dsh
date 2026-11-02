@@ -103,6 +103,8 @@ def _holds(
     operator: str,
     bound: tuple[int, int, int, tuple[tuple[int, object], ...]],
 ) -> bool:
+    if operator == '<' and not bound[3] and target[:3] == bound[:3]:
+        return False
     order = _compare(target, bound)
     if operator == '=':
         return order == 0
