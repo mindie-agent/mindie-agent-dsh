@@ -2043,7 +2043,7 @@ wheels = [
 
 [[package]]
 name = "mindie-agent-dsh-runtime"
-version = "0.1.11"
+version = "0.1.12"
 source = { virtual = "." }
 dependencies = [
     { name = "mindie-diagnostics" },

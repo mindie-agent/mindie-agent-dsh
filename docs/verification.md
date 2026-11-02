@@ -1,6 +1,7 @@
 # Verification Architecture & Evidence (`0.0.2`)
 
-Host target: DeepSeek Harness `0.2.0-rc.2` (`@deepseek-ai/dsh@0.2.0-rc.2`).
+Host target: DeepSeek Harness `>=0.2.0-rc.2 <0.2.2-0`; certified on `0.2.0-rc.2`
+and `0.2.1-rc.5`.
 
 This document summarizes the verification scope and acceptance evidence for `mindie-agent-dsh` across local contract tests, cross-platform host integration, unified consent and fault-reporting checks, and `mindie-bench` evaluation.
 
@@ -52,3 +53,30 @@ This document summarizes the verification scope and acceptance evidence for `min
 
 - **Same-Version Refresh**: Upgrading from the earlier `0.0.2` commit (`828c375d1f546ed653250526465b8075c1691390`) requires the explicit SHA refresh and full DSH process restart documented in [`docs/same-version-refresh.md`](same-version-refresh.md).
 - **Host-Scoped Auto-Update**: Background update checks run while the DSH Host process is alive and swap child plugin generations (`host3.mjs`); skill files and the root `cordis.patch.yml` require a bundle update and DSH restart when changed.
+
+## 6. DSH `0.2.1-rc.5` Interface Audit
+
+The optional peer range `>=0.2.0-rc.2 <0.2.2-0` is checked against the exact
+contracts this adapter uses. On Windows 11 with DSH `0.2.1-rc.5`
+(`@deepseek-ai/dsh@0.2.1-rc.5`, Node 24.21.0, Python 3.11.4), the `0.1.10`
+adapter mounted in the installed `desktop` profile without an exact-version
+exemption: the MindIE data directory's `update/launcher.log` (on Windows
+`%LOCALAPPDATA%\mindie-agent\dsh\update\launcher.log`) records
+`mounted .../profiles/desktop/node_modules/mindie-agent-dsh/host3.mjs`.
+
+| Interface | DSH `0.2.1-rc.5` evidence | Result |
+| --- | --- | --- |
+| Bundle patch | The running profile recomposed and loaded both inserted Host rows after installation. | pass |
+| Skill filesystem | `customSkillDirs`, `providerName`, `includeDefaultRoots` and `watch` remain documented configuration fields; the skill root resolved through `createRequire(baseUrl)`. | pass |
+| MCP stdio | `@deepseek-ai/dsh-mcp-client` still accepts `command`/`args`/`env`/`cwd`/`toolCallTimeoutMs`/`failOnStartupError`; both `remote_dev.mcp.server` and `component_mcp.py` completed an MCP initialize and tools/list exchange. | pass |
+| Host tools | `ctx.tools.register` still takes `{name, description, parameters, output: {schema, render}, execute(args, exec)}`; `exec.agent` and `exec.signal` are present, and registration completed during the live mount. | pass |
+| Agent events | `agent/pre-step` remains a waterfall receiving `{agent, messages, turn, step, signal}` plus `next`; `agent/turn-stopping` remains a serial event whose payload carries `{agent, turn, signal}` because the fused dispatcher injects `agent`. | pass |
+| Agent route | `agent.options.provider` and `agent.options.model` still describe the session route. | pass |
+| LLM stream | `ctx.llm.stream` still yields `text-delta`, `usage` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`) and one terminal `finish` with `error`, `aborted` or `max-tokens` reasons. | pass |
+| v4 transcript | Sessions are written as `session.v4.jsonl.zstd`; headers carry `cwd` and `delegationDepth`; `user/message` keeps `source.kind == "user"` and `assistant/message` keeps text blocks. | pass |
+| Agent scope | `agent.ctx` remains available for per-session `ctx.plugin` registration of both MCP servers. | pass |
+
+Known non-blocking subset note: DSH enforces `type`/`properties`/`required`/
+`additionalProperties`/`items`/`enum`/`const` and ignores `minimum`, `maximum`
+and `pattern` in tool parameters. The adapter keeps those annotations as
+provider-side hints; the DSH tool layer does not enforce them.
