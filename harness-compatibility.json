@@ -27,6 +27,30 @@
   },
   "verified": [
     {
+      "dsh_version": "0.2.1-rc.5",
+      "node": ">=22",
+      "python": ">=3.11",
+      "platforms": [
+        "Windows 11 native"
+      ],
+      "evidence": "docs/verification.md#6-dsh-021-rc5-interface-audit",
+      "plugin_version": "0.1.10",
+      "runtime_components": {
+        "mindie-knowledge": {
+          "version": "0.13.6",
+          "commit": "9af5a82ad557e2120277693854a0571613c8a115"
+        },
+        "remote-dev": {
+          "version": "0.11.1",
+          "commit": "2a750ec8c74d7f053410d48dd820aeb542e7d3b1"
+        },
+        "mindie-diagnostics": {
+          "version": "0.5.4",
+          "commit": "5ae643e19223f2181ecdbaa3edaf464137c4805e"
+        }
+      }
+    },
+    {
       "dsh_version": "0.2.0-rc.2",
       "node": ">=22",
       "python": ">=3.11",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tomllib
 import unittest
 from pathlib import Path
@@ -13,6 +14,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "package.json"
 PATCH = ROOT / "cordis.patch.yml"
+
+sys.path.insert(0, str(ROOT / "scripts"))
+from semver_range import satisfies  # noqa: E402 - resolved from the scripts directory above
+
+DSH_PEER_RANGE = ">=0.2.0-rc.2 <1.0.0"
 
 STANDARD_ONLY = {
     "@deepseek-ai/dsh-skill-filesystem",
@@ -94,7 +100,16 @@ class PackageContractTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(compatibility["verified"][0]["dsh_version"], "0.2.0-rc.2")
+        verified = compatibility["verified"]
+        self.assertEqual(
+            [entry["dsh_version"] for entry in verified],
+            ["0.2.1-rc.5", "0.2.0-rc.2"],
+        )
+        for entry in verified:
+            self.assertTrue(
+                satisfies(entry["dsh_version"], DSH_PEER_RANGE),
+                f"verified DSH {entry['dsh_version']} is outside the declared peer range",
+            )
         req_lines = [
             line.strip()
             for line in requirements.splitlines()

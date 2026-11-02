@@ -1,6 +1,8 @@
 """[Role] Install the selected DSH bundle through its native plugin CLI.
-[Invariants] Only this bundle's dependency is changed. Unknown native writes
-are retained in the existing update status and are never repeated blindly.
+[Invariants] Only this bundle's dependency is changed. The candidate's declared
+DSH requirement (`engines.dsh`, else the `@deepseek-ai/dsh` peer) must admit the
+running runtime. Unknown native writes are retained in the existing update
+status and are never repeated blindly.
 [Timeouts & Locks] Native reads take 30s and installation 120s, plus the shared
 owned runner's cleanup allowance. The updater owns its existing check lock.
 [Side-Effect Policy] Runs `dsh plugin add link:... --ignore-scripts`, then reads
@@ -11,45 +13,17 @@ import json
 from pathlib import Path
 import shutil
 
-from semantic_version import Version
-
 from mindie_knowledge.loop.process import bounded_run
+
+from semver_range import SemverRangeError, satisfies
 
 
 def matches_dsh_peer(requirement: str, version: str) -> bool:
     """Evaluate exact or comparator-range DSH peerDependencies with includePrerelease semantics."""
-    if not isinstance(requirement, str) or not requirement.strip():
-        return False
     try:
-        actual = Version(version.strip())
-    except ValueError:
+        return satisfies(version, requirement)
+    except SemverRangeError:
         return False
-    for token in requirement.strip().split():
-        for op, fn in (
-            ('>=', lambda a, b: a >= b),
-            ('<=', lambda a, b: a <= b),
-            ('>', lambda a, b: a > b),
-            ('<', lambda a, b: a < b),
-            ('=', lambda a, b: a == b),
-        ):
-            if token.startswith(op):
-                target_str = token[len(op):]
-                break
-        else:
-            op, fn, target_str = '=', (lambda a, b: a == b), token
-        try:
-            target = Version(target_str)
-        except ValueError:
-            return False
-        if (
-            op == '<'
-            and not target.prerelease
-            and (actual.major, actual.minor, actual.patch) == (target.major, target.minor, target.patch)
-        ):
-            return False
-        if not fn(actual, target):
-            return False
-    return True
 
 
 def installed(native, profile):
@@ -77,6 +51,27 @@ def current_version(profile):
     return manifest['version']
 
 
+def dsh_requirement(declared):
+    """Return the DSH requirement clause; `engines.dsh` decides alone, as in DSH."""
+    engines = declared.get('engines')
+    if isinstance(engines, dict) and 'dsh' in engines:
+        return engines['dsh']
+    peers = declared.get('peerDependencies')
+    if isinstance(peers, dict) and isinstance(peers.get('@deepseek-ai/dsh'), str):
+        return peers['@deepseek-ai/dsh']
+    raise ValueError('candidate plugin declares no DSH version requirement')
+
+
+def compatible(declared, version):
+    """Whether the candidate's declared DSH requirement admits this runtime."""
+    try:
+        return satisfies(version, dsh_requirement(declared))
+    except SemverRangeError as error:
+        raise ValueError(
+            f'candidate plugin declares an unsupported DSH requirement: {error}'
+        ) from error
+
+
 def install(package, profile, status, record):
     native = shutil.which('dsh')
     if native is None:
@@ -84,8 +79,7 @@ def install(package, profile, status, record):
     package = Path(package).resolve()
     declared = json.loads((package / 'package.json').read_text(encoding='utf-8'))
     version = bounded_run([native, '--version'], '', timeout=15, max_output=4096).strip()
-    peer_req = declared.get('peerDependencies', {}).get('@deepseek-ai/dsh', '')
-    if not matches_dsh_peer(peer_req, version):
+    if not compatible(declared, version):
         raise ValueError('candidate plugin does not declare compatibility with the installed DSH')
     before = installed(native, profile)
     if before == str(package):

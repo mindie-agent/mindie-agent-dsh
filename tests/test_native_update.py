@@ -10,24 +10,27 @@ import native_update
 import updater
 
 
-def package(tmp_path, peer_range='>=0.2.0-rc.2 <1.0.0'):
+def package(tmp_path, peer_range='>=0.2.0-rc.2 <1.0.0', **fields):
     path = tmp_path / 'candidate'
     path.mkdir(exist_ok=True)
-    (path / 'package.json').write_text(json.dumps(dict(
+    manifest = dict(
         name='mindie-agent-dsh', version='0.1.12',
-        peerDependencies={'@deepseek-ai/dsh': peer_range})))
+        peerDependencies={'@deepseek-ai/dsh': peer_range})
+    manifest.update(fields)
+    (path / 'package.json').write_text(json.dumps(manifest))
     return path
 
 
-def runner(monkeypatch, target, *, uncertain=False, applied=True, host_version='0.2.0-rc.2'):
+def runner(monkeypatch, target, *, uncertain=False, applied=True, host_version='0.2.0-rc.2', version=None):
+    effective_version = version if version is not None else host_version
     calls = []
     reads = []
-    # This is the actual DSH 0.2.0-rc.2 pnpm list shape; profile paths are
+    # This is the actual DSH 0.2.1-rc.5 pnpm list shape; profile paths are
     # test-owned. Other installed dependencies must remain outside our write.
     def command(argv, _payload, **kwargs):
         calls.append(argv)
         if argv[1:] == ['--version']:
-            return host_version + '\n'
+            return effective_version + '\n'
         if 'list' in argv:
             selected = str(target.resolve()) if reads and applied else str(target.parent / 'old')
             reads.append(selected)
@@ -90,3 +93,41 @@ def test_unsettled_native_write_is_preserved_and_not_repeated(tmp_path, monkeypa
     with pytest.raises(updater.UpdateError, match='unconfirmed'):
         updater.check('web', '0.1.1', updater.DEFAULT_API)
     assert len(calls) == before
+
+
+def test_declared_range_admits_current_runtime(tmp_path, monkeypatch):
+    target = package(tmp_path)
+    runner(monkeypatch, target, version='0.2.1-rc.5')
+    status = {}
+    native_update.install(target, 'web', status, lambda _: None)
+    assert status['native']['stage'] == 'verified'
+
+
+def test_runtime_outside_declared_range_is_rejected(tmp_path, monkeypatch):
+    target = package(tmp_path)
+    runner(monkeypatch, target, version='1.0.0-rc.1')
+    with pytest.raises(ValueError, match='does not declare compatibility'):
+        native_update.install(target, 'web', {}, lambda _: None)
+
+
+def test_engines_dsh_decides_alone(tmp_path, monkeypatch):
+    target = package(tmp_path, engines={'dsh': '>=0.2.1-rc.5 <0.2.2-0'},
+                     peerDependencies={'@deepseek-ai/dsh': '0.1.0'})
+    runner(monkeypatch, target, version='0.2.1-rc.5')
+    status = {}
+    native_update.install(target, 'web', status, lambda _: None)
+    assert status['native']['stage'] == 'verified'
+
+
+def test_unsupported_requirement_is_rejected(tmp_path, monkeypatch):
+    target = package(tmp_path, peerDependencies={'@deepseek-ai/dsh': '0.2.x'})
+    runner(monkeypatch, target)
+    with pytest.raises(ValueError, match='unsupported DSH requirement'):
+        native_update.install(target, 'web', {}, lambda _: None)
+
+
+def test_missing_requirement_is_rejected(tmp_path, monkeypatch):
+    target = package(tmp_path, peerDependencies={})
+    runner(monkeypatch, target)
+    with pytest.raises(ValueError, match='no DSH version requirement'):
+        native_update.install(target, 'web', {}, lambda _: None)

@@ -132,7 +132,7 @@
 
 ```mermaid
 flowchart TB
-  subgraph DSH["DeepSeek Harness 0.2.0-rc.2"]
+  subgraph DSH["DeepSeek Harness 0.2.0-rc.2 / 0.2.1-rc.5"]
     HOST["Host composition<br/>mindie-agent-dsh bundle"]
     STD["standard / 其它 agent preset"]
     SKILL["mindie-agent-skill<br/>@deepseek-ai/dsh-skill-filesystem"]

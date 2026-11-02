@@ -361,7 +361,7 @@ def prepare_domains(adapter, engine):
 def install_updater() -> dict[str, Any]:
     stage_retained_package()
     directory = mp.data_home() / "update"
-    for name in ("updater.py", "component_update.py", "native_update.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
+    for name in ("updater.py", "component_update.py", "native_update.py", "semver_range.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:

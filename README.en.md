@@ -131,7 +131,7 @@ Connect to the vllm-dev container on 192.0.2.21:22, sync my updated tests, run p
 
 ```mermaid
 flowchart TB
-  subgraph DSH["DeepSeek Harness 0.2.0-rc.2"]
+  subgraph DSH["DeepSeek Harness 0.2.0-rc.2 / 0.2.1-rc.5"]
     HOST["Host composition<br/>mindie-agent-dsh bundle"]
     STD["standard / any agent preset"]
     SKILL["mindie-agent-skill<br/>@deepseek-ai/dsh-skill-filesystem"]
