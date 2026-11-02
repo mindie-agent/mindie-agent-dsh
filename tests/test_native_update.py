@@ -10,16 +10,16 @@ import native_update
 import updater
 
 
-def package(tmp_path):
+def package(tmp_path, peer_range='>=0.2.0-rc.2 <1.0.0'):
     path = tmp_path / 'candidate'
-    path.mkdir()
+    path.mkdir(exist_ok=True)
     (path / 'package.json').write_text(json.dumps(dict(
-        name='mindie-agent-dsh', version='0.1.2',
-        peerDependencies={'@deepseek-ai/dsh': '0.2.0-rc.2'})))
+        name='mindie-agent-dsh', version='0.1.12',
+        peerDependencies={'@deepseek-ai/dsh': peer_range})))
     return path
 
 
-def runner(monkeypatch, target, *, uncertain=False, applied=True):
+def runner(monkeypatch, target, *, uncertain=False, applied=True, host_version='0.2.0-rc.2'):
     calls = []
     reads = []
     # This is the actual DSH 0.2.0-rc.2 pnpm list shape; profile paths are
@@ -27,7 +27,7 @@ def runner(monkeypatch, target, *, uncertain=False, applied=True):
     def command(argv, _payload, **kwargs):
         calls.append(argv)
         if argv[1:] == ['--version']:
-            return '0.2.0-rc.2\n'
+            return host_version + '\n'
         if 'list' in argv:
             selected = str(target.resolve()) if reads and applied else str(target.parent / 'old')
             reads.append(selected)
@@ -54,6 +54,19 @@ def test_only_selected_native_dependency_is_installed_and_read_back(tmp_path, mo
     assert install == ['/native/dsh', 'plugin', '--profile', 'web', 'add', 'link:' + str(target.resolve()), '--ignore-scripts']
     assert receipts[0]['native']['stage'] == 'installing'
     assert status['native']['stage'] == 'verified' and status['needs_host_reload']
+
+
+def test_peer_range_accepts_forward_dsh_releases_and_rejects_out_of_range(tmp_path, monkeypatch):
+    target = package(tmp_path)
+    for compatible in ('0.2.0-rc.2', '0.2.0', '0.2.1-rc.2', '0.2.2-alpha.2', '0.99.99'):
+        runner(monkeypatch, target, host_version=compatible)
+        status = {}
+        native_update.install(target, 'web', status, lambda _: None)
+        assert status['native']['stage'] == 'verified'
+    for incompatible in ('0.2.0-rc.1', '0.1.9', '1.0.0-alpha.1', '1.0.0'):
+        runner(monkeypatch, target, host_version=incompatible)
+        with pytest.raises(ValueError, match='does not declare compatibility'):
+            native_update.install(target, 'web', {}, lambda _: None)
 
 
 def test_failed_install_with_old_native_readback_stays_failed(tmp_path, monkeypatch):

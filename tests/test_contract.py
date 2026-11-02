@@ -48,7 +48,7 @@ class PackageContractTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
         self.assertEqual(package["version"], project["version"])
         self.assertEqual(package["dsh"]["bundle"]["patch"], "./cordis.patch.yml")
-        self.assertEqual(package["peerDependencies"]["@deepseek-ai/dsh"], "0.2.0-rc.2")
+        self.assertEqual(package["peerDependencies"]["@deepseek-ai/dsh"], ">=0.2.0-rc.2 <1.0.0")
         self.assertTrue(package["peerDependenciesMeta"]["@deepseek-ai/dsh"]["optional"])
 
     def test_patch_only_inserts_stable_packages(self) -> None:
@@ -83,6 +83,17 @@ class PackageContractTests(unittest.TestCase):
         lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
         compatibility = json.loads((ROOT / "harness-compatibility.json").read_text(encoding="utf-8"))
         self.assertEqual(compatibility["plugin_version"], package["version"])
+        self.assertEqual(
+            compatibility["supported"],
+            [
+                {
+                    "minimum": "0.2.0-rc.2",
+                    "maximum": "0.999.999",
+                    "maximum_inclusive": True,
+                    "include_prerelease": True,
+                }
+            ],
+        )
         self.assertEqual(compatibility["verified"][0]["dsh_version"], "0.2.0-rc.2")
         req_lines = [
             line.strip()

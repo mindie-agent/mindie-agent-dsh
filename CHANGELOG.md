@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.12 — 2026-11-02
+
+- Widen the `@deepseek-ai/dsh` optional peer dependency and compatibility
+  declaration from the exact point lock `0.2.0-rc.2` to the forward-compatible
+  `0.x` range `>=0.2.0-rc.2 <1.0.0` (verified on `0.2.0-rc.2` and `0.2.1-rc.2`),
+  and update `scripts/native_update.py` to evaluate SemVer comparator ranges
+  with prerelease support.
+- Clarify the remote container CANN `plog` triage workflow in the `debugger`
+  MCP tool description.
+
 ## 0.1.11 — 2026-11-01
 
 - Synchronize component contract pins with `mindie-sim 0.9.0`

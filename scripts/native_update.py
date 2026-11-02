@@ -11,7 +11,45 @@ import json
 from pathlib import Path
 import shutil
 
+from semantic_version import Version
+
 from mindie_knowledge.loop.process import bounded_run
+
+
+def matches_dsh_peer(requirement: str, version: str) -> bool:
+    """Evaluate exact or comparator-range DSH peerDependencies with includePrerelease semantics."""
+    if not isinstance(requirement, str) or not requirement.strip():
+        return False
+    try:
+        actual = Version(version.strip())
+    except ValueError:
+        return False
+    for token in requirement.strip().split():
+        for op, fn in (
+            ('>=', lambda a, b: a >= b),
+            ('<=', lambda a, b: a <= b),
+            ('>', lambda a, b: a > b),
+            ('<', lambda a, b: a < b),
+            ('=', lambda a, b: a == b),
+        ):
+            if token.startswith(op):
+                target_str = token[len(op):]
+                break
+        else:
+            op, fn, target_str = '=', (lambda a, b: a == b), token
+        try:
+            target = Version(target_str)
+        except ValueError:
+            return False
+        if (
+            op == '<'
+            and not target.prerelease
+            and (actual.major, actual.minor, actual.patch) == (target.major, target.minor, target.patch)
+        ):
+            return False
+        if not fn(actual, target):
+            return False
+    return True
 
 
 def installed(native, profile):
@@ -46,7 +84,8 @@ def install(package, profile, status, record):
     package = Path(package).resolve()
     declared = json.loads((package / 'package.json').read_text(encoding='utf-8'))
     version = bounded_run([native, '--version'], '', timeout=15, max_output=4096).strip()
-    if declared['peerDependencies']['@deepseek-ai/dsh'] != version:
+    peer_req = declared.get('peerDependencies', {}).get('@deepseek-ai/dsh', '')
+    if not matches_dsh_peer(peer_req, version):
         raise ValueError('candidate plugin does not declare compatibility with the installed DSH')
     before = installed(native, profile)
     if before == str(package):
