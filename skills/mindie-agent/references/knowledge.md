@@ -53,7 +53,7 @@ Knowledge loading follows [When to Query Knowledge](../SKILL.md#when-to-query-kn
 - `limit` is 1–20 (the service default is 5).
 - `domain_path` is an optional preferred graded `domain_path` prefix (with
   cross-directory fallback).
-- `token_budget` (`1..16000`, default `800`) bounds the graded body/navigation
+- `token_budget` (`1..64000`, default `8000` in standard/reuse mode and `24000` in `mode="explore"`) bounds the graded body/navigation
   estimate; the response also contains a whole-response `usage`
   (`token_budget`, `body_token_estimate`, `estimated_tokens`, `estimator`,
   `has_more`, `excluded_budget`). Treat the estimator as an approximation, not
@@ -123,7 +123,7 @@ reference does not require a new `knowledge_query`.
   graded `ref` uses the same complete-body dependency closure and final-response
   token budget as `refs`; its top-level compatibility fields require a delivered body.
 - Pass `refs=[...]`, including for one unit, with observed `conditions`,
-  visible `known_refs`, and explicit `token_budget` 1–16000 for a graded closure. The service computes
+  visible `known_refs`, and explicit `token_budget` 1–64000 (default `16000`, or `24000` in `mode="explore"`) for a graded closure. The service computes
   `needed = closure(S) - visible_complete_refs`, emits shared prerequisites once
   in dependency order, and never truncates a complete body to fit the budget.
   `unresolved[]` distinguishes `condition_unknown`, `condition_mismatch`,

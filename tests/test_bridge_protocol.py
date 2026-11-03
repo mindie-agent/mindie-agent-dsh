@@ -171,7 +171,7 @@ class BridgeProtocolTests(unittest.TestCase):
         )
         self.assertEqual(
             explain["properties"]["token_budget"],
-            {"type": "integer", "minimum": 1, "maximum": 16000},
+            {"type": "integer", "minimum": 1, "maximum": 64000},
         )
         self.assertEqual(explain["properties"]["run_id"]["type"], "string")
         distill = by_name["knowledge_distill"]["inputSchema"]

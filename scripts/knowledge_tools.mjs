@@ -202,7 +202,7 @@ export const rsiExploreProperties = {
 export const knowledgeQueryExtraProperties = {
   domain: knowledgeDomainProperty,
   domain_path: { type: 'string' },
-  token_budget: { type: 'integer', minimum: 1 },
+  token_budget: { type: 'integer', minimum: 1, maximum: 64000 },
   include_unknown: { type: 'boolean' },
   include_archived: { type: 'boolean' },
   navigation_only: { type: 'boolean' },
@@ -217,7 +217,7 @@ export const knowledgeExplainParameters = {
     refs: { type: 'array', items: { type: 'string' } },
     conditions: { type: 'object' },
     known_refs: { type: 'array', items: { type: 'string' } },
-    token_budget: { type: 'integer', minimum: 1, maximum: 16000 },
+    token_budget: { type: 'integer', minimum: 1, maximum: 64000 },
     run_id: { type: 'string', maxLength: 256 },
     ...rsiExploreProperties,
   },

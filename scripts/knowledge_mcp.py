@@ -76,7 +76,7 @@ TOOLS: list[dict[str, Any]] = [
                 "continuation": {"type": "string", "description": "Opaque continuation token from a previous query."},
                 "domain": DOMAIN_PROPERTY,
                 "domain_path": {"type": "string", "description": "Optional graded-domain path filter."},
-                "token_budget": {"type": "integer", "minimum": 1, "description": "Optional token budget for the returned navigation/body."},
+                "token_budget": {"type": "integer", "minimum": 1, "maximum": 64000, "description": "Optional token budget for the returned navigation/body."},
                 "include_unknown": {"type": "boolean", "description": "Include entries whose condition applicability is unknown."},
                 "include_archived": {"type": "boolean"},
                 "navigation_only": {"type": "boolean", "description": "Return navigation cards without inline bodies."},
@@ -92,7 +92,7 @@ TOOLS: list[dict[str, Any]] = [
             "Read graded knowledge units (`refs`) or a legacy task/block reference (`ref`) with shared "
             "prerequisite closure (`requires`) and deduplication (`known_refs`). Prefer `refs` with "
             "observed `conditions`, `known_refs` (`id@revision` units already in context), and "
-            "`token_budget` (1-16000). Pass `mode: 'explore'` when loading an L4 code-transformation "
+            "`token_budget` (1-64000). Pass `mode: 'explore'` when loading an L4 code-transformation "
             "mutator. " + GATED
         ),
         "inputSchema": {
@@ -102,7 +102,7 @@ TOOLS: list[dict[str, Any]] = [
                 "refs": {"type": "array", "items": {"type": "string"}},
                 "conditions": {"type": "object"},
                 "known_refs": {"type": "array", "items": {"type": "string"}},
-                "token_budget": {"type": "integer", "minimum": 1, "maximum": 16000},
+                "token_budget": {"type": "integer", "minimum": 1, "maximum": 64000},
                 "run_id": {"type": "string", "maxLength": 256, "description": "Existing run ID used to attribute delivered units."},
                 **rsi_explore.schema_properties(),
             },
