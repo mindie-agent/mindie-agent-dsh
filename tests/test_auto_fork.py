@@ -110,6 +110,35 @@ class ForkTests(unittest.TestCase):
             document = json.loads((root / "config" / "mindie-community.json").read_text())
             self.assertEqual(document["fork"], "testuser/vaws-knowledge-corpus")
 
+    def test_existing_fork_checks_direct_repo_api_before_pagination(self) -> None:
+        import sys
+
+        if str(SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS))
+        import mindie_sidecar
+
+        calls: list[tuple[str, ...]] = []
+
+        def fake_gh(*args: str) -> str:
+            calls.append(args)
+            if args == ("api", "repos/alice/knowledge-vllm-ascend"):
+                return json.dumps(
+                    {
+                        "fork": True,
+                        "full_name": "alice/knowledge-vllm-ascend",
+                        "parent": {"full_name": "mindie-agent/knowledge-vllm-ascend"},
+                    }
+                )
+            raise AssertionError(f"unexpected gh call: {args}")
+
+        with patch.object(mindie_sidecar, "_gh", side_effect=fake_gh):
+            found = mindie_sidecar._existing_fork(
+                "mindie-agent/knowledge-vllm-ascend", "alice"
+            )
+
+        self.assertEqual(found, "alice/knowledge-vllm-ascend")
+        self.assertEqual(calls, [("api", "repos/alice/knowledge-vllm-ascend")])
+
 
 if __name__ == "__main__":
     unittest.main()

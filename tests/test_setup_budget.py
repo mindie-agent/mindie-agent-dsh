@@ -193,3 +193,138 @@ class SetupBudgetTests(unittest.TestCase):
         self.assertEqual(len(run_calls), 1)
         self.assertEqual(run_calls[0][0], ["taskkill", "/PID", "4242", "/T", "/F"])
         self.assertEqual(run_calls[0][1]["creationflags"], 0x08000000)
+
+    def test_sync_runtime_appends_to_existing_git_config_count(self):
+        captured_env = {}
+
+        def fake_run(argv, *, timeout, env=None, cwd=None):
+            if env is not None:
+                captured_env.update(env)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(
+                os.environ,
+                {
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "http.sslBackend",
+                    "GIT_CONFIG_VALUE_0": "schannel",
+                },
+                clear=False,
+            ), patch.object(setup, "runtime_dir", return_value=root / "venv"), \
+                    patch.object(setup, "runtime_python", return_value=Path(sys.executable)), \
+                    patch.object(setup.mp, "data_home", return_value=root / "data"), \
+                    patch.object(setup, "run", side_effect=fake_run):
+                setup.sync_runtime("3.13", timeout=30)
+
+        self.assertEqual(captured_env["GIT_CONFIG_COUNT"], "4")
+        pairs = {
+            captured_env[f"GIT_CONFIG_KEY_{idx}"]: captured_env[f"GIT_CONFIG_VALUE_{idx}"]
+            for idx in range(4)
+        }
+        self.assertEqual(pairs["http.sslBackend"], "schannel")
+        self.assertEqual(pairs["core.longpaths"], "true")
+        self.assertEqual(pairs["core.autocrlf"], "false")
+        self.assertEqual(pairs["credential.https://github.com.provider"], "github")
+
+    def test_sharing_subcommand_lifecycle_mutual_exclusivity_and_validation_guard(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            config_home = root / "config"
+            data_home = root / "data"
+            workspace = root / "workspace"
+            config_home.mkdir()
+            data_home.mkdir()
+            workspace.mkdir()
+            config_path = config_home / "config.json"
+
+            # 1. Mutual exclusivity between --status / --enable / --disable
+            with self.assertRaises(SystemExit):
+                setup.main(["sharing", "--status", "--enable", "--config", str(config_path)])
+
+            with patch.dict(
+                os.environ,
+                {
+                    "MINDIE_DSH_CONFIG_HOME": str(config_home),
+                    "MINDIE_DSH_DATA_HOME": str(data_home),
+                    "MINDIE_DIAGNOSTICS_ROOT": str(root / "logs"),
+                },
+                clear=False,
+            ), patch("mindie_diagnostics.reporting_commands.ensure",
+                     return_value={"status": "degraded", "category": "test_no_native_service"}), \
+                    patch("mindie_sidecar._existing_fork", return_value="alice/knowledge-vllm-ascend"):
+                # 2. Initial sharing --status is unset and needs onboarding prompt
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    rc = setup.main(["sharing", "--status", "--config", str(config_path)])
+                self.assertEqual(rc, 0)
+                status = json.loads(out.getvalue())
+                self.assertEqual(status["schema"], "mindie-sharing-status/1")
+                self.assertEqual(status["harness"], "dsh")
+                self.assertIsNone(status["consent_choice"])
+                self.assertFalse(status["sharing_enabled"])
+                self.assertTrue(status["needs_onboarding_prompt"])
+
+                # 3. Invalid --repository fails BEFORE writing mindie-consent.json
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc_bad = setup.main(
+                        [
+                            "sharing",
+                            "--enable",
+                            "--config",
+                            str(config_path),
+                            "--repository",
+                            "invalid-repo-without-slash",
+                            "--fork",
+                            "alice/knowledge-vllm-ascend",
+                            "--account",
+                            "alice",
+                            "--project-root",
+                            str(workspace),
+                        ]
+                    )
+                self.assertEqual(rc_bad, 1)
+                self.assertFalse((config_home / "mindie-consent.json").exists())
+
+                # 4. Valid sharing --enable writes community + consent
+                out_enable = io.StringIO()
+                with redirect_stdout(out_enable):
+                    rc_en = setup.main(
+                        [
+                            "sharing",
+                            "--enable",
+                            "--config",
+                            str(config_path),
+                            "--fork",
+                            "alice/knowledge-vllm-ascend",
+                            "--account",
+                            "alice",
+                            "--project-root",
+                            str(workspace),
+                        ]
+                    )
+                self.assertEqual(rc_en, 0)
+                enabled = json.loads(out_enable.getvalue())
+                self.assertEqual(enabled["consent_choice"], "contribute")
+                self.assertTrue(enabled["sharing_enabled"])
+                self.assertFalse(enabled["needs_onboarding_prompt"])
+                self.assertEqual(enabled["fork"], "alice/knowledge-vllm-ascend")
+                self.assertEqual(enabled["account"], "alice")
+                self.assertEqual(enabled["project_roots"], [str(workspace)])
+
+                # 5. sharing --disable records disabled and turns off sharing
+                out_disable = io.StringIO()
+                with redirect_stdout(out_disable):
+                    rc_dis = setup.main(
+                        ["sharing", "--disable", "--config", str(config_path)]
+                    )
+                self.assertEqual(rc_dis, 0)
+                disabled = json.loads(out_disable.getvalue())
+                self.assertEqual(disabled["consent_choice"], "disabled")
+                self.assertFalse(disabled["sharing_enabled"])
+                self.assertFalse(disabled["needs_onboarding_prompt"])

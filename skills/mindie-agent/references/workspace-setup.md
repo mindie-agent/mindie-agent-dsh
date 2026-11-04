@@ -5,9 +5,16 @@ presenting the existing MindIE Agent user notice. The offer is part of setup eve
 when contribution is disabled. Reuse the user's creation, initialization and
 registration decisions; ordinary tasks and updates do not repeat onboarding.
 
-1. Recommend [mindie-agent/vllm-ascend-workspace](https://github.com/mindie-agent/vllm-ascend-workspace.git).
-   Offer creating and initializing it, reusing an existing directory, or keeping
-   the current directory. Obtain the destination when needed and explain that
+1. Check `uv run --no-project --python 3.13 python scripts/setup.py sharing --status` first.
+   When `"needs_onboarding_prompt": true` (or no workspace choice has been recorded yet),
+   invoke the native question tool in the current DSH session (or present a
+   structured 3-item numbered `[1]/[2]` choice card if no question tool is
+   exposed in the current session mode) to ask all 3 onboarding questions at
+   once: (1) Community Sharing & Fault Reporting, (2) GitHub Star ⭐ for
+   `mindie-agent/mindie-agent`, and (3) Local Workspace (`vllm-ascend-workspace`,
+   reusing an existing directory, or keeping the current directory). Resolve
+   `WORKSPACE_ROOT` first so `setup.py sharing --enable --project-root "$WORKSPACE_ROOT"`
+   records the exact workspace root. Obtain the destination when needed and explain that
    the selected workspace will also be added to the current client's native
    project/workspace entry. An installation choice includes this registration;
    do not ask again whether to register it. If the user keeps the current

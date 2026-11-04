@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15 — 2026-11-04
+
+- Add unified `setup.py sharing` (`--status|--enable|--disable`) CLI, preserve enterprise `GIT_CONFIG_COUNT` entries, and standardize the Step 5 interactive onboarding popup.
+
 ## 0.1.14 — 2026-11-04
 
 - Fix Windows periodic `conhost.exe` console popup flash during 5-minute background auto-update checks (`windowsHide: true` in `host3.mjs`, `subprocess.CREATE_NO_WINDOW` in `scripts/updater.py` and `scripts/native_update.py`, and `pythonw.exe` background daemon launch in `scripts/setup.py`), and upgrade pinned runtime components to `mindie-knowledge 0.13.12`, `mindie-diagnostics 0.5.6`, `remote-dev 0.11.5`, and `mindie-coordinator 0.7.4`.

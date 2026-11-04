@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from knowledge_sync import sync_feeds  # noqa: E402
 
 MAX_LINE = 256 * 1024
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
 DISTILL_INPUT_OPTIONAL = {"repetitions"}
 DOMAIN_DEACTIVATE_TIMEOUT = 6.0
@@ -71,13 +73,11 @@ def consent_path() -> Path:
 
 def admission():
     from mindie_knowledge.loop.activation import Admission
-
     return Admission(str(Path(mp.data_home()) / "admission.sqlite3"))
 
 
 def prepare() -> None:
     from mindie_knowledge.loop.handoff import prepare_schema
-
     prepare_schema(engine_path())
 
 
@@ -85,17 +85,18 @@ def public_settings() -> dict[str, Any]:
     from mindie_knowledge import consent_store
     from mindie_knowledge.loop import settings as settings_mod
 
-    engine = engine_path()
-    try:
-        data = json.loads(Path(engine).read_text(encoding="utf-8"))
-    except TimeoutError:
-        raise
-    except (OSError, ValueError) as exc:
-        raise SidecarError(
-            f"cannot read engine configuration {engine}: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
-    community = settings_mod.load(data.get("community_config"))
+    if mp.config_file().is_file():
+        engine = engine_path()
+        try:
+            data = json.loads(Path(engine).read_text(encoding="utf-8"))
+        except TimeoutError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise SidecarError(f"cannot read engine configuration {engine}: {type(exc).__name__}: {exc}") from exc
+        comm_cfg = data.get("community_config")
+    else:
+        comm_cfg = str(community_path())
+    community = settings_mod.load(comm_cfg)
     consent = consent_store.read(str(consent_path()))
     return {
         "configured": community.state in {"enabled", "disabled"},
@@ -114,7 +115,6 @@ def public_settings() -> dict[str, Any]:
 
 def _configure_community(request: dict[str, Any]):
     from mindie_knowledge.loop.settings import CommunityWriteContext
-
     path = community_path()
     with CommunityWriteContext(str(path)) as context:
         return context.configure(str(path), request)
@@ -125,11 +125,10 @@ def ensure_default_sharing() -> None:
     from mindie_knowledge.loop import settings as settings_mod
 
     consent = consent_path()
-    community = community_path()
     authority = consent_store.read(str(consent))
     if authority["state"] in {"corrupt", "unreadable"}:
         raise consent_store.ConsentError(authority["error"], state=authority["state"])
-    if settings_mod.load(str(community)).state not in {"enabled", "disabled"}:
+    if settings_mod.load(str(community_path())).state not in {"enabled", "disabled"}:
         _configure_community(
             {
                 "enabled": False,
@@ -168,21 +167,20 @@ def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
     # The sidecar-to-host result carries the target lease, but the host strips
     # its token before returning entry output. Routing resolves the target
     # lease from the target Admission; the default host token is untouched.
-    lease_view = {
-        "session": lease.get("session"),
-        "token": lease.get("token"),
-        "enabled": bool(lease.get("enabled")),
-        "activated_at": lease.get("activated_at"),
-        "project_root": lease.get("project_root"),
-        "root_session": lease.get("root_session"),
-    }
     view = {
         "domain": selected.get("domain"),
         "generation": selected.get("generation"),
         "activated_at": lease.get("activated_at"),
         "project_root": lease.get("project_root"),
         "root_session": lease.get("root_session"),
-        "lease": lease_view,
+        "lease": {
+            "session": lease.get("session"),
+            "token": lease.get("token"),
+            "enabled": bool(lease.get("enabled")),
+            "activated_at": lease.get("activated_at"),
+            "project_root": lease.get("project_root"),
+            "root_session": lease.get("root_session"),
+        },
     }
     if isinstance(selected.get("engine_config"), str):
         view["engine_config"] = selected["engine_config"]
@@ -190,10 +188,7 @@ def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
 
 
 def _activate_domain(
-    domain: str,
-    session: str,
-    project_root: str,
-    default_lease: dict[str, Any],
+    domain: str, session: str, project_root: str, default_lease: dict[str, Any]
 ) -> dict[str, Any]:
     if not isinstance(domain, str) or not domain:
         raise SidecarError("domain must be a nonempty canonical name")
@@ -220,9 +215,7 @@ def _activate_domain(
             # Derived from the verified native default lease, never caller args.
             root_session=root_session,
         )
-    except routing.DomainRoutingError as exc:
-        raise SidecarError(str(exc)) from exc
-    except (TypeError, ValueError) as exc:
+    except (routing.DomainRoutingError, TypeError, ValueError) as exc:
         raise SidecarError(str(exc)) from exc
     return _domain_activation_view(selected)
 
@@ -247,9 +240,7 @@ def op_activate(args: dict[str, Any]) -> dict[str, Any]:
     if domain is not None:
         # Keep the default host lease/token above untouched. The target gets
         # its own lease from its own Admission; current routing resolves it.
-        result["domain_activation"] = _activate_domain(
-            domain, session, cwd, lease,
-        )
+        result["domain_activation"] = _activate_domain(domain, session, cwd, lease)
     return result
 
 
@@ -319,16 +310,15 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
         raise
     except Exception as exc:  # noqa: BLE001 - revocation already succeeded
         sharing_error = f"{type(exc).__name__}: {exc}"
-    response = {
+    out = {
         "deactivated": result["status"] == "inactive" and bool(result.get("changed")),
         "status": result["status"],
         "changed": bool(result.get("changed")),
         "domains": result["domains"],
         "sharing": sharing,
+        **({"sharing_error": sharing_error} if sharing_error is not None else {}),
     }
-    if sharing_error is not None:
-        response["sharing_error"] = sharing_error
-    return response
+    return out
 
 
 def _gh(*arguments: str) -> str:
@@ -361,37 +351,58 @@ def _github_account() -> str:
     return value
 
 
-def _existing_fork(repository: str, account: str) -> str | None:
+def _existing_fork(repository: str, account: str, fork: str | None = None) -> str | None:
+    repo_name = repository.split("/", 1)[1] if "/" in repository else repository
+    candidates = [f"{account}/{repo_name}"]
+    if fork and fork not in candidates:
+        candidates.insert(0, fork)
+    for candidate in candidates:
+        try:
+            direct = json.loads(_gh("api", f"repos/{candidate}"))
+        except (SidecarError, ValueError):
+            direct = None
+        if isinstance(direct, dict):
+            parent = direct.get("parent") if isinstance(direct.get("parent"), dict) else {}
+            parent_name = parent.get("full_name") or parent.get("nameWithOwner")
+            full_name = direct.get("full_name") or direct.get("nameWithOwner") or candidate
+            if direct.get("fork") is True and parent_name == repository and isinstance(full_name, str) and full_name.count("/") == 1:
+                return full_name
+            if fork and candidate == fork and (direct.get("fork") is False or (parent_name and parent_name != repository)):
+                raise SidecarError("fork does not match parent repository")
     try:
         values = json.loads(_gh("repo", "list", account, "--fork", "--limit", "200", "--json", "nameWithOwner,parent"))
     except (SidecarError, ValueError):
         return None
-    if not isinstance(values, list):
-        return None
-    for item in values:
+    for item in values if isinstance(values, list) else []:
         if not isinstance(item, dict) or not isinstance(parent := item.get("parent"), dict):
             continue
-        parent_name = parent.get("nameWithOwner")
-        if not isinstance(parent_name, str):
-            owner = parent.get("owner")
-            login = owner.get("login") if isinstance(owner, dict) else None
-            name = parent.get("name")
-            if isinstance(login, str) and isinstance(name, str):
-                parent_name = f"{login}/{name}"
-        if parent_name == repository:
-            name = item.get("nameWithOwner")
-            if isinstance(name, str) and name.count("/") == 1:
-                return name
+        owner = parent.get("owner") if isinstance(parent.get("owner"), dict) else {}
+        parent_name = parent.get("nameWithOwner") or (
+            f"{owner['login']}/{parent['name']}" if isinstance(owner.get("login"), str) and isinstance(parent.get("name"), str) else None
+        )
+        name = item.get("nameWithOwner")
+        if parent_name == repository and isinstance(name, str) and name.count("/") == 1:
+            return name
     return None
 
 
 def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
-    if fork and fork.split("/", 1)[0] != account:
-        raise SidecarError("fork must belong to the public GitHub account")
-    if existing := _existing_fork(repository, account):
+    if fork is not None:
+        if not isinstance(fork, str) or not _REPO_RE.fullmatch(fork):
+            raise SidecarError("fork must be owner/repo")
+        if fork.split("/", 1)[0] != account:
+            raise SidecarError("fork must belong to the public GitHub account")
+    if existing := _existing_fork(repository, account, fork):
         return existing
+    if fork:
+        try:
+            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+            return fork
+        except SidecarError:
+            if shutil.which("gh") is None:
+                return fork
     _gh("repo", "fork", repository, "--clone=false")
-    if existing := _existing_fork(repository, account):
+    if existing := _existing_fork(repository, account, fork):
         return existing
     if fork:
         try:
@@ -404,6 +415,7 @@ def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
 
 def op_configure(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge import consent_store
+    from mindie_knowledge.loop import settings as settings_mod
 
     choice = args.get("choice")
     if choice not in {"contribute", "disabled"}:
@@ -411,35 +423,79 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
     cwd = args.get("cwd")
     if not isinstance(cwd, str) or not Path(cwd).is_absolute():
         raise SidecarError("cwd must be an absolute path")
-    repository, account, fork = args.get("repository"), args.get("account"), None
+    if (args.get("visibility") or "public") != "public":
+        raise SidecarError("visibility must be public")
+    repository, account, fork = args.get("repository"), args.get("account"), args.get("fork")
     if choice == "contribute":
         repository = repository or COMMUNITY_REPOSITORY
-        if not isinstance(repository, str) or repository.count("/") != 1:
+        if not isinstance(repository, str) or not _REPO_RE.fullmatch(repository):
             raise SidecarError("repository must be owner/repo")
-        account = account or _github_account()
+        if fork is not None and (not isinstance(fork, str) or not _REPO_RE.fullmatch(fork)):
+            raise SidecarError("fork must be owner/repo")
+        if account is not None and (not isinstance(account, str) or not account.strip() or "/" in account):
+            raise SidecarError("account must be a public GitHub account name")
+        if account and fork and fork.split("/", 1)[0] != account:
+            raise SidecarError("fork must belong to the public GitHub account")
+        account = account or (fork.split("/", 1)[0] if isinstance(fork, str) else None) or _github_account()
         if not isinstance(account, str) or not account.strip() or "/" in account:
             raise SidecarError("account must be a public GitHub account name")
-        fork = args.get("fork")
-        if fork is not None and (not isinstance(fork, str) or fork.count("/") != 1):
-            raise SidecarError("fork must be owner/repo")
         fork = _ensure_fork(repository, fork, account)
+
     consent = consent_path()
-    consent_store.record_choice(str(consent), choice)
-    state = _configure_community(
-        {
-            "enabled": choice == "contribute",
-            "repository": repository if choice == "contribute" else None,
-            "fork": fork,
-            "project_roots": [cwd] if choice == "contribute" else [],
-            "branch": "main",
-            "idle_seconds": 300,
-            "visibility": "public",
-            "account": account if choice == "contribute" else None,
-            "consent_config": str(consent),
-        }
-    )
+    authority = consent_store.read(str(consent))
+    if authority["state"] in {"corrupt", "unreadable"}:
+        raise consent_store.ConsentError(authority["error"], state=authority["state"])
+    current_comm = settings_mod.load(str(community_path()))
+    if current_comm.state in {"corrupt", "unreadable"} and not current_comm.schema_ok:
+        raise ValueError("existing community settings are damaged; bytes preserved")
+
+    request = {
+        "enabled": choice == "contribute",
+        "repository": repository if choice == "contribute" else None,
+        "fork": fork if choice == "contribute" else None,
+        "project_roots": [cwd] if choice == "contribute" else [],
+        "branch": "main",
+        "idle_seconds": 300,
+        "visibility": "public",
+        "account": account if choice == "contribute" else None,
+        "consent_config": str(consent),
+    }
+    if choice == "contribute":
+        state = _configure_community(request)
+        consent_store.record_choice(str(consent), choice)
+    else:
+        consent_store.record_choice(str(consent), choice)
+        state = _configure_community(request)
     reporting = diagnostics.activate()
     return {"state": state.state, "sharing": {**public_settings(), "reporting_activation": reporting}}
+
+
+def cmd_sharing_enable(
+    *,
+    project_root: str | Path | None = None,
+    repository: str | None = None,
+    account: str | None = None,
+    fork: str | None = None,
+    visibility: str = "public",
+) -> dict[str, Any]:
+    resolved_root = str(Path(project_root).expanduser().resolve() if project_root is not None else Path.cwd().resolve())
+    if not Path(resolved_root).is_dir():
+        raise SidecarError(f"project root does not exist: {resolved_root}")
+    return op_configure(
+        {
+            "choice": "contribute",
+            "cwd": resolved_root,
+            "repository": repository or COMMUNITY_REPOSITORY,
+            "account": account,
+            "fork": fork,
+            "visibility": visibility,
+        }
+    )
+
+
+def cmd_sharing_disable(*, project_root: str | Path | None = None) -> dict[str, Any]:
+    resolved_root = str(Path(project_root).expanduser().resolve() if project_root is not None else Path.cwd().resolve())
+    return op_configure({"choice": "disabled", "cwd": resolved_root})
 
 
 def op_reporting(args: dict[str, Any]) -> dict[str, Any]:
@@ -478,9 +534,7 @@ def _require_distill_runtime() -> None:
 
 def _distill_arguments(payload: dict[str, Any]) -> None:
     if set(payload) - {"inputs", "task_state", "domain", "related_refs", "proposal"}:
-        raise SidecarError(
-            "distill accepts only inputs, task_state, domain, related_refs and proposal"
-        )
+        raise SidecarError("distill accepts only inputs, task_state, domain, related_refs and proposal")
     inputs = payload.get("inputs")
     if not isinstance(inputs, list) or not inputs:
         raise SidecarError("distill requires a nonempty inputs array")
@@ -499,8 +553,7 @@ def _distill_arguments(payload: dict[str, Any]) -> None:
         or any(not isinstance(item, str) or not item.strip() for item in related_refs)
     ):
         raise SidecarError("distill `related_refs` must be an array of nonempty strings")
-    proposal = payload.get("proposal")
-    if proposal is not None and not isinstance(proposal, dict):
+    if payload.get("proposal") is not None and not isinstance(payload.get("proposal"), dict):
         raise SidecarError("distill `proposal` must be an object")
 
 
@@ -527,10 +580,7 @@ def _explain_route_ref(payload: dict[str, Any]) -> str | None:
         if domain is not None and domain not in authorities:
             authorities.append(domain)
     if len(authorities) > 1:
-        raise SidecarError(
-            "explain refs have conflicting mindie:// domain authorities: "
-            + ", ".join(authorities)
-        )
+        raise SidecarError("explain refs have conflicting mindie:// domain authorities: " + ", ".join(authorities))
     return ref if ref is not None else (refs[0] if refs else None)
 
 
@@ -603,17 +653,11 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
             except ValueError as exc:
                 raise SidecarError(str(exc)) from exc
         timeout = 30.0
-    if (
-        payload.get("domain") is not None
-        or payload.get("ref") is not None
-        or payload.get("refs") is not None
-    ):
+    if payload.get("domain") is not None or payload.get("ref") is not None or payload.get("refs") is not None:
         try:
             admission().check(session, token)
         except ValueError as exc:
-            raise SidecarError(
-                "this task is not activated; invoke /mindie-agent first"
-            ) from exc
+            raise SidecarError("this task is not activated; invoke /mindie-agent first") from exc
         except TimeoutError:
             raise
         except Exception as exc:
@@ -630,9 +674,7 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
     lease = None
     if route.cross_domain and method in {"feedback", "distill"}:
         try:
-            lease = routing.target_lease(
-                route.selected_path, session, domain=route.forward_domain,
-            )
+            lease = routing.target_lease(route.selected_path, session, domain=route.forward_domain)
         except routing.DomainRoutingError as exc:
             raise SidecarError(str(exc)) from exc
     arguments = _forwarded_arguments(payload, route, method, session, token, lease)
@@ -684,8 +726,39 @@ def response(identifier: Any, *, ok: bool, result: Any = None, error: Exception 
     }
 
 
-def main() -> int:
+def _run_cli(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="mindie_sidecar.py")
+    sub = parser.add_subparsers(dest="subcommand", required=True)
+    enable_p = sub.add_parser("sharing-enable")
+    enable_p.add_argument("--project-root", default=None)
+    enable_p.add_argument("--fork", default=None)
+    enable_p.add_argument("--account", default=None)
+    enable_p.add_argument("--repository", default=COMMUNITY_REPOSITORY)
+    enable_p.add_argument("--visibility", default="public")
+    disable_p = sub.add_parser("sharing-disable")
+    disable_p.add_argument("--project-root", default=None)
+    parsed = parser.parse_args(argv)
+    if parsed.subcommand == "sharing-enable":
+        result = cmd_sharing_enable(
+            project_root=parsed.project_root,
+            repository=parsed.repository,
+            account=parsed.account,
+            fork=parsed.fork,
+            visibility=parsed.visibility,
+        )
+    else:
+        result = cmd_sharing_disable(project_root=parsed.project_root)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     diagnostics.bind_environment()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] in {"sharing-enable", "sharing-disable"}:
+        return _run_cli(raw_argv)
     stdin = sys.stdin
     while line := stdin.readline(MAX_LINE + 1):
         if len(line) > MAX_LINE:
@@ -693,15 +766,12 @@ def main() -> int:
             continue
         if not line.strip():
             continue
-        identifier = None
-        op = "request"
+        identifier, op = None, "request"
         try:
             message = json.loads(line)
             if not isinstance(message, dict):
                 raise SidecarError("request must be an object")
-            identifier = message.get("id")
-            op = message.get("op")
-            args = message.get("args")
+            identifier, op, args = message.get("id"), message.get("op"), message.get("args")
             if not isinstance(op, str) or op not in OPS:
                 raise SidecarError("unknown operation")
             result = OPS[op](args if isinstance(args, dict) else {})

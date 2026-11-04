@@ -2,7 +2,7 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.14`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.15`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.14` Runtime Components
+## Pinned `0.1.15` Runtime Components
 
 `scripts/setup.py` runs `uv sync --locked` against `uv.lock`, installs persistent worker scripts, and writes `engine.json` and `diagnostics.json` without starting the knowledge service or syncing feeds during installation (`knowledge.status: "inactive"` until `/mindie-agent` is invoked).
 

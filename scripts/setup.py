@@ -240,16 +240,27 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
         env["UV_NATIVE_TLS"] = "true"
     elif "UV_SYSTEM_CERTS" not in env:
         env.setdefault("UV_NATIVE_TLS", "true")
-    if "GIT_CONFIG_COUNT" not in env:
-        git_pairs = (
-            ("core.longpaths", "true"),
-            ("core.autocrlf", "false"),
-            ("credential.https://github.com.provider", "github"),
-        )
-        env["GIT_CONFIG_COUNT"] = str(len(git_pairs))
-        for idx, (k, v) in enumerate(git_pairs):
-            env[f"GIT_CONFIG_KEY_{idx}"] = k
-            env[f"GIT_CONFIG_VALUE_{idx}"] = v
+    git_pairs = (
+        ("core.longpaths", "true"),
+        ("core.autocrlf", "false"),
+        ("credential.https://github.com.provider", "github"),
+    )
+    try:
+        existing_count = max(0, int(env.get("GIT_CONFIG_COUNT", "0")))
+    except ValueError:
+        existing_count = 0
+    existing_keys = {
+        env.get(f"GIT_CONFIG_KEY_{idx}")
+        for idx in range(existing_count)
+        if env.get(f"GIT_CONFIG_KEY_{idx}")
+    }
+    next_idx = existing_count
+    for k, v in git_pairs:
+        if k not in existing_keys:
+            env[f"GIT_CONFIG_KEY_{next_idx}"] = k
+            env[f"GIT_CONFIG_VALUE_{next_idx}"] = v
+            next_idx += 1
+    env["GIT_CONFIG_COUNT"] = str(next_idx)
     argv = [
         "uv", "sync", "--frozen", "--quiet", "--no-dev",
         "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
@@ -421,8 +432,184 @@ def report_setup_failure(error: Exception, *, activation=None) -> None:
         progress("diagnostic storage unavailable: " + type(exc).__name__)
 
 
+def _read_json_dict(path: Path) -> tuple[dict[str, Any] | None, str]:
+    if not path.exists():
+        return None, "missing"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, "corrupt"
+    if not isinstance(data, dict):
+        return None, "corrupt"
+    return data, "valid"
+
+
+def sharing_status(config_home: Path | None = None) -> dict[str, Any]:
+    """Pure-stdlib fast path (< 50ms, read-only) for `setup.py sharing --status`."""
+    cfg_dir = (config_home or mp.config_home()).expanduser().resolve()
+    consent_data, consent_file_state = _read_json_dict(cfg_dir / "mindie-consent.json")
+    community_data, community_file_state = _read_json_dict(cfg_dir / "mindie-community.json")
+    diag_path = cfg_dir / "diagnostics.json" if config_home is not None else mp.diagnostics_config()
+    diag_data, _ = _read_json_dict(diag_path)
+
+    consent_choice: str | None = None
+    choice_revision: str | int | None = None
+    if consent_file_state == "missing":
+        consent_state = "unset"
+    elif consent_file_state != "valid" or consent_data is None:
+        consent_state = "corrupt"
+    else:
+        raw_choice = consent_data.get("choice")
+        rev = consent_data.get("choice_revision")
+        rev_ok = (
+            isinstance(rev, str)
+            and len(rev) == 32
+            and all(ch in "0123456789abcdef" for ch in rev)
+        ) or (isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1)
+        if raw_choice == "contribute" and rev_ok:
+            consent_choice = "contribute"
+            choice_revision = rev
+            consent_state = "contribute"
+        elif raw_choice == "contribute" and not rev_ok:
+            consent_choice = "contribute"
+            consent_state = "needs_choice"
+        elif raw_choice in {"disabled", "read-only", "later"}:
+            consent_choice = str(raw_choice)
+            choice_revision = rev if rev_ok else None
+            consent_state = str(raw_choice)
+        elif raw_choice is None:
+            consent_state = "unset"
+        else:
+            consent_state = "corrupt"
+
+    community_enabled = bool(community_data and community_data.get("enabled") is True)
+    reporting_enabled = bool(
+        diag_data
+        and (
+            diag_data.get("reporting") is True
+            or diag_data.get("enabled") is True
+            or diag_data.get("decision") == "enabled"
+        )
+    )
+    repository = (
+        str(community_data.get("repository"))
+        if isinstance(community_data, dict) and isinstance(community_data.get("repository"), str) and community_data.get("repository")
+        else FEED["repository"]
+    )
+    fork = (
+        str(community_data.get("fork"))
+        if isinstance(community_data, dict) and isinstance(community_data.get("fork"), str) and community_data.get("fork")
+        else None
+    )
+    account = (
+        str(community_data.get("account"))
+        if isinstance(community_data, dict) and isinstance(community_data.get("account"), str) and community_data.get("account")
+        else None
+    )
+    raw_roots = community_data.get("project_roots") if isinstance(community_data, dict) else None
+    project_roots = [str(item) for item in raw_roots if isinstance(item, str) and item] if isinstance(raw_roots, list) else []
+
+    repair_required = (
+        consent_state == "corrupt"
+        or community_file_state == "corrupt"
+        or (consent_choice == "contribute" and (not community_enabled or not fork or not project_roots))
+    )
+    sharing_enabled = bool(consent_choice == "contribute" and community_enabled and not repair_required)
+    needs_onboarding_prompt = bool(consent_state in {"unset", "needs_choice"} or repair_required)
+    return {
+        "schema": "mindie-sharing-status/1",
+        "harness": "dsh",
+        "consent_state": consent_state,
+        "consent_choice": consent_choice,
+        "choice_revision": choice_revision,
+        "sharing_enabled": sharing_enabled,
+        "community_enabled": community_enabled,
+        "reporting_enabled": reporting_enabled,
+        "repository": repository,
+        "fork": fork,
+        "account": account,
+        "project_roots": project_roots,
+        "needs_onboarding_prompt": needs_onboarding_prompt,
+        "repair_required": repair_required,
+    }
+
+
+def sharing_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="setup.py sharing", description="Inspect or configure MindIE community sharing and fault reporting.")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--status", action="store_true", help="Print sharing and consent status JSON without side effects")
+    mode.add_argument("--enable", action="store_true", help="Enable public community sharing and fault reporting")
+    mode.add_argument("--disable", action="store_true", help="Disable public community sharing and fault reporting")
+    parser.add_argument("--config", type=Path, default=None, help="Optional config.json or config directory path")
+    parser.add_argument("--project-root", action="append", default=[], help="Workspace root allowed for capture (repeatable)")
+    parser.add_argument("--fork", default=None, help="Public GitHub fork owner/repo")
+    parser.add_argument("--account", default=None, help="Public GitHub account login")
+    parser.add_argument("--repository", default=FEED["repository"], help="Upstream community knowledge repository owner/repo")
+    parser.add_argument("--visibility", default="public", help="Repository visibility (must be public)")
+    return parser
+
+
+def _ensure_runtime_imports() -> None:
+    try:
+        import mindie_knowledge  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        import site
+        for candidate in (mp.venv_dir(), mp.data_home() / "venv"):
+            for sp in Path(candidate).glob("lib*/python*/site-packages"):
+                site.addsitedir(str(sp))
+            win_sp = Path(candidate) / "Lib" / "site-packages"
+            if win_sp.is_dir():
+                site.addsitedir(str(win_sp))
+
+
+def run_sharing_cli(argv: list[str]) -> int:
+    args = sharing_parser().parse_args(argv)
+    prev_dsh_cfg_env = os.environ.get("MINDIE_DSH_CONFIG_HOME")
+    cfg_home: Path | None = None
+    if args.config is not None:
+        resolved_cfg = args.config.expanduser().resolve()
+        cfg_home = resolved_cfg.parent if resolved_cfg.suffix == ".json" else resolved_cfg
+        os.environ["MINDIE_DSH_CONFIG_HOME"] = str(cfg_home)
+    try:
+        if args.status:
+            print(json.dumps(sharing_status(cfg_home), ensure_ascii=False, indent=2))
+            return 0
+        _ensure_runtime_imports()
+        import mindie_sidecar
+
+        project_root = args.project_root[-1] if args.project_root else None
+        try:
+            if args.enable:
+                mindie_sidecar.cmd_sharing_enable(
+                    project_root=project_root,
+                    repository=args.repository,
+                    account=args.account,
+                    fork=args.fork,
+                    visibility=args.visibility,
+                )
+            else:
+                mindie_sidecar.cmd_sharing_disable(project_root=project_root)
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, TimeoutError):
+                raise
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(sharing_status(cfg_home), ensure_ascii=False, indent=2))
+        return 0
+    finally:
+        if args.config is not None:
+            if prev_dsh_cfg_env is None:
+                os.environ.pop("MINDIE_DSH_CONFIG_HOME", None)
+            else:
+                os.environ["MINDIE_DSH_CONFIG_HOME"] = prev_dsh_cfg_env
+
+
 def main(argv: list[str] | None = None) -> int:
     global RUN_DEADLINE, INSTALL_RUNTIME_DIR
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] == "sharing":
+        return run_sharing_cli(raw_argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", default=None, help="interpreter to pass to uv sync (default 3.11)")
     parser.add_argument("--dry-run", action="store_true", help="validate prerequisites and print the plan only")
@@ -433,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="verified independent component generation prepared by the updater")
     parser.add_argument("--prepare-only", action="store_true",
                         help="validate and prepare without publishing the native binding")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
     RUN_DEADLINE = (time.monotonic() + args.total_timeout
                     if args.total_timeout is not None else None)
 
