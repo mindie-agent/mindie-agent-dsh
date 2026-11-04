@@ -2,7 +2,7 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.12`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.13`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
@@ -26,18 +26,18 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.12` Runtime Components
+## Pinned `0.1.13` Runtime Components
 
 `scripts/setup.py` runs `uv sync --locked` against `uv.lock`, installs persistent worker scripts, and writes `engine.json` and `diagnostics.json` without starting the knowledge service or syncing feeds during installation (`knowledge.status: "inactive"` until `/mindie-agent` is invoked).
 
 Current runtime pins:
 
-- `mindie-knowledge` `0.13.10` (`7936a4fda67f6808d8fa73824363a4d7345766e5`)
+- `mindie-knowledge` `0.13.11` (`1392a5c326605225fc6d89334842ae7700c0dce8`)
 - `remote-dev` `0.11.4` (`7c67876d716feb3949e4dbf33eb5e06980ff0d36`)
 - `mindie-diagnostics` `0.5.5` (`f2f2f946c172afc99342a84c0c1ed244f6d44e01`)
 - `mindie-debugger` `0.1.0` (`e9406b2b178335190d5cb59dff4d6985894497ba`)
 - `mindie-profiler` `0.5.6` (`79d97e75bff7351b0472b93c03b072c1cf47f5e7`)
-- `mindie-sim` `0.9.2` (`ced2dba5741af2d98f3a75b2a9cad77b9b94c40d`)
+- `mindie-sim` `0.9.3` (`dbadff04b60937a0722b0a227cdad01beed083cd`)
 - `mindie-coordinator` `0.7.3` (`79a8b28eef72d57f965a01c6660849f024fbb1c0`)
 - `npu-top` `0.3.1` (`8f0cb3ec66393812e90e118cd73704070c6027a2`)
 

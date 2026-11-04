@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.13 — 2026-11-04
+
+- Unify RSI loop and experiment ledger onto `mindie-knowledge 0.13.11` (`1392a5c326605225fc6d89334842ae7700c0dce8`), raise default graded retrieval token budgets (`explore` `24000`, `query` `8000`, `explain` `16000`), and align `mindie-sim` to `0.9.3` (`dbadff04b60937a0722b0a227cdad01beed083cd`).
+
 ## 0.1.12 — 2026-11-02
 
 - Widen the `@deepseek-ai/dsh` optional peer dependency and compatibility
