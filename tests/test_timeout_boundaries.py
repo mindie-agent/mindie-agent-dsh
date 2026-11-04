@@ -156,3 +156,50 @@ def test_asset_read_timeout_propagates_with_partial_file_and_no_retry(tmp_path, 
     assert caught.value is error
     assert reads == [1024 * 1024, 1024 * 1024]
     assert destination.read_bytes() == b"partial archive"
+
+
+def test_windows_mcp_reexec_and_sidecar_gh_pass_create_no_window(tmp_path, monkeypatch):
+    config = paths.config_file()
+    engine = tmp_path / "engine.json"
+    python = tmp_path / "python.exe"
+    engine.write_text("{}", encoding="utf-8")
+    python.write_text("", encoding="utf-8")
+    config.write_text(
+        json.dumps({"engine_config": str(engine), "python": str(python), "venv_dir": str(tmp_path / "other-venv")}),
+        encoding="utf-8",
+    )
+    popen_kwargs = []
+
+    class Child:
+        def wait(self):
+            return 0
+
+    monkeypatch.setenv("MINDIE_DSH_NO_REEXEC", "0")
+    monkeypatch.setattr(knowledge_mcp.os, "name", "nt")
+    monkeypatch.setattr(knowledge_mcp.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(
+        knowledge_mcp.subprocess,
+        "Popen",
+        lambda argv, **kwargs: (popen_kwargs.append((argv, kwargs)), Child())[1],
+    )
+    with pytest.raises(SystemExit) as exited:
+        knowledge_mcp.maybe_reexec()
+    assert exited.value.code == 0
+    assert len(popen_kwargs) == 1
+    assert popen_kwargs[0][1]["creationflags"] == 0x08000000
+
+    run_kwargs = []
+    monkeypatch.setattr(mindie_sidecar.os, "name", "nt")
+    monkeypatch.setattr(mindie_sidecar.shutil, "which", lambda _name: "gh.exe")
+    monkeypatch.setattr(mindie_sidecar.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(
+        mindie_sidecar.subprocess,
+        "run",
+        lambda argv, **kwargs: (
+            run_kwargs.append((argv, kwargs)),
+            mindie_sidecar.subprocess.CompletedProcess(argv, 0, "octocat\n", ""),
+        )[1],
+    )
+    assert mindie_sidecar._gh("api", "user") == "octocat"
+    assert len(run_kwargs) == 1
+    assert run_kwargs[0][1]["creationflags"] == 0x08000000

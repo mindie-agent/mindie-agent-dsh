@@ -15,10 +15,16 @@ CLEANUP_SECONDS = 5.0
 
 
 def run(command, *, timeout, cwd=None, env=None, input_text=None):
+    creationflags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if os.name == "nt"
+        else 0
+    )
     process = subprocess.Popen(
         command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, stdin=subprocess.PIPE if input_text is not None else None,
-        start_new_session=os.name == "posix",
+        start_new_session=os.name == "posix", creationflags=creationflags,
     )
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout)
@@ -35,6 +41,7 @@ def run(command, *, timeout, cwd=None, env=None, input_text=None):
             subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                 capture_output=True, timeout=CLEANUP_SECONDS / 2, check=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         try:
             stdout, stderr = process.communicate(timeout=max(0.001, deadline - time.monotonic()))

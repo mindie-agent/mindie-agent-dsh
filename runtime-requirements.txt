@@ -1,12 +1,12 @@
 # Component integration revisions used by the MindIE Agent DSH adapter.
 #
 # Each pin is the exact component commit selected for this integration:
-#   mindie-agent/diagnostics v0.5.5 -> f2f2f946c172afc99342a84c0c1ed244f6d44e01
-#   mindie-agent/remote-dev  v0.11.4 -> 7c67876d716feb3949e4dbf33eb5e06980ff0d36
-#   mindie-agent/knowledge   v0.13.11 -> 1392a5c326605225fc6d89334842ae7700c0dce8
+#   mindie-agent/diagnostics v0.5.6 -> 9b331956b00737dd6d8c956da3416316f2de1ddf
+#   mindie-agent/remote-dev  v0.11.5 -> 131b24533479e9cefc572144adccdcb345f70846
+#   mindie-agent/knowledge   v0.13.12 -> 1840bd4e238e718676768489058917818d18cd3c
 #
 # The authoritative transitive lock is uv.lock; this file mirrors its three
 # direct dependencies for humans and for the release checklist.
-mindie-diagnostics @ git+https://github.com/mindie-agent/diagnostics@f2f2f946c172afc99342a84c0c1ed244f6d44e01
-mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@1392a5c326605225fc6d89334842ae7700c0dce8
-remote-dev @ git+https://github.com/mindie-agent/remote-dev@7c67876d716feb3949e4dbf33eb5e06980ff0d36
+mindie-diagnostics @ git+https://github.com/mindie-agent/diagnostics@9b331956b00737dd6d8c956da3416316f2de1ddf
+mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@1840bd4e238e718676768489058917818d18cd3c
+remote-dev @ git+https://github.com/mindie-agent/remote-dev@131b24533479e9cefc572144adccdcb345f70846

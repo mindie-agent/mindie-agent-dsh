@@ -262,7 +262,12 @@ def maybe_reexec() -> None:
     sys.stdout.flush()
     sys.stderr.flush()
     child = subprocess.Popen(
-        argv, stdin=sys.stdin.buffer, stdout=sys.stdout.buffer, stderr=sys.stderr.buffer, close_fds=False
+        argv,
+        stdin=sys.stdin.buffer,
+        stdout=sys.stdout.buffer,
+        stderr=sys.stderr.buffer,
+        close_fds=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     raise SystemExit(child.wait())
 

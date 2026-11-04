@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 — 2026-11-04
+
+- Fix Windows periodic `conhost.exe` console popup flash during 5-minute background auto-update checks (`windowsHide: true` in `host3.mjs`, `subprocess.CREATE_NO_WINDOW` in `scripts/updater.py` and `scripts/native_update.py`, and `pythonw.exe` background daemon launch in `scripts/setup.py`), and upgrade pinned runtime components to `mindie-knowledge 0.13.12`, `mindie-diagnostics 0.5.6`, `remote-dev 0.11.5`, and `mindie-coordinator 0.7.4`.
+
 ## 0.1.13 — 2026-11-04
 
 - Unify RSI loop and experiment ledger onto `mindie-knowledge 0.13.11` (`1392a5c326605225fc6d89334842ae7700c0dce8`), raise default graded retrieval token budgets (`explore` `24000`, `query` `8000`, `explain` `16000`), and align `mindie-sim` to `0.9.3` (`dbadff04b60937a0722b0a227cdad01beed083cd`).

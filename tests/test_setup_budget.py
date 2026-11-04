@@ -152,3 +152,44 @@ class SetupBudgetTests(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 setup_process.run([sys.executable, str(script)], timeout=0.2)
             self.assertLess(time.monotonic() - started, 3)
+
+    def test_windows_process_spawn_and_timeout_cleanup_pass_create_no_window(self):
+        import setup_process
+
+        popen_calls = []
+        run_calls = []
+
+        class FakeProcess:
+            pid = 4242
+            returncode = 1
+
+            def __init__(self):
+                self.calls = 0
+
+            def communicate(self, input=None, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise subprocess.TimeoutExpired(["cmd"], timeout or 1.0)
+                return ("partial-out", "partial-err")
+
+        def fake_popen(command, **kwargs):
+            popen_calls.append((command, kwargs))
+            return FakeProcess()
+
+        def fake_run(command, **kwargs):
+            run_calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(setup_process.os, "name", "nt"), \
+                patch.object(setup_process.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+                patch.object(setup_process.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, create=True), \
+                patch.object(setup_process.subprocess, "Popen", side_effect=fake_popen), \
+                patch.object(setup_process.subprocess, "run", side_effect=fake_run):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                setup_process.run(["uv", "sync"], timeout=1.0)
+
+        self.assertEqual(len(popen_calls), 1)
+        self.assertEqual(popen_calls[0][1]["creationflags"], 0x08000000 | 0x00000200)
+        self.assertEqual(len(run_calls), 1)
+        self.assertEqual(run_calls[0][0], ["taskkill", "/PID", "4242", "/T", "/F"])
+        self.assertEqual(run_calls[0][1]["creationflags"], 0x08000000)

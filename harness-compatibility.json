@@ -2,7 +2,7 @@
   "schema": "mindie-harness-compatibility/1",
   "harness": "DeepSeek Harness (dsh)",
   "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.13",
+  "plugin_version": "0.1.14",
   "supported": [
     {
       "minimum": "0.2.0-rc.2",
@@ -13,16 +13,16 @@
   ],
   "runtime_components": {
     "mindie-knowledge": {
-      "version": "0.13.11",
-      "commit": "1392a5c326605225fc6d89334842ae7700c0dce8"
+      "version": "0.13.12",
+      "commit": "1840bd4e238e718676768489058917818d18cd3c"
     },
     "remote-dev": {
-      "version": "0.11.4",
-      "commit": "7c67876d716feb3949e4dbf33eb5e06980ff0d36"
+      "version": "0.11.5",
+      "commit": "131b24533479e9cefc572144adccdcb345f70846"
     },
     "mindie-diagnostics": {
-      "version": "0.5.5",
-      "commit": "f2f2f946c172afc99342a84c0c1ed244f6d44e01"
+      "version": "0.5.6",
+      "commit": "9b331956b00737dd6d8c956da3416316f2de1ddf"
     }
   },
   "verified": [
@@ -155,6 +155,6 @@
     "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
     "The bundle inserts Host rows and overrides no shipped row or shipped preset.",
     "The platform matrix in docs/verification.md records the 0.0.2 adapter and its pinned runtime. It establishes the referenced host interfaces, not cross-platform acceptance of the 0.0.3 component combination.",
-    "Top-level runtime_components records the current 0.1.13 pin set; the verified entry preserves the historical 0.0.2 evidence."
+    "Top-level runtime_components records the current 0.1.14 pin set; the verified entry preserves the historical 0.0.2 evidence."
   ]
 }
