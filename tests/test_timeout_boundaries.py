@@ -174,8 +174,10 @@ def test_windows_mcp_reexec_and_sidecar_gh_pass_create_no_window(tmp_path, monke
         def wait(self):
             return 0
 
+    import types
+
     monkeypatch.setenv("MINDIE_DSH_NO_REEXEC", "0")
-    monkeypatch.setattr(knowledge_mcp.os, "name", "nt")
+    monkeypatch.setattr(knowledge_mcp, "os", types.SimpleNamespace(environ=knowledge_mcp.os.environ, name="nt"))
     monkeypatch.setattr(knowledge_mcp.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(
         knowledge_mcp.subprocess,
@@ -189,7 +191,7 @@ def test_windows_mcp_reexec_and_sidecar_gh_pass_create_no_window(tmp_path, monke
     assert popen_kwargs[0][1]["creationflags"] == 0x08000000
 
     run_kwargs = []
-    monkeypatch.setattr(mindie_sidecar.os, "name", "nt")
+    monkeypatch.setattr(mindie_sidecar, "os", types.SimpleNamespace(environ=mindie_sidecar.os.environ, name="nt"))
     monkeypatch.setattr(mindie_sidecar.shutil, "which", lambda _name: "gh.exe")
     monkeypatch.setattr(mindie_sidecar.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(
