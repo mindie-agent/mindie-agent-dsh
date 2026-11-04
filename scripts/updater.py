@@ -193,9 +193,10 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
 def missing_update_file(error: BaseException) -> BaseException:
     """Keep a missing artifact's basename.
 
-    Diagnostic redaction deletes absolute paths, and Windows stores the path
-    only on ``filename``. Either shape otherwise leaves an update
-    ``FileNotFoundError`` with no artifact name. Static messages stay unchanged.
+    Diagnostic redaction deletes absolute paths. When the OS puts the path on
+    ``filename``, the recorded message otherwise has no artifact name. Static
+    messages stay unchanged. Windows ``CreateProcess`` leaves ``filename``
+    empty; ``run`` names a missing absolute argv[0] in that case.
     """
     if not isinstance(error, FileNotFoundError):
         return error
@@ -203,6 +204,31 @@ def missing_update_file(error: BaseException) -> BaseException:
     if not isinstance(filename, (str, bytes, os.PathLike)) or not os.fspath(filename):
         return error
     name = Path(os.fspath(filename)).name
+    if not name or name in {".", ".."}:
+        return error
+    clarified = FileNotFoundError(f"{name} is unavailable")
+    clarified.__traceback__ = error.__traceback__
+    return clarified
+
+
+def missing_absolute_executable(command, error: FileNotFoundError) -> BaseException:
+    """Name a missing absolute interpreter when ``filename`` is empty.
+
+    A bare command stays as the original error. An absolute executable that
+    exists is also left unchanged: that ``FileNotFoundError`` is not the
+    interpreter itself.
+    """
+    if not isinstance(command, (list, tuple)) or not command:
+        return error
+    raw = command[0]
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+    elif not isinstance(raw, (str, os.PathLike)):
+        return error
+    path = Path(raw)
+    if not path.is_absolute() or path.is_file():
+        return error
+    name = path.name
     if not name or name in {".", ".."}:
         return error
     clarified = FileNotFoundError(f"{name} is unavailable")
@@ -260,6 +286,8 @@ def run(command, timeout, cwd=None, env=None):
         raise
     except FileNotFoundError as exc:
         clarified = missing_update_file(exc)
+        if clarified is exc:
+            clarified = missing_absolute_executable(command, exc)
         if clarified is not exc:
             raise clarified from None
         raise

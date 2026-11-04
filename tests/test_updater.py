@@ -225,6 +225,31 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(str(caught.exception), "mindie-runtime-python is unavailable")
             self.assertNotIn(temporary, str(caught.exception))
 
+    def test_windows_createprocess_names_missing_absolute_runtime(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "mindie-runtime-python"
+            error = FileNotFoundError(2, "The system cannot find the file specified")
+            self.assertFalse(error.filename)
+            with mock.patch.object(updater.setup_process, "run", side_effect=error):
+                with self.assertRaises(FileNotFoundError) as caught:
+                    updater.run([str(missing), "-c", "print(1)"], timeout=5)
+            self.assertEqual(str(caught.exception), "mindie-runtime-python is unavailable")
+            self.assertNotIn(temporary, str(caught.exception))
+
+    def test_filename_less_error_keeps_a_bare_command_and_an_existing_executable(self):
+        from unittest import mock
+
+        error = FileNotFoundError(2, "The system cannot find the file specified")
+        with mock.patch.object(updater.setup_process, "run", side_effect=error):
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.run(["mindie-runtime-python", "-c", "print(1)"], timeout=5)
+            self.assertIs(caught.exception, error)
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.run([sys.executable, "-c", "print(1)"], timeout=5)
+            self.assertIs(caught.exception, error)
+
     def test_ephemeral_install_checkout_falls_back_to_retained_generation(self):
         from unittest import mock
         import setup
