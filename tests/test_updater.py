@@ -183,6 +183,48 @@ class UpdaterTests(unittest.TestCase):
                 updater.write_current(root / "gen", "v0.0.9", None)
                 self.assertEqual(updater.default_current_version(), "0.0.9")
 
+    def test_missing_adapter_source_names_pyproject_without_a_local_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            gone = root / "mindie-agent-dsh-install"
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.resolve_adapter_source(
+                    {"package_dir": str(gone), "version": "0.1.2"}, "0.1.2")
+            self.assertEqual(str(caught.exception), "adapter source pyproject.toml is unavailable")
+            self.assertNotIn(str(root), str(caught.exception))
+
+    def test_missing_release_files_name_the_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sums = root / "SHA256SUMS"
+            sums.write_text("00\n", encoding="utf-8")
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.verify_asset(root / "asset.tgz", sums)
+            self.assertEqual(str(caught.exception), "release asset.tgz is unavailable")
+            asset = root / "asset.tgz"
+            asset.write_bytes(b"payload")
+            sums.unlink()
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.verify_asset(asset, root / "SHA256SUMS")
+            self.assertEqual(str(caught.exception), "release SHA256SUMS is unavailable")
+            self.assertNotIn(str(root), str(caught.exception))
+
+    def test_missing_archive_names_the_asset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.extract(root / "asset.tgz", root / "out")
+            self.assertEqual(str(caught.exception), "asset.tgz is unavailable")
+            self.assertNotIn(str(root), str(caught.exception))
+
+    def test_missing_runtime_executable_keeps_a_named_file_not_found(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "mindie-runtime-python"
+            with self.assertRaises(FileNotFoundError) as caught:
+                updater.run([str(missing), "-c", "print(1)"], timeout=5)
+            self.assertEqual(str(caught.exception), "mindie-runtime-python is unavailable")
+            self.assertNotIn(temporary, str(caught.exception))
+
     def test_ephemeral_install_checkout_falls_back_to_retained_generation(self):
         from unittest import mock
         import setup

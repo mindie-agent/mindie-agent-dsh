@@ -126,6 +126,25 @@ def test_unsupported_requirement_is_rejected(tmp_path, monkeypatch):
         native_update.install(target, 'web', {}, lambda _: None)
 
 
+def test_missing_installed_plugin_manifest_names_package_json(tmp_path, monkeypatch):
+    removed = tmp_path / 'removed-plugin'
+    payload = json.dumps([{'dependencies': {'mindie-agent-dsh': {'path': str(removed)}}}])
+    monkeypatch.setattr(native_update.shutil, 'which', lambda _name: '/native/dsh')
+    monkeypatch.setattr(native_update, 'bounded_run', lambda *_args, **_kwargs: payload)
+    with pytest.raises(FileNotFoundError, match='installed native plugin package.json is unavailable') as caught:
+        native_update.current_version('web')
+    assert str(removed) not in str(caught.value)
+
+
+def test_missing_candidate_manifest_names_package_json(tmp_path, monkeypatch):
+    package = tmp_path / 'candidate'
+    package.mkdir()
+    monkeypatch.setattr(native_update.shutil, 'which', lambda _name: '/native/dsh')
+    with pytest.raises(FileNotFoundError, match='candidate plugin package.json is unavailable') as caught:
+        native_update.install(package, 'web', {}, lambda _row: None)
+    assert str(package) not in str(caught.value)
+
+
 def test_missing_requirement_is_rejected(tmp_path, monkeypatch):
     target = package(tmp_path, peerDependencies={})
     runner(monkeypatch, target)

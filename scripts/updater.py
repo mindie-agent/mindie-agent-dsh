@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """[Role] Bounded background release updater for mindie-agent-dsh.
-[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; verifies SHA256SUMS and provisions candidate before switching current.json.
+[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; verifies SHA256SUMS and provisions candidate before switching current.json. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
 [Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
 [Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
 """
@@ -181,11 +181,40 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
                 stream.write(chunk)
     except TimeoutError:
         raise
+    except FileNotFoundError as exc:
+        clarified = missing_update_file(exc)
+        if clarified is not exc:
+            raise clarified from None
+        raise
     except (urllib.error.URLError, OSError) as exc:
         raise UpdateError(f"release asset download failed: {type(exc).__name__}") from exc
 
 
+def missing_update_file(error: BaseException) -> BaseException:
+    """Keep a missing artifact's basename.
+
+    Diagnostic redaction deletes absolute paths, and Windows stores the path
+    only on ``filename``. Either shape otherwise leaves an update
+    ``FileNotFoundError`` with no artifact name. Static messages stay unchanged.
+    """
+    if not isinstance(error, FileNotFoundError):
+        return error
+    filename = error.filename
+    if not isinstance(filename, (str, bytes, os.PathLike)) or not os.fspath(filename):
+        return error
+    name = Path(os.fspath(filename)).name
+    if not name or name in {".", ".."}:
+        return error
+    clarified = FileNotFoundError(f"{name} is unavailable")
+    clarified.__traceback__ = error.__traceback__
+    return clarified
+
+
 def verify_asset(asset: Path, sums: Path) -> str:
+    if not asset.is_file():
+        raise FileNotFoundError("release asset.tgz is unavailable")
+    if not sums.is_file():
+        raise FileNotFoundError("release SHA256SUMS is unavailable")
     digest = hashlib.sha256()
     with asset.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -208,6 +237,11 @@ def extract(asset: Path, destination: Path) -> Path:
             archive.extractall(destination)
     except TimeoutError:
         raise
+    except FileNotFoundError as exc:
+        clarified = missing_update_file(exc)
+        if clarified is not exc:
+            raise clarified from None
+        raise
     except (OSError, tarfile.TarError) as exc:
         raise UpdateError(f"release archive could not be extracted: {type(exc).__name__}") from exc
     package = destination / "package"
@@ -223,6 +257,11 @@ def run(command, timeout, cwd=None, env=None):
             timeout=timeout,
         )
     except TimeoutError:
+        raise
+    except FileNotFoundError as exc:
+        clarified = missing_update_file(exc)
+        if clarified is not exc:
+            raise clarified from None
         raise
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, f"{type(exc).__name__}: {exc}"
@@ -248,15 +287,22 @@ def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) ->
         raise UpdateError("candidate setup failed: " + detail[-800:])
 
 
+def _has_source_manifest(root: Path) -> bool:
+    root = Path(root)
+    return (root / "pyproject.toml").is_file() or (root / "runtime-requirements.txt").is_file()
+
+
 def resolve_adapter_source(adapter: dict, current: str) -> Path:
     raw = adapter.get("package_dir")
-    if isinstance(raw, str) and (Path(raw) / "pyproject.toml").is_file():
+    if isinstance(raw, str) and raw and _has_source_manifest(raw):
         return Path(raw)
     tag_ver = str(adapter.get("version") or current).lstrip("v")
     retained = update_dir() / "generations" / f"v{tag_ver}" / "package"
-    if (retained / "pyproject.toml").is_file():
+    if _has_source_manifest(retained):
         return retained
-    return Path(raw) if isinstance(raw, str) and raw else mp.PACKAGE_DIR
+    if not (isinstance(raw, str) and raw) and _has_source_manifest(mp.PACKAGE_DIR):
+        return mp.PACKAGE_DIR
+    raise FileNotFoundError("adapter source pyproject.toml is unavailable")
 
 
 def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
@@ -399,6 +445,7 @@ def default_current_version() -> str:
 
 
 def record_update_failure(error: Exception, args) -> int:
+    error = missing_update_file(error)
     result = {**read_json(status_path(), {}),
         "schema": SCHEMA, "state": "failed", "current": args.current_version,
         "checked_at": time.time(), "detail": f"{type(error).__name__}: {str(error)[:800]}",
