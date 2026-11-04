@@ -14,7 +14,7 @@ def package(tmp_path, peer_range='>=0.2.0-rc.2 <1.0.0', **fields):
     path = tmp_path / 'candidate'
     path.mkdir(exist_ok=True)
     manifest = dict(
-        name='mindie-agent-dsh', version='0.1.13',
+        name='mindie-agent-dsh', version='0.1.14',
         peerDependencies={'@deepseek-ai/dsh': peer_range})
     manifest.update(fields)
     (path / 'package.json').write_text(json.dumps(manifest))

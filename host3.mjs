@@ -88,6 +88,7 @@ class Sidecar {
         MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
     })
     this.child = child
     child.stdout.setEncoding('utf8')
@@ -337,7 +338,7 @@ export function apply(ctx) {
       const child = spawn(
         p.venvPython,
         [updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
-        { detached: true, stdio: 'ignore', env: { ...process.env } },
+        { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env } },
       )
       child.unref()
       return true
@@ -706,6 +707,7 @@ export function apply(ctx) {
         },
         detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
+        windowsHide: true,
       })
       child.on('error', (error) => log(`capture spawn failed: ${error.message}`))
       child.stdin.on('error', () => {})

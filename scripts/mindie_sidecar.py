@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -336,7 +337,12 @@ def _gh(*arguments: str) -> str:
         raise SidecarError("GitHub CLI (gh) is required to fork and publish community contributions")
     try:
         completed = subprocess.run(
-            [executable, *arguments], capture_output=True, text=True, timeout=90, check=False
+            [executable, *arguments],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
     except TimeoutError:
         raise
