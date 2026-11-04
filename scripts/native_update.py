@@ -2,7 +2,8 @@
 [Invariants] Only this bundle's dependency is changed. The candidate's declared
 DSH requirement (`engines.dsh`, else the `@deepseek-ai/dsh` peer) must admit the
 running runtime. Unknown native writes are retained in the existing update
-status and are never repeated blindly.
+status and are never repeated blindly. A missing plugin package.json names that
+artifact and does not include the local path.
 [Timeouts & Locks] Native reads take 30s and installation 120s, plus the shared
 owned runner's cleanup allowance. The updater owns its existing check lock.
 [Side-Effect Policy] Runs `dsh plugin add link:... --ignore-scripts`, then reads
@@ -26,6 +27,15 @@ def matches_dsh_peer(requirement: str, version: str) -> bool:
         return False
 
 
+def plugin_manifest(package, missing):
+    """Read package.json, or name that artifact when the file is gone."""
+    path = Path(package) / 'package.json'
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        raise FileNotFoundError(missing) from None
+
+
 def installed(native, profile):
     output = bounded_run([native, 'plugin', '--profile', profile, 'list', '--json'], '',
                          timeout=30, max_output=256 * 1024)
@@ -45,7 +55,7 @@ def current_version(profile):
     package = installed(native, profile)
     if package is None:
         return None
-    manifest = json.loads((Path(package) / 'package.json').read_text(encoding='utf-8'))
+    manifest = plugin_manifest(package, 'installed native plugin package.json is unavailable')
     if manifest.get('name') != 'mindie-agent-dsh' or not isinstance(manifest.get('version'), str):
         raise ValueError('native DSH bundle identity is unavailable')
     return manifest['version']
@@ -77,7 +87,7 @@ def install(package, profile, status, record):
     if native is None:
         raise FileNotFoundError('dsh is required to install its native plugin update')
     package = Path(package).resolve()
-    declared = json.loads((package / 'package.json').read_text(encoding='utf-8'))
+    declared = plugin_manifest(package, 'candidate plugin package.json is unavailable')
     version = bounded_run([native, '--version'], '', timeout=15, max_output=4096).strip()
     if not compatible(declared, version):
         raise ValueError('candidate plugin does not declare compatibility with the installed DSH')

@@ -1,6 +1,8 @@
 """[Role] Prepare component-only generations for DSH's existing installer.
 [Invariants] The active native package is retained with an independently locked
 runtime. New plugin releases inherit all installed component version floors.
+A missing source manifest or configured interpreter fails with FileNotFoundError
+naming that artifact before catalog discovery or a build.
 [Timeouts & Locks] Metadata, catalog and build share one deadline; the builder
 has at most 420s and leaves five seconds for cleanup. The setup caller reserves
 180s shared across its remaining probe/configuration/handoff stages.
@@ -17,6 +19,16 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+def _require_source(source, python) -> None:
+    """The updater expects these files. A bare command is resolved by the child."""
+    root = Path(source)
+    if not (root / "pyproject.toml").is_file() and not (root / "runtime-requirements.txt").is_file():
+        raise FileNotFoundError("adapter source pyproject.toml is unavailable")
+    runtime = Path(python)
+    if runtime.is_absolute() and not runtime.is_file():
+        raise FileNotFoundError("configured runtime python is unavailable")
 
 
 def prepare(source, python, *, force=False, active=False, ensure_bound=False, timeout=570):
@@ -44,6 +56,7 @@ def prepare(source, python, *, force=False, active=False, ensure_bound=False, ti
                 missing = True
         if not missing:
             return None
+    _require_source(source, python)
     baseline = source_baseline(source)
     selected = discover(python, baseline["runtime"], force=force,
                         required_components=required,

@@ -6,6 +6,8 @@ import subprocess
 import sys
 from unittest.mock import Mock
 
+import pytest
+
 import component_update
 import mindie_paths
 from mindie_knowledge import component_runtime
@@ -79,6 +81,40 @@ def test_old_parent_budget_selects_completed_runtime_without_nested_setup(tmp_pa
     assert Path(argv[2]).name == "component_update.py"
     assert float(argv[-1]) + 5 <= outer <= 415
     assert setup.RUN_DEADLINE - setup.time.monotonic() - outer >= 180
+
+
+def test_prepare_names_missing_manifest_before_catalog(tmp_path, monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise AssertionError("catalog discovery ran without a source manifest")
+
+    monkeypatch.setattr("mindie_knowledge.component_runtime.discover", explode)
+    gone = tmp_path / "removed-package"
+    with pytest.raises(FileNotFoundError, match="adapter source pyproject.toml is unavailable") as caught:
+        component_update.prepare(gone, sys.executable, timeout=5)
+    assert str(gone) not in str(caught.value)
+
+
+def test_prepare_names_missing_runtime_python(tmp_path, monkeypatch):
+    source = tmp_path / "pkg"
+    source.mkdir()
+    (source / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("source baseline ran without the configured interpreter")
+
+    monkeypatch.setattr("mindie_knowledge.component_runtime.source_baseline", explode)
+    missing = tmp_path / "venv" / "bin" / "python"
+    with pytest.raises(FileNotFoundError, match="configured runtime python is unavailable") as caught:
+        component_update.prepare(source, str(missing), timeout=5)
+    assert str(missing) not in str(caught.value)
+
+
+def test_runtime_requirements_counts_as_the_source_manifest(tmp_path):
+    source = tmp_path / "pkg"
+    source.mkdir()
+    (source / "runtime-requirements.txt").write_text(
+        "mindie-knowledge @ git+https://example.invalid\n", encoding="utf-8")
+    component_update._require_source(source, sys.executable)
 
 
 def test_late_setup_failure_keeps_successful_activation_visible(tmp_path, monkeypatch, capsys):
