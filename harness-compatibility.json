@@ -21,8 +21,24 @@
       "commit": "131b24533479e9cefc572144adccdcb345f70846"
     },
     "mindie-diagnostics": {
+      "version": "0.5.7",
+      "commit": "f338788cecc56f7aff1dccab1d53426c9e28fe7f"
+    },
+    "mindie-debugger": {
+      "version": "0.1.0",
+      "commit": "e9406b2b178335190d5cb59dff4d6985894497ba"
+    },
+    "mindie-profiler": {
       "version": "0.5.6",
-      "commit": "9b331956b00737dd6d8c956da3416316f2de1ddf"
+      "commit": "79d97e75bff7351b0472b93c03b072c1cf47f5e7"
+    },
+    "mindie-sim": {
+      "version": "0.9.3",
+      "commit": "dbadff04b60937a0722b0a227cdad01beed083cd"
+    },
+    "mindie-coordinator": {
+      "version": "0.7.4",
+      "commit": "14d7cec7247bdcbea9b9878db4770e3a05a6ea41"
     }
   },
   "verified": [
