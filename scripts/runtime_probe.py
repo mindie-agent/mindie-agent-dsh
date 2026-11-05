@@ -22,7 +22,15 @@ import sys
 import mindie_knowledge  # noqa: F401  (presence check)
 import remote_dev  # noqa: F401  (presence check)
 
-_COMPONENTS = ("mindie-knowledge", "remote-dev", "mindie-diagnostics")
+_COMPONENTS = (
+    "mindie-knowledge",
+    "remote-dev",
+    "mindie-diagnostics",
+    "mindie-debugger",
+    "mindie-profiler",
+    "mindie-sim",
+    "mindie-coordinator",
+)
 
 
 def _version(name: str) -> str | None:
