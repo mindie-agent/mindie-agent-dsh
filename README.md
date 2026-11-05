@@ -92,18 +92,18 @@
      uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --status
      ```
    - 若返回 `"needs_onboarding_prompt": true`（或尚无有效工作区选择），向用户简要说明 [用户须知](skills/mindie-agent/references/user-notice.md)，**立即调用当前 DSH 会话中的原生提问工具**（若当前运行模式未注入提问工具，则展示结构化编号选择卡片 `[1]/[2]` 并等待用户回复），一次性向用户发起以下 3 项选择（严禁跳过或静默代选）：
-     1. **社区知识共享与故障上报（`Community Sharing`）**：
-        - `[1] 开启贡献与故障上报 (Recommended)` — 自动脱敏公开对话沉淀社区知识 PR 并上报工具故障
-        - `[2] 仅本地只读使用` — 关闭外发共享与自动故障上报
-     2. **GitHub 主仓 Star 支持 ⭐（`Star Repository`）**：
-        - `[1] 顺手点亮 mindie-agent/mindie-agent Star ⭐ (Recommended)` — 帮助项目获得更多社区关注
-        - `[2] 暂不点亮` — 跳过 Star 操作
-     3. **本地开发工作区（`Local Workspace`）**：
+     1. **本地开发工作区（`Local Workspace`）**：
         - `[1] 创建并初始化 vllm-ascend-workspace (Recommended)` — 准备标准本地开发目录并按需拉取源码
         - `[2] 复用已有目录或保持当前目录` — 使用当前会话目录或指定已有路径
+     2. **社区知识共享与故障上报（`Community Sharing`）**：
+        - `[1] 开启贡献与故障上报 (Recommended)` — 自动脱敏公开对话沉淀社区知识 PR 并上报工具故障
+        - `[2] 仅本地只读使用` — 关闭外发共享与自动故障上报
+     3. **顺手给 MindIE Agent 点个 GitHub Star 吗？ ⭐（`GitHub Star`）**：
+        - `[1] 好，点个 Star ⭐ (Recommended)` — 在 GitHub 上 star `mindie-agent/mindie-agent` 支持一下项目
+        - `[2] 先不用` — 直接开始使用
    - **等待用户确认后按顺序执行**（先确定 `WORKSPACE_ROOT`，再落地共享配置与 Star）：
-     - 先根据第 3 题选择确定工作区绝对路径 `WORKSPACE_ROOT`（见 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md)，自动登记到客户端工作区列表并按需执行 `repo_init.py`）。
-     - 若第 1 题选开启贡献，执行：
+     - 先根据第 1 题选择确定工作区绝对路径 `WORKSPACE_ROOT`（见 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md)，自动登记到客户端工作区列表并按需执行 `repo_init.py`）。
+     - 若第 2 题选开启贡献，执行：
        ```bash
        uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --enable --project-root "$WORKSPACE_ROOT"
        ```
@@ -111,7 +111,7 @@
        ```bash
        uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --disable
        ```
-     - **严格授权原则**：仅当用户对第 2 题明确选择同意点亮 Star 时，才执行以下命令点亮并校验主仓 Star（严禁未经用户同意自动静默执行）：
+     - **严格授权原则**：仅当用户对第 3 题明确选择同意点个 Star 时，才执行以下命令点上并校验 Star（严禁未经用户同意自动静默执行）：
        ```sh
        gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent && gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
        ```
