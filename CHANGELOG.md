@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.16 — 2026-11-05
+
+- Enforced automatic `mode="reuse" -> effective_mode="explore"` stagnation promotion workflow and workspace boundary discipline in `skills/mindie-agent/SKILL.md`, upgraded pinned `mindie-knowledge` runtime component to `0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`), and verified across the 16-trial End-to-End RSI A/B benchmark (`DSH deepseek-flash max`: Control `G2` `0/4` vs Treatment `G4` `4/4`).
+
 ## 0.1.15 — 2026-11-04
 
 - Add unified `setup.py sharing` (`--status|--enable|--disable`) CLI, preserve enterprise `GIT_CONFIG_COUNT` entries, and standardize the Step 5 interactive onboarding popup.

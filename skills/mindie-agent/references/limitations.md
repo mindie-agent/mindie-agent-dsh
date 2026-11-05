@@ -32,7 +32,7 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 Current runtime pins:
 
-- `mindie-knowledge` `0.13.12` (`1840bd4e238e718676768489058917818d18cd3c`)
+- `mindie-knowledge` `0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`)
 - `remote-dev` `0.11.5` (`131b24533479e9cefc572144adccdcb345f70846`)
 - `mindie-diagnostics` `0.5.6` (`9b331956b00737dd6d8c956da3416316f2de1ddf`)
 - `mindie-debugger` `0.1.0` (`e9406b2b178335190d5cb59dff4d6985894497ba`)
