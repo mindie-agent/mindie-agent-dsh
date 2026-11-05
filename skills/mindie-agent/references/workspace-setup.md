@@ -10,9 +10,11 @@ registration decisions; ordinary tasks and updates do not repeat onboarding.
    invoke the native question tool in the current DSH session (or present a
    structured 3-item numbered `[1]/[2]` choice card if no question tool is
    exposed in the current session mode) to ask all 3 onboarding questions at
-   once: (1) Community Sharing & Fault Reporting, (2) GitHub Star ⭐ for
-   `mindie-agent/mindie-agent`, and (3) Local Workspace (`vllm-ascend-workspace`,
-   reusing an existing directory, or keeping the current directory). Resolve
+   once: (1) Local Workspace (`vllm-ascend-workspace`, reusing an existing
+   directory, or keeping the current directory), (2) Community Sharing & Fault
+   Reporting, and (3) `顺手给 MindIE Agent 点个 GitHub Star 吗？ ⭐` /
+   `Would you like to give mindie-agent a Star on GitHub ⭐?` (`好，点个 Star ⭐ (Recommended)` /
+   `Sure, star it ⭐ (Recommended)` vs `先不用` / `Maybe later`). Resolve
    `WORKSPACE_ROOT` first so `setup.py sharing --enable --project-root "$WORKSPACE_ROOT"`
    records the exact workspace root. Obtain the destination when needed and explain that
    the selected workspace will also be added to the current client's native

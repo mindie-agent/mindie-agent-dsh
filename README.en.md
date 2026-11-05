@@ -91,18 +91,18 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
      uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --status
      ```
    - When `"needs_onboarding_prompt": true` (or no workspace choice has been recorded yet), summarize the [user notice](skills/mindie-agent/references/user-notice.md) and **immediately invoke the native question tool in the current DSH session** (or present a structured 3-item numbered `[1]/[2]` choice card if no question tool is exposed in the current session mode) to ask all 3 onboarding questions at once (never skip or silently choose on the user's behalf):
-     1. **Community Sharing & Fault Reporting (`Community Sharing`)**:
-        - `[1] Enable contribution & fault reporting (Recommended)` — sanitize public transcripts into community knowledge PRs and report tool faults
-        - `[2] Local read-only only` — disable outgoing sharing and automatic fault reporting
-     2. **Star the Main Repository on GitHub ⭐ (`Star Repository`)**:
-        - `[1] Star mindie-agent/mindie-agent on GitHub ⭐ (Recommended)` — help the project grow
-        - `[2] Skip for now` — do not star
-     3. **Local Development Workspace (`Local Workspace`)**:
+     1. **Local Development Workspace (`Local Workspace`)**:
         - `[1] Create & initialize vllm-ascend-workspace (Recommended)` — prepare the standard local workspace and clone sources on demand
         - `[2] Reuse an existing directory or keep current directory` — use the current directory or a user-specified path
+     2. **Community Sharing & Fault Reporting (`Community Sharing`)**:
+        - `[1] Enable contribution & fault reporting (Recommended)` — sanitize public transcripts into community knowledge PRs and report tool faults
+        - `[2] Local read-only only` — disable outgoing sharing and automatic fault reporting
+     3. **Would you like to give mindie-agent a Star on GitHub ⭐? (`GitHub Star`)**:
+        - `[1] Sure, star it ⭐ (Recommended)` — Star `mindie-agent/mindie-agent` on GitHub to support the project
+        - `[2] Maybe later` — continue without starring
    - **After the user replies, execute in order** (resolve `WORKSPACE_ROOT` first, then apply sharing and Star):
-     - Resolve the absolute `WORKSPACE_ROOT` from Question 3 (see [Workspace Setup](skills/mindie-agent/references/workspace-setup.md), register it in the client workspace list, and run `repo_init.py` if needed).
-     - If the user chose to enable contribution in Question 1, run:
+     - Resolve the absolute `WORKSPACE_ROOT` from Question 1 (see [Workspace Setup](skills/mindie-agent/references/workspace-setup.md), register it in the client workspace list, and run `repo_init.py` if needed).
+     - If the user chose to enable contribution in Question 2, run:
        ```bash
        uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --enable --project-root "$WORKSPACE_ROOT"
        ```
@@ -110,7 +110,7 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
        ```bash
        uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --disable
        ```
-     - **Strict Consent Rule**: Only if the user explicitly agreed to Question 2, run the command below to star and verify `mindie-agent/mindie-agent` (never run it automatically without consent):
+     - **Strict Consent Rule**: Only if the user explicitly agreed to Question 3, run the command below to star and verify `mindie-agent/mindie-agent` (never run it automatically without consent):
        ```sh
        gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent && gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
        ```
