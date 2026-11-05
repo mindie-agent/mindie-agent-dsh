@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.15-0F766E.svg" alt="Release v0.1.15"></a>
+  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.16-0F766E.svg" alt="Release v0.1.16"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
@@ -27,7 +27,7 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.15` (paired with `mindie-agent 0.1.8`).
+**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.16` (paired with `mindie-agent 0.1.8`).
 
 Designed for the Ascend NPU AI Infra design, development, and testing lifecycle, `0.1.14` delivers **`vLLM-Ascend` feature development & testing** and **`AscendC` / `Triton` operator implementation & verification** (with broader Ascend AI Infra domains expanding on the roadmap):
 
@@ -63,21 +63,21 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
    - Verify Node.js `>= 22` and Python `>= 3.11` (managed via `uv`). If the user plans to enable community contribution or fault reporting, follow [GitHub Sign-In](skills/mindie-agent/references/github-authentication.md): reuse working authentication; otherwise offer browser login or enterprise-network token creation/input through the native `gh` prompt. Verify the account and inject process-scoped Git credentials (`export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.https://github.com.provider" GIT_CONFIG_VALUE_0="github"`), **never running `gh auth setup-git`, `git config --global`, or `git config --system`** (`gh` is optional for read-only knowledge and `remote-dev` usage).
 
 2. **Provision the pinned runtime before enabling the bundle**:
-   - For the latest `v0.1.15` release (or substitute `v0.0.2` when pairing with the `v0.0.2` suite):
+   - For the latest `v0.1.16` release (or substitute `v0.0.2` when pairing with the `v0.0.2` suite):
    ```bash
    MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh-install"
    rm -rf "$MINDIE_TMP"
-   git clone --depth 1 --branch v0.1.15 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+   git clone --depth 1 --branch v0.1.16 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
    uv --native-tls run --quiet --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py"
    ```
 
 3. **Install and enable the bundle in DSH**:
    - If you are running inside a DSH session with the `plugin_manager` tool available, call:
      ```text
-     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.15")
+     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.16")
      ```
      (Or use `target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2"` for `0.0.2` installations.)
-   - Otherwise, install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.15` (or `#v0.0.2`) on the DSH Web **Plugins** page.
+   - Otherwise, install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.16` (or `#v0.0.2`) on the DSH Web **Plugins** page.
 
 4. **Verify plugin installation**:
    - Confirm the final JSON from `setup.py` reports `"status": "ready"`, `"activation": { "status": "active" }`, `"components"` (`mindie-knowledge 0.13.12 / remote-dev 0.11.5 / mindie-diagnostics 0.5.6`), and `"knowledge": { "status": "inactive" }` (neither installation nor release checks start the knowledge loop before a session manually invokes `/mindie-agent`), and confirm `mindie-agent-dsh` is enabled on the **Plugins** page.
