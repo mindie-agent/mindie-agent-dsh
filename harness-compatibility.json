@@ -13,8 +13,8 @@
   ],
   "runtime_components": {
     "mindie-knowledge": {
-      "version": "0.13.12",
-      "commit": "1840bd4e238e718676768489058917818d18cd3c"
+      "version": "0.13.13",
+      "commit": "1f0c889cf6ec5243cdac310e0da3cb16fae98a17"
     },
     "remote-dev": {
       "version": "0.11.5",
