@@ -14,11 +14,11 @@
   "runtime_components": {
     "mindie-knowledge": {
       "version": "0.13.13",
-      "commit": "da64fe111d878f44b7efec6af6ca46d3f5887be6"
+      "commit": "3c478a19b5542b38520c7f98b87a07f37e305021"
     },
     "remote-dev": {
-      "version": "0.11.5",
-      "commit": "131b24533479e9cefc572144adccdcb345f70846"
+      "version": "0.11.6",
+      "commit": "991ef7863b2b208f94f54a29db4ac5be50884ea3"
     },
     "mindie-diagnostics": {
       "version": "0.5.7",
@@ -33,12 +33,12 @@
       "commit": "79d97e75bff7351b0472b93c03b072c1cf47f5e7"
     },
     "mindie-sim": {
-      "version": "0.9.3",
-      "commit": "dbadff04b60937a0722b0a227cdad01beed083cd"
+      "version": "0.9.4",
+      "commit": "6f1d5a871a7b1ef20ff7a8cab33aaf4637fb3f66"
     },
     "mindie-coordinator": {
-      "version": "0.7.4",
-      "commit": "14d7cec7247bdcbea9b9878db4770e3a05a6ea41"
+      "version": "0.7.5",
+      "commit": "819b0deb7bea994d4dff9c009200a48dd9300cc4"
     }
   },
   "verified": [

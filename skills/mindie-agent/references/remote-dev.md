@@ -69,7 +69,7 @@ MCP connection; inspect its original record before starting another one.
   actual allocation. In addition,
   any performance benchmark or profiler capture on the same physical NPU cards
   (including dual-Die `Phy-ID` sibling mappings on Ascend A3 910C) must hold an
-  exclusive `coordinator` lease and pass pre/post `environment_fingerprint`
+  exclusive `coordinator` lease or an equivalent existing verified host reservation and pass pre/post `environment_fingerprint`
   checks.
 - **Profiler Explicit Windows (`segment.py`), Scene/Clock Annotations &
   Unverified `msmodeling` Provider**: `python -m mindie_profiler` supports

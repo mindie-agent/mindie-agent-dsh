@@ -1,11 +1,21 @@
 # mindie-agent-dsh 0.1.16
 
-`mindie-agent-dsh 0.1.16` refines `skills/mindie-agent/SKILL.md` so RSI stagnation automatically promotes `requested_mode="reuse" -> effective_mode="explore"` (`auto_switched_from_reuse=True`) after 3 distinct refuted candidate repair hashes (`candidate_sha256`) in `logs/experiment-ledger.jsonl` without manual `mode="explore"` calls, enforces strict workspace boundary discipline during evaluation, and upgrades the pinned `mindie-knowledge` runtime component to `0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`).
+[English](mindie-agent-dsh-0.1.16.en.md)
 
-## What's New (Human-Readable Summary)
+本补丁修复 SSH 密码入口与任务连续性：用户已提供凭据时，通过共享 `remote_auth` 建立并验证可复用的密钥连接；知识、可选组件、引导和本地记账故障不阻断独立且已获授权的宿主工作。
 
-- **Automatic `reuse -> explore` Promotion Workflow (`skills/mindie-agent/SKILL.md`)**: Guides the agent to record each distinct candidate repair (`candidate_sha256`) and test outcome in `logs/experiment-ledger.jsonl` and re-query with `mode="reuse"` (`caller_initiated_explore=False`), letting `mindie-knowledge` automatically promote to `effective_mode="explore"` after 3 distinct refuted candidate hashes.
-- **Upgraded Runtime & Component Contracts**:
-  - Locked runtime (`pyproject.toml`, `runtime-requirements.txt`, `uv.lock`, `harness-compatibility.json`): `mindie-knowledge 0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`), `remote-dev 0.11.5` (`131b24533479e9cefc572144adccdcb345f70846`), and `mindie-diagnostics 0.5.6` (`9b331956b00737dd6d8c956da3416316f2de1ddf`).
-- **Workspace Boundary & Anti-Oracle-Reverse-Engineering Discipline (`skills/mindie-agent/SKILL.md`)**: Explicitly forbids leaving the current workspace directory or brute-forcing SHA-256 test digests during `L3` candidate evaluation.
-- **16-Trial End-to-End RSI A/B Benchmark Verification (`track-RSI-E2E-v4`)**: Verified on DSH (`deepseek-flash max`) across 4 Ascend 950DT (A5) controlled contract tasks: Control `G2` `0/4 (0.0%)` vs Treatment `G4` `4/4 (100.0%)`, with `4/4` automatic `reuse -> explore` promotions (`caller_initiated_explore=False`) and `4/4` `graded-c6` local Git commits (`completed:applied`), independently audited by Codex `gpt-6-astra (max)`.
+远端主结果、失败与未知写入分别呈现。任务身份、权限、资源预约和活动作业继续保留；未知外部写入先对账再重试。验证覆盖公共 MCP 参数边界、真实 stdio 及隔离 SSH、跨平台 CI 和精确标签发布基准，不声称用户业务主机或 NPU 模型精度已重新验收。
+
+本版也更新 RSI 停滞指引：记录三个不同的被证伪修复哈希后，由知识运行时自动从 `reuse` 晋升到 `explore`，同时遵守工作区边界。既有受控 CPU RSI A/B 实验仍归属于[产品 0.1.8 原始报告](https://github.com/mindie-agent/mindie-agent/blob/main/docs/releases/0.1.8/rsi-e2e-auto-switch-ab-report.md)，不重新标注为本补丁实验。
+
+## 正式依赖组合
+
+| Component | Version | Source commit |
+| --- | --- | --- |
+| knowledge | 0.13.13 | `3c478a19b5542b38520c7f98b87a07f37e305021` |
+| remote-dev | 0.11.6 | `991ef7863b2b208f94f54a29db4ac5be50884ea3` |
+| diagnostics | 0.5.7 | `f338788cecc56f7aff1dccab1d53426c9e28fe7f` |
+| debugger | 0.1.0 | `e9406b2b178335190d5cb59dff4d6985894497ba` |
+| profiler | 0.5.6 | `79d97e75bff7351b0472b93c03b072c1cf47f5e7` |
+| sim | 0.9.4 | `6f1d5a871a7b1ef20ff7a8cab33aaf4637fb3f66` |
+| coordinator | 0.7.5 | `819b0deb7bea994d4dff9c009200a48dd9300cc4` |

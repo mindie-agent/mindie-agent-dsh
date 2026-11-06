@@ -27,13 +27,13 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 面向 DeepSeek Harness（DSH）的原生插件适配器，当前正式版本为 `0.1.16`（配套主产品 `0.1.8`）。
+**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 面向 DeepSeek Harness（DSH）的原生插件适配器，当前正式版本为 `0.1.16`（配套主产品 `0.1.9`）。
 
 它面向昇腾（Ascend）NPU AI Infra 设计、开发与测试全流程，当前 `0.1.16` 已交付 **`vLLM-Ascend` 特性开发与测试**、**`AscendC` / `Triton` 算子实现验证**等能力（更多昇腾基础软件方向按路线图持续扩展）：
 
 - **`/mindie-agent` 领域知识、Skill 与经验沉淀入口**：按需调用 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_distill`、`knowledge_feedback`、`knowledge_sync`，检索 `knowledge-vllm-ascend` 工程案例，并按 `L1`/`L2` 基础基线、`L3` Hermes 收敛与 `L4` RSI 去偏探索推进任务；开启贡献时自动完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布；
 - **远端开发与本地组件工具**：`remote-dev` 负责远端文件读写、命令执行与后台任务管理；`mindie-tools` 提供本地诊断、状态查询，以及 `profiler`、`sim`、`coordinator` 的调用入口。两组工具默认可用；
-- **生态支持**：当前 `v0.1.16`（配套主产品 `0.1.8`）同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）、Google Antigravity（[`mindie-agent-agy`](https://github.com/mindie-agent/mindie-agent-agy)）与 DeepSeek Harness（本仓库）。
+- **生态支持**：当前 `v0.1.16`（配套主产品 `0.1.9`）同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）、Google Antigravity（[`mindie-agent-agy`](https://github.com/mindie-agent/mindie-agent-agy)）与 DeepSeek Harness（本仓库）。
 
 项目遵循 [MindIE Agent 工程设计原则](https://github.com/mindie-agent/mindie-agent/blob/main/docs/design-principles.md) 的薄适配层架构：本仓库专注于 DSH Host 组合、会话采集与本地代数切换，而多领域分层路由、分片索引、`L1–L4` 分级知识单元校验与社区发布门禁均由共享组件 [`mindie-knowledge`](https://github.com/mindie-agent/knowledge) 统一承载。
 

@@ -7,6 +7,8 @@ disable-model-invocation: true
 
 # MindIE Agent for DeepSeek Harness
 
+**Keep the user's task moving.** MindIE knowledge, setup, onboarding, diagnostics and local ledgers support the task. If one is unavailable, report that specific failure and continue independent work or use equivalent authorized host-native tools. Defer optional setup and sharing questions when they would interrupt the task. Retain existing job IDs and confirmed results. Reconcile an uncertain remote write before repeating that operation; do not bypass identity, permissions or actual device/port ownership. Coordinator-managed work keeps its leases; an existing verified host reservation may support equivalent native work. If ownership cannot be established, pause only that device action.
+
 You are in the MindIE Agent mode for the current task. Work inside the user's
 native DSH session; do not create a parallel workflow or require a special
 session mode.
@@ -165,7 +167,7 @@ or `remote_job_tail`, and stop with `remote_job_stop`. On a timeout or lost
 receipt the remote mutation may already have executed: inspect the original job
 before any deliberate repeat; never automatically replay an uncertain write.
 Separate CPU / cross-compile concurrency from physical NPU timing: any latency,
-throughput, or profiler measurement requires an exclusive `coordinator` lease on
+throughput, or profiler measurement requires an exclusive `coordinator` lease or an equivalent existing verified host reservation on
 the target physical NPU cards and pre/post `environment_fingerprint`
 verification.
 
