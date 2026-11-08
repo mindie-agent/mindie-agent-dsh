@@ -589,6 +589,15 @@ def parse_error(exc: json.JSONDecodeError) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(exc)}}
 
 
+def reply(message: Any) -> None:
+    if not isinstance(message, dict):
+        send({"jsonrpc": "2.0", "id": None,
+              "error": {"code": -32600, "message": "request must be an object"}})
+        return
+    if (response := handle(message)) is not None:
+        send(response)
+
+
 def serve(once: bool = False) -> None:
     stdin = sys.stdin.buffer
     if once:
@@ -600,8 +609,7 @@ def serve(once: bool = False) -> None:
         except json.JSONDecodeError as exc:
             send(parse_error(exc))
             return
-        if isinstance(message, dict) and (response := handle(message)) is not None:
-            send(response)
+        reply(message)
         return
     while line := stdin.readline():
         line = line.rstrip(b"\r\n")
@@ -612,8 +620,7 @@ def serve(once: bool = False) -> None:
         except json.JSONDecodeError as exc:
             send(parse_error(exc))
             continue
-        if isinstance(message, dict) and (response := handle(message)) is not None:
-            send(response)
+        reply(message)
 
 
 def main(argv: list[str] | None = None) -> int:

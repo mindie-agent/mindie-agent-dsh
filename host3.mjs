@@ -289,14 +289,19 @@ export function apply(ctx) {
   }
 
   const readUpdateConfig = () => {
+    let value
     try {
-      const value = JSON.parse(readFileSync(updateFile, 'utf8'))
-      return value && typeof value === 'object' ? value : { enabled: true }
+      value = JSON.parse(readFileSync(updateFile, 'utf8'))
     } catch (error) {
       if (error?.code === 'ENOENT') return { enabled: true }
       log(`update configuration unreadable: ${error.message}`)
       return { enabled: false, config_error: String(error.message) }
     }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      const kind = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value
+      throw new Error(`update configuration must be a JSON object, got ${kind}`)
+    }
+    return value
   }
 
   const updateStatus = async () => {

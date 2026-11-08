@@ -32,7 +32,7 @@ async function withUpdateHost(options, fn) {
   mkdirSync(path.join(root, 'config'), { recursive: true })
   mkdirSync(path.join(root, 'data', 'update'), { recursive: true })
   writeFileSync(path.join(root, 'data', 'update', 'updater.py'), '# stub\n')
-  if (options.config) {
+  if (Object.hasOwn(options, 'config')) {
     writeFileSync(
       path.join(root, 'config', 'update.json'),
       JSON.stringify(options.config, null, 2) + '\n',
@@ -63,6 +63,25 @@ test('boolean false keeps the background updater idle', async () => {
       assert.equal(reply.started, false)
       assert.equal(spawned, 0)
     })
+  } finally {
+    ChildProcess.prototype.spawn = original
+  }
+})
+
+test('a non-object update.json is a configuration error, not a silent start', async () => {
+  const original = ChildProcess.prototype.spawn
+  ChildProcess.prototype.spawn = function spawnStub() {
+    throw new Error('update process should not start')
+  }
+  try {
+    for (const config of [[], null, true, 'false', 1]) {
+      await withUpdateHost({ config }, async ({ ctx, exec }) => {
+        await assert.rejects(
+          ctx.toolsMap.get('mindie_entry').execute({ op: 'update-check' }, exec),
+          /update configuration must be a JSON object/,
+        )
+      })
+    }
   } finally {
     ChildProcess.prototype.spawn = original
   }

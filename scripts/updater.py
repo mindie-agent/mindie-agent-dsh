@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """[Role] Bounded background release updater for mindie-agent-dsh.
-[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; compares current and candidate versions with SemVer 2.0 precedence including prereleases; refuses an unparseable current version, an unreadable package.json, or a non-boolean update.json enabled flag instead of inventing 0.0.0 / 0.1.4 or forcing updates. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
+[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; compares current and candidate versions with SemVer 2.0 precedence including prereleases; refuses an unparseable current version (including leading-zero numeric prereleases such as 1.0.0-01), an unreadable package.json, a non-object update.json, or a non-boolean enabled flag instead of inventing 0.0.0 / 0.1.4 or forcing updates. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
 [Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
 [Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
 """
@@ -100,7 +100,10 @@ def update_config() -> dict:
                 f"update configuration is unreadable: {type(exc).__name__}"
             ) from exc
     if not isinstance(value, dict):
-        value = {}
+        raise UpdateError(
+            "update configuration must be a JSON object, "
+            f"got {type(value).__name__}"
+        )
     enabled = value.get("enabled", True)
     if not isinstance(enabled, bool):
         raise UpdateError(

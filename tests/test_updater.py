@@ -146,6 +146,16 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(updater.parse_current("v0.1.4")[:3], (0, 1, 4))
         self.assertEqual(updater.parse_current("0.1.5-rc.1")[:3], (0, 1, 5))
 
+    def test_leading_zero_numeric_prerelease_is_not_selected(self):
+        self.assertIsNone(updater.choose([release("v1.0.0-01")], "0.9.0"))
+        self.assertIsNone(updater.version_of("1.0.0-01"))
+        with self.assertRaises(updater.UpdateError) as caught:
+            updater.parse_current("1.0.0-01")
+        self.assertIn("1.0.0-01", str(caught.exception))
+        selected = updater.choose([release("v1.0.0-0"), release("v1.0.0-01")], "0.9.0")
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected[1], "v1.0.0-0")
+
     def test_prerelease_current_does_not_downgrade_to_older_stable(self):
         self.assertIsNone(updater.choose([release("v0.1.4")], "0.1.5-rc.1"))
         self.assertIsNone(updater.choose([release("v0.1.4")], "0.1.4+build.7"))
@@ -206,6 +216,21 @@ class UpdaterTests(unittest.TestCase):
                 self.assertIs(updater.update_config()["enabled"], True)
                 updater.atomic_json(updater.config_path(), {"enabled": False})
                 self.assertIs(updater.update_config()["enabled"], False)
+
+    def test_non_object_update_config_is_rejected(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.dict("os.environ", {"MINDIE_DSH_CONFIG_HOME": str(root)}):
+                for payload, kind in (("[]", "list"), ("null", "NoneType"), ("true", "bool"),
+                                      ('"false"', "str"), ("1", "int")):
+                    with self.subTest(payload=payload):
+                        (root / "update.json").write_text(payload, encoding="utf-8")
+                        with self.assertRaises(updater.UpdateError) as caught:
+                            updater.update_config()
+                        self.assertIn("JSON object", str(caught.exception))
+                        self.assertIn(kind, str(caught.exception))
 
     def test_default_current_version_reads_active_generation_or_package_manifest(self):
         from unittest import mock

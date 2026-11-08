@@ -361,6 +361,49 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertEqual(rows[1]["id"], 1)
         self.assertEqual(rows[1]["result"], {})
 
+    def test_non_object_jsonrpc_returns_invalid_request_and_keeps_serving(self) -> None:
+        env = self._env()
+        payload = (
+            json.dumps([1, 2]) + "\n"
+            + json.dumps("ping") + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "knowledge"],
+            input=payload,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["error"]["code"], -32600)
+        self.assertIsNone(rows[0]["id"])
+        self.assertIn("object", rows[0]["error"]["message"])
+        self.assertEqual(rows[1]["error"]["code"], -32600)
+        self.assertEqual(rows[2]["id"], 1)
+        self.assertEqual(rows[2]["result"], {})
+
+    def test_once_non_object_jsonrpc_returns_invalid_request(self) -> None:
+        env = self._env()
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--once", "knowledge"],
+            input="[]\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["id"])
+        self.assertEqual(rows[0]["error"]["code"], -32600)
+
     def test_once_invalid_json_returns_parse_error(self) -> None:
         env = self._env()
         completed = subprocess.run(
