@@ -136,6 +136,25 @@ class UpdaterTests(unittest.TestCase):
         self.assertIsNone(updater.choose([release("v0.0.1")], "0.0.1"))
         self.assertIsNone(updater.choose([{"tag_name": "main"}], "0.0.1"))
 
+    def test_unparseable_current_version_is_rejected_instead_of_zero(self):
+        with self.assertRaises(updater.UpdateError) as caught:
+            updater.parse_current("0.1.4-preview+")
+        self.assertIn("0.1.4-preview+", str(caught.exception))
+        with self.assertRaises(updater.UpdateError) as caught:
+            updater.choose([release("v0.1.5")], "not-a-version")
+        self.assertIn("not-a-version", str(caught.exception))
+        self.assertEqual(updater.parse_current("v0.1.4")[:3], (0, 1, 4))
+        self.assertEqual(updater.parse_current("0.1.5-rc.1")[:3], (0, 1, 5))
+
+    def test_prerelease_current_does_not_downgrade_to_older_stable(self):
+        self.assertIsNone(updater.choose([release("v0.1.4")], "0.1.5-rc.1"))
+        self.assertIsNone(updater.choose([release("v0.1.4")], "0.1.4+build.7"))
+        selected = updater.choose([release("v0.1.4")], "0.1.4-rc.1")
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected[1], "v0.1.4")
+        selected = updater.choose([release("v0.1.5")], "0.1.5-rc.1")
+        self.assertEqual(selected[1], "v0.1.5")
+
     def test_sha256sums_must_match(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -172,6 +191,22 @@ class UpdaterTests(unittest.TestCase):
                 with self.assertRaises(updater.UpdateError):
                     updater.update_config()
 
+    def test_non_boolean_update_enabled_is_rejected(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.dict("os.environ", {"MINDIE_DSH_CONFIG_HOME": str(root)}):
+                updater.atomic_json(updater.config_path(), {"enabled": "false", "interval_minutes": 5})
+                with self.assertRaises(updater.UpdateError) as caught:
+                    updater.update_config()
+                self.assertIn("boolean", str(caught.exception))
+                self.assertIn("str", str(caught.exception))
+                updater.atomic_json(updater.config_path(), {"interval_minutes": 5})
+                self.assertIs(updater.update_config()["enabled"], True)
+                updater.atomic_json(updater.config_path(), {"enabled": False})
+                self.assertIs(updater.update_config()["enabled"], False)
+
     def test_default_current_version_reads_active_generation_or_package_manifest(self):
         from unittest import mock
 
@@ -182,6 +217,45 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(updater.default_current_version(), package_version)
                 updater.write_current(root / "gen", "v0.0.9", None)
                 self.assertEqual(updater.default_current_version(), "0.0.9")
+
+    def test_unreadable_package_manifest_does_not_invent_a_version(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            isolated = {
+                "MINDIE_DSH_DATA_HOME": str(root / "data"),
+                "MINDIE_DSH_CONFIG_HOME": str(root / "config"),
+            }
+            missing = root / "missing-package"
+            with mock.patch.dict("os.environ", isolated), mock.patch.object(
+                updater.mp, "PACKAGE_DIR", missing
+            ):
+                with self.assertRaises(updater.UpdateError) as caught:
+                    updater.default_current_version()
+                message = str(caught.exception)
+                self.assertIn("package.json", message)
+                self.assertIn(str(missing), message)
+
+            broken = root / "broken-package"
+            broken.mkdir()
+            (broken / "package.json").write_text("{not json", encoding="utf-8")
+            with mock.patch.dict("os.environ", isolated), mock.patch.object(
+                updater.mp, "PACKAGE_DIR", broken
+            ):
+                with self.assertRaises(updater.UpdateError) as caught:
+                    updater.default_current_version()
+                self.assertIn("package.json", str(caught.exception))
+
+            empty = root / "empty-package"
+            empty.mkdir()
+            (empty / "package.json").write_text(json.dumps({"name": "x"}), encoding="utf-8")
+            with mock.patch.dict("os.environ", isolated), mock.patch.object(
+                updater.mp, "PACKAGE_DIR", empty
+            ):
+                with self.assertRaises(updater.UpdateError) as caught:
+                    updater.default_current_version()
+                self.assertIn("no usable version", str(caught.exception))
 
     def test_missing_adapter_source_names_pyproject_without_a_local_path(self):
         with tempfile.TemporaryDirectory() as temporary:

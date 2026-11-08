@@ -339,6 +339,46 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIs(responses[2]["result"]["isError"], True)
         self.assertIn("unexpected tool arguments", responses[2]["result"]["content"][0]["text"])
 
+    def test_invalid_jsonrpc_line_returns_parse_error_and_keeps_serving(self) -> None:
+        env = self._env()
+        payload = "{not json\n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "knowledge"],
+            input=payload,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["jsonrpc"], "2.0")
+        self.assertIsNone(rows[0]["id"])
+        self.assertEqual(rows[0]["error"]["code"], -32700)
+        self.assertTrue(rows[0]["error"]["message"])
+        self.assertEqual(rows[1]["id"], 1)
+        self.assertEqual(rows[1]["result"], {})
+
+    def test_once_invalid_json_returns_parse_error(self) -> None:
+        env = self._env()
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--once", "knowledge"],
+            input="{not json\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["id"])
+        self.assertEqual(rows[0]["error"]["code"], -32700)
+        self.assertTrue(rows[0]["error"]["message"])
+
     def test_rsi_explore_query_and_explain_deliver_the_engine_result_verbatim(self) -> None:
         scripts = Path(__file__).resolve().parents[1] / "scripts"
         if str(scripts) not in sys.path:

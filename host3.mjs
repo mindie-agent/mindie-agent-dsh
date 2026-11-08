@@ -325,13 +325,14 @@ export function apply(ctx) {
 
   const startUpdateCheck = async () => {
     if (!existsSync(updateScript)) return false
-    if (readUpdateConfig().enabled === false) return false
-    try {
-      const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
-      if (agents.some((agent) => agent?.status === 'running')) return false
-    } catch {
-      return false
+    const updateConfig = readUpdateConfig()
+    const enabled = Object.hasOwn(updateConfig, 'enabled') ? updateConfig.enabled : true
+    if (typeof enabled !== 'boolean') {
+      throw new Error(`update configuration enabled must be a boolean, got ${typeof enabled}`)
     }
+    if (!enabled) return false
+    const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
+    if (agents.some((agent) => agent?.status === 'running')) return false
     const profile = profileName()
     if (!profile) return false
     try {

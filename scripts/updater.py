@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """[Role] Bounded background release updater for mindie-agent-dsh.
-[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; verifies SHA256SUMS and provisions candidate before switching current.json. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
+[Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; compares current and candidate versions with SemVer 2.0 precedence including prereleases; refuses an unparseable current version, an unreadable package.json, or a non-boolean update.json enabled flag instead of inventing 0.0.0 / 0.1.4 or forcing updates. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
 [Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
 [Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
 """
@@ -11,7 +11,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -26,12 +25,12 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import mindie_paths as mp  # noqa: E402
+import semver_range  # noqa: E402
 import setup_process  # noqa: E402
 
 SCHEMA = "mindie-dsh-update-status/1"
 DEFAULT_API = "https://api.github.com/repos/mindie-agent/mindie-agent-dsh/releases"
 INSTALL_TIMEOUT = 600
-SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
 
 class UpdateError(RuntimeError):
@@ -103,20 +102,40 @@ def update_config() -> dict:
     if not isinstance(value, dict):
         value = {}
     enabled = value.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise UpdateError(
+            "update configuration enabled must be a boolean, "
+            f"got {type(enabled).__name__}"
+        )
     interval = value.get("interval_minutes", value.get("interval_hours", 0) * 60 or 5)
     return {
-        "enabled": enabled if type(enabled) is bool else True,
+        "enabled": enabled,
         "interval_minutes": interval if type(interval) is int and 1 <= interval <= 10080 else 5,
     }
 
 
 def version_of(tag: str):
-    match = SEMVER.fullmatch(tag)
-    return tuple(int(part) for part in match.groups()) if match else None
+    if not isinstance(tag, str):
+        return None
+    text = tag.strip()
+    if text[:1] in "vV" and len(text) > 1 and text[1].isdigit():
+        text = text[1:]
+    try:
+        return semver_range.parse_version(text)
+    except semver_range.SemverRangeError:
+        return None
 
 
 def parse_current(value: str):
-    return version_of(value) or (0, 0, 0)
+    version = version_of(value) if isinstance(value, str) else None
+    if version is None:
+        raise UpdateError(f"current version is not a semantic version: {value!r}")
+    return version
+
+
+def version_order(version):
+    major, minor, patch, prerelease = version
+    return (major, minor, patch, not prerelease, prerelease)
 
 
 def fetch_releases(api: str) -> list:
@@ -150,7 +169,7 @@ def choose(releases: list, current: str):
             continue
         tag = release.get("tag_name")
         version = version_of(tag) if isinstance(tag, str) else None
-        if version is None or version <= current_version:
+        if version is None or version_order(version) <= version_order(current_version):
             continue
         assets = release.get("assets")
         if not isinstance(assets, list):
@@ -164,7 +183,7 @@ def choose(releases: list, current: str):
             (url for name, url in by_name.items() if name.endswith(".tgz")), None
         )
         sums = by_name.get("SHA256SUMS")
-        if asset and sums and (best is None or version > best[0]):
+        if asset and sums and (best is None or version_order(version) > version_order(best[0])):
             best = (version, tag, asset, sums)
     return best
 
@@ -461,15 +480,19 @@ def default_current_version() -> str:
     current = read_json(current_path(), {})
     if isinstance(current, dict) and isinstance(current.get("tag"), str) and current["tag"]:
         return current["tag"].lstrip("v")
+    package_path = mp.PACKAGE_DIR / "package.json"
     try:
-        pkg = json.loads((mp.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))
-        if isinstance(pkg.get("version"), str) and pkg["version"]:
-            return pkg["version"]
+        pkg = json.loads(package_path.read_text(encoding="utf-8"))
     except TimeoutError:
         raise
-    except (OSError, ValueError):
-        pass
-    return "0.1.4"
+    except (OSError, ValueError) as exc:
+        raise UpdateError(
+            f"package.json is unreadable at {package_path}: {type(exc).__name__}: {exc}"
+        ) from exc
+    version = pkg.get("version") if isinstance(pkg, dict) else None
+    if not isinstance(version, str) or not version:
+        raise UpdateError(f"package.json has no usable version at {package_path}")
+    return version
 
 
 def record_update_failure(error: Exception, args) -> int:
