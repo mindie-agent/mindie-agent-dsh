@@ -585,7 +585,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return {"jsonrpc": "2.0", "id": ident, "result": failure(f"internal error: {type(exc).__name__}: {exc}", error=exc)}
 
 
-def parse_error(exc: json.JSONDecodeError) -> dict[str, Any]:
+def parse_error(exc: Exception) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(exc)}}
 
 
@@ -606,7 +606,7 @@ def serve(once: bool = False) -> None:
             return
         try:
             message = json.loads(raw.split(b"\n", 1)[0])
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             return
         reply(message)
@@ -617,7 +617,7 @@ def serve(once: bool = False) -> None:
             continue
         try:
             message = json.loads(line)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             continue
         reply(message)
