@@ -606,7 +606,7 @@ def serve(once: bool = False) -> None:
             return
         try:
             message = json.loads(raw.split(b"\n", 1)[0])
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (ValueError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             return
         reply(message)
@@ -617,7 +617,7 @@ def serve(once: bool = False) -> None:
             continue
         try:
             message = json.loads(line)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (ValueError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             continue
         reply(message)

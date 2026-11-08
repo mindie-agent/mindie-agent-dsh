@@ -404,6 +404,49 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIsNone(rows[0]["id"])
         self.assertEqual(rows[0]["error"]["code"], -32600)
 
+    def _oversized_json_integer_line(self) -> bytes:
+        limit = sys.get_int_max_str_digits()
+        if not limit:
+            self.skipTest("integer string conversion is unlimited")
+        return (b"1" * (limit + 1)) + b"\n"
+
+    def test_oversized_json_integer_returns_parse_error_and_keeps_serving(self) -> None:
+        env = self._env()
+        ping = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8") + b"\n"
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "knowledge"],
+            input=self._oversized_json_integer_line() + ping,
+            env=env,
+            capture_output=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 2)
+        self.assertIsNone(rows[0]["id"])
+        self.assertEqual(rows[0]["error"]["code"], -32700)
+        self.assertIn("integer", rows[0]["error"]["message"].lower())
+        self.assertEqual(rows[1]["id"], 1)
+        self.assertEqual(rows[1]["result"], {})
+
+    def test_once_oversized_json_integer_returns_parse_error(self) -> None:
+        env = self._env()
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--once", "knowledge"],
+            input=self._oversized_json_integer_line(),
+            env=env,
+            capture_output=True,
+            timeout=20,
+            cwd=ROOT,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["id"])
+        self.assertEqual(rows[0]["error"]["code"], -32700)
+        self.assertIn("integer", rows[0]["error"]["message"].lower())
+
     def test_invalid_utf8_line_returns_parse_error_and_keeps_serving(self) -> None:
         env = self._env()
         ping = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8") + b"\n"
