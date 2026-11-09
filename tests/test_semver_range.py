@@ -5,7 +5,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from semver_range import SemverRangeError, satisfies
+from semver_range import SemverRangeError, parse_version, satisfies
 
 # The declared optional peer range. DSH evaluates it with prereleases included.
 RANGE = '>=0.2.0-rc.2 <0.2.2-0'
@@ -63,3 +63,12 @@ def test_prerelease_precedence_matches_semver():
 def test_unsupported_syntax_is_rejected(expression):
     with pytest.raises(SemverRangeError):
         satisfies('0.2.1', expression)
+
+
+def test_leading_zero_numeric_prerelease_is_rejected():
+    with pytest.raises(SemverRangeError):
+        parse_version('1.0.0-01')
+    with pytest.raises(SemverRangeError):
+        parse_version('1.0.0-0.01')
+    assert parse_version('1.0.0-0')[:3] == (1, 0, 0)
+    assert parse_version('1.0.0-rc.1')[:3] == (1, 0, 0)

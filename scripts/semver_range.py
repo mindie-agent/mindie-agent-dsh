@@ -31,22 +31,34 @@ def _prerelease_identifier(part: str) -> tuple[int, object]:
     """Order identifiers per SemVer: numeric identifiers sort below alphanumeric."""
     if _NUMERIC.match(part):
         return (0, int(part))
+    # Digit-only identifiers with leading zeros (1.0.0-01) are not SemVer.
+    if part.isdigit():
+        raise SemverRangeError(
+            f'unsupported semantic version prerelease identifier: {part!r}'
+        )
     return (1, part)
 
 
 def parse_version(text: str) -> tuple[int, int, int, tuple[tuple[int, object], ...]]:
     """Parse one exact semantic version, ignoring build metadata for precedence."""
-    match = _VERSION.match(text.strip())
+    raw = text.strip()
+    match = _VERSION.match(raw)
     if match is None:
         raise SemverRangeError(f'unsupported semantic version: {text!r}')
     prerelease = match.group('pre')
+    try:
+        pre_parts = (
+            tuple(_prerelease_identifier(part) for part in prerelease.split('.'))
+            if prerelease
+            else ()
+        )
+    except SemverRangeError as exc:
+        raise SemverRangeError(f'unsupported semantic version: {text!r}') from exc
     return (
         int(match.group('major')),
         int(match.group('minor')),
         int(match.group('patch')),
-        tuple(_prerelease_identifier(part) for part in prerelease.split('.'))
-        if prerelease
-        else (),
+        pre_parts,
     )
 
 

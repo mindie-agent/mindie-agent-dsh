@@ -289,14 +289,19 @@ export function apply(ctx) {
   }
 
   const readUpdateConfig = () => {
+    let value
     try {
-      const value = JSON.parse(readFileSync(updateFile, 'utf8'))
-      return value && typeof value === 'object' ? value : { enabled: true }
+      value = JSON.parse(readFileSync(updateFile, 'utf8'))
     } catch (error) {
       if (error?.code === 'ENOENT') return { enabled: true }
       log(`update configuration unreadable: ${error.message}`)
       return { enabled: false, config_error: String(error.message) }
     }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      const kind = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value
+      throw new Error(`update configuration must be a JSON object, got ${kind}`)
+    }
+    return value
   }
 
   const updateStatus = async () => {
@@ -325,13 +330,14 @@ export function apply(ctx) {
 
   const startUpdateCheck = async () => {
     if (!existsSync(updateScript)) return false
-    if (readUpdateConfig().enabled === false) return false
-    try {
-      const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
-      if (agents.some((agent) => agent?.status === 'running')) return false
-    } catch {
-      return false
+    const updateConfig = readUpdateConfig()
+    const enabled = Object.hasOwn(updateConfig, 'enabled') ? updateConfig.enabled : true
+    if (typeof enabled !== 'boolean') {
+      throw new Error(`update configuration enabled must be a boolean, got ${typeof enabled}`)
     }
+    if (!enabled) return false
+    const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
+    if (agents.some((agent) => agent?.status === 'running')) return false
     const profile = profileName()
     if (!profile) return false
     try {
