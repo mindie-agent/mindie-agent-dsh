@@ -44,3 +44,13 @@ jobs:
           node --test tests/test_generation_launcher.mjs
           node --test tests/test_remote_isolation.mjs
           node --test tests/test_summary_host.mjs
+
+  release-ready:
+    name: release-ready
+    needs: [contract]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: python -c 'import json,os; assert all(job["result"] == "success" for job in json.loads(os.environ["RESULTS"]).values()), "required CI failed or was skipped"'
