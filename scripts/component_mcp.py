@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """[Role] Expose deterministic MindIE components through DSH's native MCP client.
-[Invariants] Discovery needs no runtime state; knowledge tools never enter this catalog.
+[Invariants] Discovery needs no task or knowledge state; the selected profile owns the runtime.
 [Timeouts & Locks] One in-flight call; cancellation/EOF stop its child within the five-second cleanup budget.
 [Side-Effect Policy] Only tools/call executes components; protocol writes are serialized.
 """
@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 import threading
 
@@ -98,4 +99,21 @@ def serve(reader=None, writer=None):
 
 
 if __name__ == "__main__":
-    serve()
+    if "--once" in sys.argv:
+        message = json.loads(sys.stdin.readline())
+        result = handle(message)
+        if result is not None:
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+    else:
+        from remote_dev.mcp.catalog_refresh import serve_selected
+
+        def selection():
+            config = component_tools.paths.config_file()
+            value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+            package = Path(value.get("package_dir") or component_tools.paths.PACKAGE_DIR)
+            return [value.get("python") or sys.executable,
+                    str(package / "scripts/component_mcp.py"), "--once"], {
+                        "MINDIE_DSH_CONFIG": str(config),
+                    }
+
+        serve_selected(selection)
