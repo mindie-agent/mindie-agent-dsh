@@ -1,8 +1,6 @@
 {
   "schema": "mindie-harness-compatibility/1",
-  "harness": "DeepSeek Harness (dsh)",
-  "adapter": "mindie-agent-dsh",
-  "plugin_version": "0.1.17",
+  "harness": "dsh",
   "supported": [
     {
       "minimum": "0.2.0-rc.2",
@@ -11,166 +9,254 @@
       "include_prerelease": true
     }
   ],
-  "runtime_components": {
-    "mindie-knowledge": {
-      "version": "0.13.13",
-      "commit": "3c478a19b5542b38520c7f98b87a07f37e305021"
-    },
-    "remote-dev": {
-      "version": "0.11.6",
-      "commit": "991ef7863b2b208f94f54a29db4ac5be50884ea3"
-    },
-    "mindie-diagnostics": {
-      "version": "0.5.7",
-      "commit": "f338788cecc56f7aff1dccab1d53426c9e28fe7f"
-    },
-    "mindie-debugger": {
-      "version": "0.1.0",
-      "commit": "e9406b2b178335190d5cb59dff4d6985894497ba"
-    },
-    "mindie-profiler": {
-      "version": "0.5.6",
-      "commit": "79d97e75bff7351b0472b93c03b072c1cf47f5e7"
-    },
-    "mindie-sim": {
-      "version": "0.9.4",
-      "commit": "6f1d5a871a7b1ef20ff7a8cab33aaf4637fb3f66"
-    },
-    "mindie-coordinator": {
-      "version": "0.7.5",
-      "commit": "819b0deb7bea994d4dff9c009200a48dd9300cc4"
-    }
-  },
-  "verified": [
-    {
-      "dsh_version": "0.2.1-rc.5",
-      "node": ">=22",
-      "python": ">=3.11",
-      "platforms": [
-        "Windows 11 native"
-      ],
-      "evidence": "docs/verification.md#6-dsh-021-rc5-interface-audit",
-      "plugin_version": "0.1.10",
-      "runtime_components": {
-        "mindie-knowledge": {
-          "version": "0.13.6",
-          "commit": "9af5a82ad557e2120277693854a0571613c8a115"
-        },
-        "remote-dev": {
-          "version": "0.11.1",
-          "commit": "2a750ec8c74d7f053410d48dd820aeb542e7d3b1"
-        },
-        "mindie-diagnostics": {
-          "version": "0.5.4",
-          "commit": "5ae643e19223f2181ecdbaa3edaf464137c4805e"
-        }
-      }
-    },
-    {
-      "dsh_version": "0.2.0-rc.2",
-      "node": ">=22",
-      "python": ">=3.11",
-      "platforms": [
-        "macOS 27.0.1 arm64",
-        "Ubuntu 24.04 WSL (4090)",
-        "Windows 11 native (Lenovo)"
-      ],
-      "evidence": "docs/verification.md",
-      "plugin_version": "0.0.2",
-      "runtime_components": {
-        "mindie-knowledge": {
-          "version": "0.12.2",
-          "commit": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef"
-        },
-        "remote-dev": {
-          "version": "0.10.1",
-          "commit": "a6649222aae4851deec5774513f8319aece09051"
-        },
-        "mindie-diagnostics": {
-          "version": "0.4.3",
-          "commit": "1b5a0eeb79d498c39002fc1853271c17e0f26e66"
-        }
-      }
-    }
+  "used_interfaces": [
+    "bundle-patch",
+    "skill-filesystem",
+    "mcp-stdio",
+    "host-tools",
+    "agent-turn-stopping",
+    "agent-route",
+    "llm-stream",
+    "session-v4-transcript",
+    "cordis-child-plugin",
+    "generation-pointer",
+    "github-release-api",
+    "uv-runtime"
   ],
-  "interfaces": [
-    {
-      "id": "bundle-patch",
-      "contract": "package.json dsh.bundle.patch -> cordis.patch.yml insert rows",
-      "used_by": "cordis.patch.yml"
+  "interface_registry": {
+    "bundle-patch": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_contract.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "skill-filesystem",
-      "package": "@deepseek-ai/dsh-skill-filesystem",
-      "contract": "customSkillDirs + providerName",
-      "used_by": "cordis.patch.yml"
+    "skill-filesystem": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_contract.py",
+        "tests/test_manual_entry_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "mcp-stdio",
-      "package": "@deepseek-ai/dsh-mcp-client",
-      "contract": "stdio command/args/env/cwd, toolCallTimeoutMs, failOnStartupError",
-      "used_by": "cordis.patch.yml"
+    "mcp-stdio": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_component_mcp.py",
+        "tests/test_remote_isolation.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "host-tools",
-      "package": "ctx.tools.register",
-      "contract": "registered tool definitions with parameters/output/execute",
-      "used_by": "host3.mjs"
+    "host-tools": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_manual_entry_host.mjs",
+        "tests/test_summary_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "agent-turn-stopping",
-      "package": "ctx.on('agent/turn-stopping')",
-      "contract": "agent, turn, signal; session id and header cwd",
-      "used_by": "host3.mjs"
+    "agent-turn-stopping": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "agent-route",
-      "package": "exec.agent.options",
-      "contract": "provider/model route for the session's DSH model",
-      "used_by": "host3.mjs"
+    "agent-route": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_endpoint.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "llm-stream",
-      "package": "ctx.llm.stream",
-      "contract": "text-delta, usage and finish chunks for the summary endpoint",
-      "used_by": "host3.mjs"
+    "llm-stream": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_endpoint.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "session-v4-transcript",
-      "contract": "~/.dsh/sessions/*/session-*/session.v4.jsonl.zstd concatenated zstd frames",
-      "used_by": "scripts/dsh_transcript.py"
+    "session-v4-transcript": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/dsh_transcript.py"
+      ],
+      "test_ids": [
+        "tests/test_dsh_transcript.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "cordis-child-plugin",
-      "package": "ctx.plugin",
-      "contract": "stable launcher mounts an immutable generation as a child Cordis plugin and disposes it on swap",
-      "used_by": "host.mjs"
+    "cordis-child-plugin": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host.mjs"
+      ],
+      "test_ids": [
+        "tests/test_generation_launcher.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "generation-pointer",
-      "contract": "update/current.json atomic pointer to a verified generation package",
-      "used_by": "host.mjs, scripts/updater.py"
+    "generation-pointer": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host.mjs",
+        "scripts/updater.py"
+      ],
+      "test_ids": [
+        "tests/test_generation_launcher.mjs",
+        "tests/test_native_update.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "github-release-api",
-      "contract": "formal releases only; SHA256SUMS; bounded asset download",
-      "used_by": "scripts/updater.py"
+    "github-release-api": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/updater.py"
+      ],
+      "test_ids": [
+        "tests/test_updater.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     },
-    {
-      "id": "uv-runtime",
-      "contract": "uv run --no-project --python 3.11 and uv sync --frozen --project",
-      "used_by": "cordis.patch.yml, scripts/setup.py"
-    },
-    {
-      "id": "mindie-bench-headless",
-      "contract": "mindie-bench native dsh harness: dsh --profile bench --json, pi-ai OpenAI Responses route, fresh DSH_HOME, MCP/skill rows; G0-G2",
-      "used_by": "../mindie-bench"
+    "uv-runtime": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml",
+        "scripts/setup.py"
+      ],
+      "test_ids": [
+        "tests/test_setup_budget.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
     }
-  ],
-  "notes": [
-    "Only stable DSH packages are named; no @deepseek-ai/dsh-experimental-* package is used.",
-    "The bundle inserts Host rows and overrides no shipped row or shipped preset.",
-    "The platform matrix in docs/verification.md records the 0.0.2 adapter and its pinned runtime. It establishes the referenced host interfaces, not cross-platform acceptance of the 0.0.3 component combination.",
-    "Top-level runtime_components records the current 0.1.17 pin set; the verified entry preserves the historical 0.0.2 evidence."
-  ]
+  }
 }
