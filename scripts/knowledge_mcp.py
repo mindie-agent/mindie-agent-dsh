@@ -323,7 +323,11 @@ def _payload(args: dict[str, Any], route: routing.Route, identity: dict[str, Any
 def session_identity() -> str:
     value = os.environ.get("MINDIE_DSH_SESSION_ID")
     if not isinstance(value, str) or not value.strip() or len(value) > 256:
-        raise RuntimeError("native DSH session identity required; invoke /mindie-agent in this task")
+        raise RuntimeError(
+            "native DSH session identity is missing from the host transport; "
+            "repair the native session adapter. Knowledge activation does not "
+            "supply transport identity. Continue independent authorized shell work."
+        )
     return value.strip()
 
 
