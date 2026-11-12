@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
@@ -49,12 +50,18 @@ PUBLIC_FEEDS = [
         "interval_seconds": 300,
     },
 ]
-COMPONENTS = {
-    name: entry["version"]
-    for name, entry in json.loads(
-        (mp.PACKAGE_DIR / "harness-compatibility.json").read_text(encoding="utf-8")
-    )["runtime_components"].items()
+_project = tomllib.loads((mp.PACKAGE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+_component_names = {
+    requirement.partition(" @ ")[0]
+    for requirement in _project["project"]["dependencies"]
 }
+COMPONENTS = {
+    package["name"]: package["version"]
+    for package in tomllib.loads((mp.PACKAGE_DIR / "uv.lock").read_text(encoding="utf-8"))["package"]
+    if package["name"] in _component_names
+}
+if COMPONENTS.keys() != _component_names:
+    raise ValueError("the runtime lock omits a declared component")
 
 
 class SetupError(RuntimeError):

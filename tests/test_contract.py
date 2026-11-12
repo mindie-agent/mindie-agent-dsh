@@ -88,7 +88,8 @@ class PackageContractTests(unittest.TestCase):
         requirements = (ROOT / "runtime-requirements.txt").read_text(encoding="utf-8")
         lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
         compatibility = json.loads((ROOT / "harness-compatibility.json").read_text(encoding="utf-8"))
-        self.assertEqual(compatibility["plugin_version"], package["version"])
+        from mindie_knowledge.releases import supports_harness, validate_compatibility
+        validate_compatibility(compatibility, harness_name="dsh")
         self.assertEqual(
             compatibility["supported"],
             [
@@ -100,16 +101,14 @@ class PackageContractTests(unittest.TestCase):
                 }
             ],
         )
-        verified = compatibility["verified"]
-        self.assertEqual(
-            [entry["dsh_version"] for entry in verified],
-            ["0.2.1-rc.5", "0.2.0-rc.2"],
-        )
-        for entry in verified:
+        for version in ("0.2.1-rc.5", "0.2.0-rc.2", "0.99.99"):
             self.assertTrue(
-                satisfies(entry["dsh_version"], DSH_PEER_RANGE),
-                f"verified DSH {entry['dsh_version']} is outside the declared peer range",
+                satisfies(version, DSH_PEER_RANGE),
+                f"DSH {version} is outside the declared peer range",
             )
+            self.assertTrue(supports_harness(
+                compatibility, harness_name="dsh", harness_version=version,
+            ))
         req_lines = [
             line.strip()
             for line in requirements.splitlines()

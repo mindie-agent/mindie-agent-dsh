@@ -9,3 +9,9 @@ analysis and simulation continue independently of device allocation.
 Device work retains real ownership and lease requirements. Missing ownership
 pauses only the dependent action; uncertain external writes are reconciled before
 replacement. Runtime dependency pins and user consent remain unchanged.
+
+The source compatibility declaration now uses the canonical shared schema
+consumed by native updaters and the shared release publisher. The publisher
+automatically generates the release metadata from the tested commit. Runtime
+setup reads its component versions from the existing project dependencies and
+lockfile, removing the duplicated runtime pin list from the compatibility file.
