@@ -6,12 +6,169 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 from pathlib import Path
+import re
+import shutil
+import sys
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 APP_PARTS = ("mindie-agent", "dsh")
+_WSL_MOUNT_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
+_NPM_SHIM_JS_RE = re.compile(r'"%(?:~dp0|dp0%)[\\/]?([^"\r\n]+\.(?:c?m?js))"', re.IGNORECASE)
+
+
+def strip_win_extended_prefix(path_str: str) -> str:
+    if os.name != "nt":
+        return path_str
+    if path_str.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + path_str[8:]
+    if path_str.startswith("\\\\?\\"):
+        return path_str[4:]
+    return path_str
+
+
+def same_path(a: str | os.PathLike[str] | None, b: str | os.PathLike[str] | None) -> bool:
+    if a is None or b is None:
+        return a is b
+    sa, sb = str(a), str(b)
+    if not sa or not sb:
+        return sa == sb
+    try:
+        if Path(sa).exists() and Path(sb).exists():
+            return os.path.samefile(sa, sb)
+    except TimeoutError:
+        raise
+    except OSError:
+        pass
+    try:
+        ra = strip_win_extended_prefix(str(Path(sa).resolve()))
+        rb = strip_win_extended_prefix(str(Path(sb).resolve()))
+    except TimeoutError:
+        raise
+    except OSError:
+        ra, rb = strip_win_extended_prefix(sa), strip_win_extended_prefix(sb)
+    return os.path.normcase(os.path.normpath(ra)) == os.path.normcase(os.path.normpath(rb))
+
+
+def _is_wsl() -> bool:
+    return sys.platform == "linux" and (
+        "WSL_DISTRO_NAME" in os.environ or Path("/proc/sys/fs/binfmt_misc/WSLInterop").exists()
+    )
+
+
+def _is_wsl_windows_shim(path_str: str) -> bool:
+    lower = path_str.lower()
+    if lower.endswith((".exe", ".cmd", ".bat", ".ps1", ".com")):
+        return True
+    if not _WSL_MOUNT_RE.match(path_str):
+        return False
+    if Path(f"{path_str}.cmd").is_file() or Path(f"{path_str}.exe").is_file():
+        return True
+    try:
+        with Path(path_str).open("rb") as fh:
+            head = fh.read(512)
+    except TimeoutError:
+        raise
+    except OSError:
+        return True
+    if head.startswith(b"MZ"):
+        return True
+    if head.startswith(b"#!"):
+        first_line = head.splitlines(True)[0]
+        if b"\r" in first_line or b".exe" in head.lower() or b"basedir=" in head:
+            return True
+    return False
+
+
+def _win32_tool_candidates(cmd: str) -> list[Path]:
+    base = cmd.lower().removesuffix(".exe").removesuffix(".cmd")
+    home = Path.home()
+    local_app = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
+    app_data = Path(os.environ.get("APPDATA") or (home / "AppData" / "Roaming"))
+    prog_files = Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+    out: list[Path] = []
+    if base == "uv":
+        out.extend([home / ".local" / "bin" / "uv.exe", local_app / "Microsoft" / "WinGet" / "Links" / "uv.exe"])
+        winget_pkgs = local_app / "Microsoft" / "WinGet" / "Packages"
+        if winget_pkgs.is_dir():
+            out.extend(sorted(winget_pkgs.glob("astral-sh.uv_*/uv.exe")))
+    elif base == "git":
+        out.extend([prog_files / "Git" / "cmd" / "git.exe", local_app / "Programs" / "Git" / "cmd" / "git.exe"])
+    elif base == "gh":
+        out.extend([prog_files / "GitHub CLI" / "gh.exe", local_app / "Programs" / "GitHub CLI" / "gh.exe"])
+    elif base == "node":
+        out.extend([prog_files / "nodejs" / "node.exe", local_app / "Programs" / "nodejs" / "node.exe"])
+    elif base == "dsh":
+        out.extend([app_data / "npm" / "dsh.cmd", local_app / "npm" / "dsh.cmd"])
+    return out
+
+
+def which_native(cmd: str, path: str | None = None) -> str | None:
+    """Resolve `cmd` without picking Windows PE/CRLF shims on WSL2 or WindowsApps 0-byte stubs."""
+    search_path = os.environ.get("PATH", "") if path is None else path
+    if _is_wsl():
+        for entry in search_path.split(os.pathsep):
+            if not entry:
+                continue
+            found = shutil.which(cmd, path=entry)
+            if found and not _is_wsl_windows_shim(found):
+                return found
+        return None
+    found = shutil.which(cmd, path=search_path)
+    if os.name == "nt" and found:
+        try:
+            if "windowsapps" in found.replace("/", "\\").lower() and Path(found).stat().st_size == 0:
+                found = None
+        except TimeoutError:
+            raise
+        except OSError:
+            found = None
+    if os.name == "nt" and found is None and path is None:
+        for cand in _win32_tool_candidates(cmd):
+            if cand.is_file():
+                return str(cand)
+    return found
+
+
+def unwrap_cli_argv(raw: str | Path) -> list[str] | None:
+    """Resolve a CLI path to a `CreateProcessW`-safe argv list without `cmd.exe` batch parsing."""
+    p = Path(raw).resolve()
+    if os.name != "nt":
+        return [str(p)]
+    suf = p.suffix.lower()
+    if suf == "":
+        for ext in (".exe", ".cmd", ".bat"):
+            cand = p.with_suffix(ext)
+            if cand.is_file():
+                p = cand.resolve()
+                suf = ext
+                break
+    if suf == ".exe":
+        return [str(p)]
+    if suf in {".cmd", ".bat"}:
+        sibling_exe = p.with_suffix(".exe")
+        if sibling_exe.is_file():
+            return [str(sibling_exe.resolve())]
+        try:
+            shim_text = p.read_bytes()[:16384].decode("utf-8", errors="replace")
+        except TimeoutError:
+            raise
+        except OSError:
+            return None
+        m = _NPM_SHIM_JS_RE.search(shim_text)
+        if not m:
+            return None
+        js_entry = (p.parent / m.group(1).replace("\\", "/")).resolve()
+        if not js_entry.is_file():
+            return None
+        sibling_node = p.parent / "node.exe"
+        node_bin = str(sibling_node.resolve()) if sibling_node.is_file() else (which_native("node.exe") or which_native("node"))
+        if not node_bin or not node_bin.lower().endswith(".exe"):
+            return None
+        return [str(Path(node_bin).resolve()), str(js_entry)]
+    return None
 
 
 def _env(name: str) -> str | None:
@@ -97,7 +254,7 @@ def setup_script() -> Path:
 
 
 def setup_command() -> str:
-    return f"uv run --quiet --no-project --python 3.11 {setup_script()}"
+    return f'uv run --quiet --no-project --python 3.11 "{setup_script()}"'
 
 
 def ensure_private_dir(path: Path) -> Path:

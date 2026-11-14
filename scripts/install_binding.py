@@ -31,7 +31,7 @@ def activate(path, previous, candidate, *, timeout=45):
     lock = StartLock(path.with_name(path.name + '.setup.lock'))
     lock.acquire(wait=max(0, deadline - time.monotonic()))
     try:
-        current = json.loads(path.read_text()) if path.exists() else {}
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         if current != previous:
             return dict(status='deferred', reason='installation_changed')
         report = retire_changed(previous, candidate, timeout=max(0, deadline - time.monotonic()), include_default=True)
@@ -50,4 +50,7 @@ def activate(path, previous, candidate, *, timeout=45):
 
 
 if __name__ == '__main__':
-    print(json.dumps(activate(**json.load(sys.stdin)), ensure_ascii=False))
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    payload = json.loads(sys.stdin.buffer.read().decode('utf-8-sig'))
+    print(json.dumps(activate(**payload), ensure_ascii=False))

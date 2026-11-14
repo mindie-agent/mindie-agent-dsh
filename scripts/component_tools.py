@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,13 @@ import mindie_paths as paths
 
 
 CAPTURE_LIMIT_BYTES = 1024 * 1024
+
+MODULE_MAP = {
+    "profiler": "mindie_profiler",
+    "sim": "mindie_sim",
+    "coordinator": "mindie_coordinator.cli",
+    "debugger": "mindie_debugger.cli",
+}
 
 
 DESCRIPTIONS = {
@@ -126,16 +134,20 @@ def command(adapter, component):
             raise ValueError("component_commands entries must be nonempty executable argv arrays")
         return configured
     if component == "diagnostics":
-        return [adapter["python"], "-I", "-m", "mindie_diagnostics.cli"]
+        return [adapter["python"], "-I", "-X", "utf8", "-m", "mindie_diagnostics.cli"]
     executable_name = "mindie-" + component
     executable = shutil.which(executable_name, path=str(Path(adapter["python"]).parent))
     if executable is None and Path(adapter["python"]).absolute() == Path(sys.executable).absolute():
         executable = shutil.which(executable_name, path=sysconfig.get_path("scripts"))
-    executable = executable or shutil.which(executable_name)
+    executable = executable or paths.which_native(executable_name)
     if executable is None:
         raise FileNotFoundError(
             executable_name + " is not installed; install it in the runtime/on PATH "
             "or configure component_commands." + component)
+    if os.name == "nt" and component in MODULE_MAP and executable.lower().endswith(".exe"):
+        # Windows 11 Smart App Control blocks unsigned pip/uv console-script `.exe`
+        # trampolines (`WinError 4551`); dispatch through the signed Python binary.
+        return [adapter["python"], "-I", "-X", "utf8", "-m", MODULE_MAP[component]]
     return [executable]
 
 
@@ -255,7 +267,7 @@ def execute(name, arguments, *, cancel=None):
     if cwd is not None and (not isinstance(cwd, str) or not Path(cwd).is_absolute()):
         raise ValueError("cwd must be an absolute path")
     cmd_prefix = command(adapter, component)
-    invocation_token = os.urandom(16).hex() if name in DESCRIPTIONS else None
+    invocation_token = secrets.token_hex(16) if name in DESCRIPTIONS else None
     extra_env = {"MINDIE_DIAGNOSTICS_INVOCATION_TOKEN": invocation_token} if invocation_token is not None else None
     result = run(cmd_prefix + argv, timeout=milliseconds / 1000,
                  max_output=budget * 4, cancel=cancel, cwd=cwd, extra_env=extra_env)

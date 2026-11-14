@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -24,11 +23,12 @@ import mindie_paths as mp  # noqa: E402
 import dsh_diagnostics as diagnostics  # noqa: E402
 import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
+import sidecar_github  # noqa: E402
 from knowledge_sync import sync_feeds  # noqa: E402
 
 MAX_LINE = 256 * 1024
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
-_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_REPO_RE = sidecar_github.REPO_RE
 DISTILL_INPUT_REQUIRED = {"kind", "outcome", "source_locator", "content", "evidence_refs"}
 DISTILL_INPUT_OPTIONAL = {"repetitions"}
 DOMAIN_DEACTIVATE_TIMEOUT = 6.0
@@ -322,95 +322,32 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gh(*arguments: str) -> str:
-    executable = shutil.which("gh")
-    if executable is None:
-        raise SidecarError("GitHub CLI (gh) is required to fork and publish community contributions")
-    try:
-        completed = subprocess.run(
-            [executable, *arguments],
-            capture_output=True,
-            text=True,
-            timeout=90,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
-        )
-    except TimeoutError:
-        raise
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise SidecarError(f"gh could not run: {type(exc).__name__}") from exc
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
-        raise SidecarError("gh failed: " + (detail[-1][:300] if detail else "unknown error"))
-    return completed.stdout.strip()
+    return sidecar_github.run_gh(
+        *arguments,
+        error_cls=SidecarError,
+        os_mod=os,
+        shutil_mod=shutil,
+        subprocess_mod=subprocess,
+    )
 
 
 def _github_account() -> str:
-    value = _gh("api", "user", "--jq", ".login").strip()
-    if not value or "/" in value:
-        raise SidecarError("GitHub CLI did not return a usable account; pass account explicitly")
-    return value
+    return sidecar_github.github_account(gh_fn=_gh, error_cls=SidecarError)
 
 
 def _existing_fork(repository: str, account: str, fork: str | None = None) -> str | None:
-    repo_name = repository.split("/", 1)[1] if "/" in repository else repository
-    candidates = [f"{account}/{repo_name}"]
-    if fork and fork not in candidates:
-        candidates.insert(0, fork)
-    for candidate in candidates:
-        try:
-            direct = json.loads(_gh("api", f"repos/{candidate}"))
-        except (SidecarError, ValueError):
-            direct = None
-        if isinstance(direct, dict):
-            parent = direct.get("parent") if isinstance(direct.get("parent"), dict) else {}
-            parent_name = parent.get("full_name") or parent.get("nameWithOwner")
-            full_name = direct.get("full_name") or direct.get("nameWithOwner") or candidate
-            if direct.get("fork") is True and parent_name == repository and isinstance(full_name, str) and full_name.count("/") == 1:
-                return full_name
-            if fork and candidate == fork and (direct.get("fork") is False or (parent_name and parent_name != repository)):
-                raise SidecarError("fork does not match parent repository")
-    try:
-        values = json.loads(_gh("repo", "list", account, "--fork", "--limit", "200", "--json", "nameWithOwner,parent"))
-    except (SidecarError, ValueError):
-        return None
-    for item in values if isinstance(values, list) else []:
-        if not isinstance(item, dict) or not isinstance(parent := item.get("parent"), dict):
-            continue
-        owner = parent.get("owner") if isinstance(parent.get("owner"), dict) else {}
-        parent_name = parent.get("nameWithOwner") or (
-            f"{owner['login']}/{parent['name']}" if isinstance(owner.get("login"), str) and isinstance(parent.get("name"), str) else None
-        )
-        name = item.get("nameWithOwner")
-        if parent_name == repository and isinstance(name, str) and name.count("/") == 1:
-            return name
-    return None
+    return sidecar_github.existing_fork(repository, account, fork, gh_fn=_gh, error_cls=SidecarError)
 
 
 def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
-    if fork is not None:
-        if not isinstance(fork, str) or not _REPO_RE.fullmatch(fork):
-            raise SidecarError("fork must be owner/repo")
-        if fork.split("/", 1)[0] != account:
-            raise SidecarError("fork must belong to the public GitHub account")
-    if existing := _existing_fork(repository, account, fork):
-        return existing
-    if fork:
-        try:
-            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
-            return fork
-        except SidecarError:
-            if shutil.which("gh") is None:
-                return fork
-    _gh("repo", "fork", repository, "--clone=false")
-    if existing := _existing_fork(repository, account, fork):
-        return existing
-    if fork:
-        try:
-            _gh("repo", "view", fork, "--json", "nameWithOwner", "--jq", ".nameWithOwner")
-            return fork
-        except SidecarError:
-            pass
-    raise SidecarError("GitHub did not expose the fork after the fork request")
+    return sidecar_github.ensure_fork(
+        repository,
+        fork,
+        account,
+        gh_fn=_gh,
+        existing_fork_fn=_existing_fork,
+        error_cls=SidecarError,
+    )
 
 
 def op_configure(args: dict[str, Any]) -> dict[str, Any]:
@@ -755,6 +692,12 @@ def _run_cli(argv: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for _stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
     diagnostics.bind_environment()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] in {"sharing-enable", "sharing-disable"}:

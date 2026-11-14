@@ -19,6 +19,7 @@ from mindie_knowledge.loop.store import Store
 from mindie_knowledge.publication_contract import GRADED_SCHEMA, make_contract, render_contract
 
 from domain_harness_support import UNIT_ID, graded_unit
+import mindie_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSION = "sync-session"
@@ -41,7 +42,8 @@ def published_feed(tmp_path_factory):
         subprocess.run(
             ["git", "-C", str(repository), "-c", "user.name=feed",
              "-c", "user.email=feed@example.invalid", "-c", "core.autocrlf=false", *args],
-            capture_output=True, text=True, check=True, timeout=15,
+            capture_output=True, text=True, encoding="utf-8", check=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
     return {"repository": "fixture/operators", "domain": DOMAIN,
             "url": repository.as_uri(), "ref": "main"}
@@ -86,15 +88,22 @@ def invoke(channel, root, arguments):
                "params": {"name": "knowledge_sync", "arguments": arguments}}
     if channel == "stdio":
         completed = subprocess.run(
-            [sys.executable, str(ROOT / "scripts/knowledge_mcp.py"), "knowledge"],
-            input=json.dumps(request) + "\n", capture_output=True, text=True,
+            [sys.executable, "-X", "utf8", str(ROOT / "scripts/knowledge_mcp.py"), "knowledge"],
+            input=json.dumps(request) + "\n", capture_output=True, text=True, encoding="utf-8",
             check=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         result = json.loads(completed.stdout)["result"]
         return result["isError"], result.get("structuredContent", {"message": result["content"][0]["text"]})
+    node_bin = mindie_paths.which_native("node")
+    if node_bin is None:
+        if os.environ.get("CI"):
+            raise AssertionError("node must be available in CI")
+        pytest.skip("node is unavailable")
     completed = subprocess.run(
-        ["node", str(ROOT / "tests/host_domain_harness.mjs")],
-        capture_output=True, text=True, check=True, timeout=15,
+        [node_bin, str(ROOT / "tests/host_domain_harness.mjs")],
+        capture_output=True, text=True, encoding="utf-8", check=True, timeout=15,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         env={**os.environ, "DOMAIN_CWD": str(root), "DOMAIN_SESSION": SESSION,
              "DOMAIN_SKIP_ACTIVATION": "1", "DOMAIN_OPERATIONS": json.dumps([
                  {"tool": "knowledge_sync", "args": arguments},

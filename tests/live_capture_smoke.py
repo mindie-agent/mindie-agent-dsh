@@ -38,11 +38,13 @@ from mindie_knowledge.loop.settings import CommunityWriteContext  # noqa: E402
 
 def redactor() -> str:
     completed = subprocess.run(
-        [sys.executable, "-m", "mindie_knowledge.loop.transcript_redaction"],
+        [sys.executable, "-X", "utf8", "-m", "mindie_knowledge.loop.transcript_redaction"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=180,
         check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
     )
     if completed.returncode != 0:
         raise SystemExit("redactor install failed: " + (completed.stderr or completed.stdout)[-500:])
@@ -186,9 +188,10 @@ def main() -> int:
         if engine is not None:
             try:
                 subprocess.run(
-                    [sys.executable, "-m", "mindie_knowledge.loop.cli", "stop", "--config", str(engine)],
+                    [sys.executable, "-X", "utf8", "-m", "mindie_knowledge.loop.cli", "stop", "--config", str(engine)],
                     capture_output=True,
                     timeout=30,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
                 )
             except Exception:
                 pass

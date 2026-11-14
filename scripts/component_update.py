@@ -45,7 +45,7 @@ def prepare(source, python, *, force=False, active=False, ensure_bound=False, ti
             raise TimeoutError("component preparation exceeded its total budget")
         return available
 
-    adapter = json.loads(mp.config_file().read_text()) if mp.config_file().exists() else {}
+    adapter = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().exists() else {}
     required = required_components(adapter, timeout=min(15, remaining()))
     if ensure_bound:
         missing = False
@@ -73,6 +73,10 @@ def prepare(source, python, *, force=False, active=False, ensure_bound=False, ti
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("python")

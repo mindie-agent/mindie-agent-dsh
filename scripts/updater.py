@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -18,7 +20,7 @@ import tarfile
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -82,9 +84,13 @@ def read_json(path: Path, default):
 
 def atomic_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    try:
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def update_config() -> dict:
@@ -151,7 +157,7 @@ def fetch_releases(api: str) -> list:
             raw = response.read(4 * 1024 * 1024 + 1)
     except TimeoutError:
         raise
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
         raise UpdateError(f"release lookup failed: {type(exc).__name__}") from exc
     if len(raw) > 4 * 1024 * 1024:
         raise UpdateError("release lookup exceeds the limit")
@@ -208,7 +214,7 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
         if clarified is not exc:
             raise clarified from None
         raise
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
         raise UpdateError(f"release asset download failed: {type(exc).__name__}") from exc
 
 
@@ -280,9 +286,15 @@ def extract(asset: Path, destination: Path) -> Path:
     try:
         with tarfile.open(asset, "r:gz") as archive:
             for member in archive.getmembers():
-                if member.name.startswith("/") or ".." in Path(member.name).parts:
+                win_member = PureWindowsPath(member.name)
+                if (
+                    member.name.startswith(("/", "\\"))
+                    or win_member.drive
+                    or ".." in Path(member.name).parts
+                    or ".." in win_member.parts
+                ):
                     raise UpdateError("release archive contains an unsafe path")
-            archive.extractall(destination)
+            archive.extractall(destination, filter="data")
     except TimeoutError:
         raise
     except FileNotFoundError as exc:
@@ -319,11 +331,12 @@ def run(command, timeout, cwd=None, env=None):
 
 
 def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) -> None:
-    updater = shutil.which("uv")
+    updater = mp.which_native("uv")
     if updater is None:
         raise UpdateError("uv is not available to provision the candidate")
     command = [
         artifact['python'] if artifact else sys.executable,
+        "-X", "utf8",
         str(package / "scripts" / "setup.py"), "--python", python,
         *os.environ.get("MINDIE_DSH_UPDATE_SETUP_ARGS", "").split(),
         "--total-timeout", str(INSTALL_TIMEOUT),
@@ -516,6 +529,10 @@ def record_update_failure(error: Exception, args) -> int:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("check", "status", "recover", "enable", "disable"))
     parser.add_argument("--profile", default=os.environ.get("DSH_PROFILE", "web"))

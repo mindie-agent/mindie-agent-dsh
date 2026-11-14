@@ -42,8 +42,12 @@ def test_update_failure_receipt_and_queue_preserve_product_vs_transport(tmp_path
     receipt = json.loads(updater.status_path().read_text())
     assert receipt['state'] == 'failed' and receipt['diagnostic']['incident_id']
     queue = Outbox(tmp_path / 'queue.db')
-    assert ingest(logs, queue, config=policy)['enqueued'] == expected
-    assert 'PRIVATE' not in ''.join(path.read_text() for path in logs.glob('events/*/*.jsonl'))
+    try:
+        assert ingest(logs, queue, config=policy)['enqueued'] == expected
+    finally:
+        if hasattr(queue, 'close'):
+            queue.close()
+    assert 'PRIVATE' not in ''.join(path.read_text(encoding='utf-8') for path in logs.glob('events/*/*.jsonl'))
 
 
 def test_update_check_missing_adapter_source_is_a_named_prerequisite(tmp_path, monkeypatch):

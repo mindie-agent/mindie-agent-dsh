@@ -13,7 +13,7 @@
 // mindie-knowledge components.
 
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -51,9 +51,24 @@ const SYNC_TIMEOUT_MS = 140 * 1000
 // Six-second shared revocation budget plus local status/cleanup headroom.
 const DEACTIVATE_TIMEOUT_MS = 30 * 1000
 
+let tmpSeq = 0
+
+function atomicWriteJson(target, data, indent = 0) {
+  mkdirSync(path.dirname(target), { recursive: true })
+  const temporary = `${target}.${process.pid}.${++tmpSeq}.tmp`
+  const body = indent > 0 ? JSON.stringify(data, null, indent) + '\n' : JSON.stringify(data)
+  try {
+    writeFileSync(temporary, body, { mode: 0o600 })
+    renameSync(temporary, target)
+  } catch (error) {
+    try { unlinkSync(temporary) } catch {}
+    throw error
+  }
+}
+
 function setupCommand() {
   const p = runtimePaths()
-  return `uv run --quiet --no-project --python 3.11 ${p.setupScript}`
+  return `uv run --quiet --no-project --python 3.11 "${p.setupScript}"`
 }
 
 function log(line) {
@@ -78,10 +93,12 @@ class Sidecar {
     if (!existsSync(p.venvPython)) {
       throw new Error(`MindIE runtime is not initialized; run: ${setupCommand()}`)
     }
-    const child = spawn(p.venvPython, [path.join(p.packageDir, 'scripts', 'mindie_sidecar.py')], {
+    const child = spawn(p.venvPython, ['-X', 'utf8', path.join(p.packageDir, 'scripts', 'mindie_sidecar.py')], {
       cwd: p.packageDir,
       env: {
         ...process.env,
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8',
         MINDIE_DSH_CONFIG: p.configFile,
         MINDIE_DSH_ENGINE_CONFIG: p.engineConfig,
         MINDIE_DSH_STATE_DIR: p.stateDir,
@@ -247,9 +264,7 @@ export function apply(ctx) {
       pid: process.pid,
     }
     try {
-      const temporary = endpointFile + '.tmp'
-      writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 })
-      renameSync(temporary, endpointFile)
+      atomicWriteJson(endpointFile, value)
     } catch (error) {
       log(`summary endpoint file write failed: ${error.message}`)
     }
@@ -323,8 +338,7 @@ export function apply(ctx) {
   const writeUpdateEnabled = async (enabled) => {
     const current = readUpdateConfig()
     const next = { ...current, enabled: Boolean(enabled), interval_minutes: current.interval_minutes || 5 }
-    writeFileSync(updateFile + '.tmp', JSON.stringify(next, null, 2) + '\n', { mode: 0o600 })
-    renameSync(updateFile + '.tmp', updateFile)
+    atomicWriteJson(updateFile, next, 2)
     return next
   }
 
@@ -341,10 +355,13 @@ export function apply(ctx) {
     const profile = profileName()
     if (!profile) return false
     try {
+      // Keep detached=true with windowsHide=true on all platforms: on Win32,
+      // non-detached children join libuv's KILL_ON_JOB_CLOSE job and die when
+      // DSH exits, while detached+windowsHide starts python.exe with no console.
       const child = spawn(
         p.venvPython,
-        [updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
-        { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env } },
+        ['-X', 'utf8', updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
+        { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } },
       )
       child.unref()
       return true
@@ -703,10 +720,12 @@ export function apply(ctx) {
       cwd: cwdOf(session),
     }
     try {
-      const child = spawn(p.venvPython, [path.join(p.packageDir, 'scripts', 'capture_stop.py')], {
+      const child = spawn(p.venvPython, ['-X', 'utf8', path.join(p.packageDir, 'scripts', 'capture_stop.py')], {
         cwd: p.packageDir,
         env: {
           ...process.env,
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8',
           MINDIE_DSH_CONFIG: p.configFile,
           MINDIE_DSH_STATE_DIR: p.stateDir,
           MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),

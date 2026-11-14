@@ -39,13 +39,27 @@ except Exception:  # pragma: no cover - CI without the union runtime
 ORGANIZER = ROOT / "scripts" / "dsh_organizer.py"
 
 
+def _make_fake_scanner(directory: Path) -> Path:
+    if os.name == "nt":
+        py_script = directory / "fake_gitleaks.py"
+        py_script.write_text(
+            "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('[]')\n",
+            encoding="utf-8",
+        )
+        scanner = directory / "fake-gitleaks.cmd"
+        scanner.write_text(f'@"{sys.executable}" -I -X utf8 "{py_script}" %*\n', encoding="utf-8")
+        return scanner
+    scanner = directory / "fake-gitleaks"
+    scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
+    scanner.chmod(0o755)
+    return scanner
+
+
 class KnowledgeDistillEntryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if prepare_request is None or Service is None:
             raise unittest.SkipTest("mindie-knowledge union runtime is unavailable")
-        if os.name == "nt":  # pragma: no cover - the fake Gitleaks shim is POSIX-only
-            raise unittest.SkipTest("the fake Gitleaks shim is POSIX-only")
         if shutil.which("node") is None:
             raise unittest.SkipTest("node is unavailable")
 
@@ -69,9 +83,7 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.admission_path = self.root / "admission.sqlite3"
         self.admission = Admission(self.admission_path)
         self.lease = self.admission.activate("manual-A", project_root=str(self.project))
-        self.scanner = self.root / "fake-gitleaks"
-        self.scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
-        self.scanner.chmod(0o755)
+        self.scanner = _make_fake_scanner(self.root)
         self.knowledge = self.root / "knowledge"
         self.store = Store(self.knowledge, "vllm-ascend")
         self.engine_config = self.root / "engine.json"
@@ -100,11 +112,10 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         connection.write_text(json.dumps(self.service.connection), encoding="utf-8")
         self.thread = threading.Thread(target=self.service.http.serve_forever, daemon=True)
         self.thread.start()
-        (self.root / "venv").symlink_to(Path(sys.executable).parent.parent, target_is_directory=True)
         self.adapter_config = self.root / "config.json"
         self.adapter_config.write_text(json.dumps({
             "schema": "mindie-dsh-runtime/1", "version": "0.0.2",
-            "python": sys.executable, "venv_dir": str(self.root / "venv"),
+            "python": sys.executable, "venv_dir": sys.prefix,
             "engine_config": str(self.engine_config),
             "state_dir": str(self.root / "state"),
             "domain": "vllm-ascend",
@@ -134,8 +145,12 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.inputs = inputs
 
     def _restore_env(self) -> None:
-        os.environ.clear()
-        os.environ.update(self._old_env)
+        for key in list(os.environ.keys()):
+            if key not in self._old_env:
+                os.environ.pop(key, None)
+        for key, value in self._old_env.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
     def tearDown(self) -> None:
         self.service.http.shutdown()
@@ -144,6 +159,13 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
         self.engine.shutdown()
         self.consumer.release()
         self.store.close()
+        try:
+            from mindie_diagnostics import logging
+            for key, recorder in list(logging._FAILURE_RECORDERS.items()):
+                recorder.close()
+                logging._FAILURE_RECORDERS.pop(key, None)
+        except ImportError:
+            pass
 
     @staticmethod
     def _inputs() -> list[dict]:
@@ -214,7 +236,8 @@ class KnowledgeDistillEntryTests(unittest.TestCase):
             env["DISTILL_SKIP_ACTIVATION"] = "1"
         completed = subprocess.run(
             [shutil.which("node"), str(HARNESS)], env=env,
-            capture_output=True, text=True, timeout=90,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         if completed.returncode != 0:
             self.fail(f"host tool harness failed: {completed.stderr or completed.stdout}")

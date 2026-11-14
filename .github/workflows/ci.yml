@@ -31,8 +31,10 @@ jobs:
           uv sync --locked --no-editable --no-dev --group component-contracts
           uv pip install -r requirements-dev.txt
           npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
+      - name: Enforce Unix LF Line Endings
+        run: python .github/scripts/check_lf_eol.py
       - name: Contract and protocol tests
-        run: uv run --no-sync python -m pytest -q
+        run: uv run --no-sync python -m pytest -q -ra -m "not live_npu"
       - name: JavaScript contracts
         run: |
           node --check paths.cjs

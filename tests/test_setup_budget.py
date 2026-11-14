@@ -140,7 +140,6 @@ class SetupBudgetTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 3)
         self.assertTrue(caught.exception.output.strip().isdigit())
 
-    @unittest.skipUnless(os.name == "posix", "POSIX group ownership survives leader exit")
     def test_timeout_drains_build_child_after_parent_exits(self):
         import setup_process
 
@@ -331,3 +330,7 @@ class SetupBudgetTests(unittest.TestCase):
                 self.assertEqual(disabled["consent_choice"], "disabled")
                 self.assertFalse(disabled["sharing_enabled"])
                 self.assertFalse(disabled["needs_onboarding_prompt"])
+                from mindie_diagnostics import logging
+                for key, recorder in list(logging._FAILURE_RECORDERS.items()):
+                    recorder.close()
+                    logging._FAILURE_RECORDERS.pop(key, None)

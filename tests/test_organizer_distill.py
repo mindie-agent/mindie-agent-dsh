@@ -60,13 +60,27 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
+def _make_fake_scanner(directory: Path) -> Path:
+    if os.name == "nt":
+        py_script = directory / "fake_gitleaks.py"
+        py_script.write_text(
+            "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('[]')\n",
+            encoding="utf-8",
+        )
+        scanner = directory / "fake-gitleaks.cmd"
+        scanner.write_text(f'@"{sys.executable}" -I -X utf8 "{py_script}" %*\n', encoding="utf-8")
+        return scanner
+    scanner = directory / "fake-gitleaks"
+    scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
+    scanner.chmod(0o755)
+    return scanner
+
+
 class OrganizerDistillTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if distill is None or summarizer is None:
             raise unittest.SkipTest("mindie-knowledge union runtime is unavailable")
-        if os.name == "nt":  # pragma: no cover - the test scanner is a POSIX shim
-            raise unittest.SkipTest("the fake Gitleaks shim is POSIX-only")
 
     def setUp(self) -> None:
         _Handler.calls = 0
@@ -76,9 +90,7 @@ class OrganizerDistillTests(unittest.TestCase):
         _Handler.usage = {"input_tokens": 11, "cached_input_tokens": 3, "output_tokens": 7}
         self._temporary = tempfile.TemporaryDirectory()
         self.state = Path(self._temporary.name)
-        self.scanner = self.state / "fake-gitleaks"
-        self.scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
-        self.scanner.chmod(0o755)
+        self.scanner = _make_fake_scanner(self.state)
 
     def tearDown(self) -> None:
         self._temporary.cleanup()
@@ -93,8 +105,10 @@ class OrganizerDistillTests(unittest.TestCase):
 
     def _identity(self) -> dict:
         completed = subprocess.run(
-            [sys.executable, str(ORGANIZER), "--identity"],
-            env=self._env(), capture_output=True, text=True, timeout=60, check=True,
+            [sys.executable, "-X", "utf8", str(ORGANIZER), "--identity"],
+            env=self._env(), capture_output=True, text=True, encoding="utf-8",
+            timeout=60, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         return json.loads(completed.stdout)
 
@@ -133,9 +147,10 @@ class OrganizerDistillTests(unittest.TestCase):
 
     def _run(self, payload: dict, *, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, str(ORGANIZER)],
+            [sys.executable, "-X", "utf8", str(ORGANIZER)],
             input=json.dumps(payload), env=self._env(), capture_output=True,
-            text=True, timeout=60, check=check,
+            text=True, encoding="utf-8", timeout=60, check=check,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
 
     def _decision(self, request: dict) -> dict:

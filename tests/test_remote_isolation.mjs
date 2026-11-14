@@ -3,7 +3,7 @@
 // exercised separately through the installed DSH runtime.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -38,6 +38,10 @@ function context(children = [], agents = []) {
 
 test('remote MCP is scoped per agent session and disposed with the agent', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-isolation-'))
+  const oldConfigHome = process.env.MINDIE_DSH_CONFIG_HOME
+  const oldDataHome = process.env.MINDIE_DSH_DATA_HOME
+  const oldConfig = process.env.MINDIE_DSH_CONFIG
+  try {
   const configHome = path.join(root, 'config')
   const dataHome = path.join(root, 'data')
   mkdirSync(configHome, { recursive: true })
@@ -121,4 +125,13 @@ test('remote MCP is scoped per agent session and disposed with the agent', async
   assert.equal(launcher.remoteToolCallTimeoutMs({
     MINDIE_DSH_NATIVE_TOOL_CALL_MAX_MS: '900000',
     MINDIE_DSH_REMOTE_CALL_GRACE_MS: '1000'}), 901000)
+  } finally {
+    if (oldConfigHome === undefined) delete process.env.MINDIE_DSH_CONFIG_HOME
+    else process.env.MINDIE_DSH_CONFIG_HOME = oldConfigHome
+    if (oldDataHome === undefined) delete process.env.MINDIE_DSH_DATA_HOME
+    else process.env.MINDIE_DSH_DATA_HOME = oldDataHome
+    if (oldConfig === undefined) delete process.env.MINDIE_DSH_CONFIG
+    else process.env.MINDIE_DSH_CONFIG = oldConfig
+    rmSync(root, { recursive: true, force: true })
+  }
 })

@@ -21,8 +21,8 @@ MINDIE_PROFILE="web"
 MINDIE_STAGE="$(mktemp -d)"
 git clone https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_STAGE/source"
 git -C "$MINDIE_STAGE/source" checkout --detach "$MINDIE_RELEASE_COMMIT"
-uv run --quiet --no-project --python 3.13 \
-  "$MINDIE_STAGE/source/scripts/setup.py" --python 3.13 --no-sync
+uv run --quiet --no-project --python 3.11 \
+  "$MINDIE_STAGE/source/scripts/setup.py" --python 3.11
 dsh plugin --profile "$MINDIE_PROFILE" add \
   "git+https://github.com/mindie-agent/mindie-agent-dsh.git#$MINDIE_RELEASE_COMMIT" \
   --ignore-scripts
@@ -38,14 +38,14 @@ git clone https://github.com/mindie-agent/mindie-agent-dsh.git $MINDIE_STAGE
 if ($LASTEXITCODE -ne 0) { throw "clone failed" }
 git -C $MINDIE_STAGE checkout --detach $MINDIE_RELEASE_COMMIT
 if ($LASTEXITCODE -ne 0) { throw "checkout failed" }
-uv run --quiet --no-project --python 3.13 "$MINDIE_STAGE/scripts/setup.py" --python 3.13 --no-sync
+uv run --quiet --no-project --python 3.11 "$MINDIE_STAGE/scripts/setup.py" --python 3.11
 if ($LASTEXITCODE -ne 0) { throw "runtime setup failed" }
 dsh.cmd plugin --profile $MINDIE_PROFILE add "git+https://github.com/mindie-agent/mindie-agent-dsh.git#$MINDIE_RELEASE_COMMIT" --ignore-scripts
 if ($LASTEXITCODE -ne 0) { throw "bundle refresh failed" }
 ```
 
-- Run the commands in order and stop on any error. `--no-sync` retains the existing local knowledge snapshot during the runtime refresh (omit `--no-sync` if you also want to sync the remote knowledge feed immediately).
-- Verify that `setup.py` outputs `status: "ready"` with `mindie-knowledge 0.12.2`, `remote-dev 0.10.1`, and `mindie-diagnostics 0.4.3`. `setup.py` also copies the transcript adapter, summary worker, and path helper into `state_dir/bin/` so the staging checkout (`$MINDIE_STAGE`) can be safely removed afterwards.
+- Run the commands in order and stop on any error. `setup.py` refreshes the locked Python runtime without starting the knowledge sync loop during setup.
+- Verify that `setup.py` outputs `status: "ready"`. `setup.py` also copies the transcript adapter, organizer/capture helpers, and path helper into the persistent `capture/` directory under `data_home()` so the staging checkout (`$MINDIE_STAGE`) can be safely removed afterwards.
 - For a DSH Desktop profile (where the CLI rejects `--profile desktop`) or scripted GitHub bundle installers (`install-from-github.mjs`), install the same `git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>` spec via the Desktop **Plugins** page or `plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#<SHA>")`, then quit and relaunch the DSH application.
 
 4. **Restart the DSH process**, verify that `mindie-agent-dsh` is enabled on the **Plugins** page, open a new session, and run `/mindie-agent`.
@@ -61,5 +61,5 @@ Confirm that the output lists `mindie-agent-host`, `mindie-agent-skill`, and `mi
 ## Verified Refresh Behavior & Platform Notes
 
 - **State & Consent Preservation**: Refreshing from `828c375d1f546ed653250526465b8075c1691390` to the updated `0.0.2` commit preserves stored knowledge materials, `mindie-consent.json` and community configuration files, existing `disabled` / `later` / `read-only` choices, and active session leases without re-prompting.
-- **Self-Contained Persistent Workers**: Because `setup.py` installs worker scripts under `state_dir/bin/`, removing the temporary source clone after setup leaves `--identity` checks and loopback summary worker requests working normally.
+- **Self-Contained Persistent Workers**: Because `setup.py` installs worker scripts under `data_home()/capture/`, removing the temporary source clone after setup leaves `--identity` checks and loopback summary worker requests working normally.
 - **Windows User-Level Execution**: Run DSH and `setup.py` under your normal non-elevated Windows user account so background scheduled tasks and `pythonw.exe` share standard user directory permissions.

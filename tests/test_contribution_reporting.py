@@ -101,12 +101,14 @@ class ContributionReportingTests(unittest.TestCase):
                 )
                 mindie_sidecar.op_configure({"choice": "disabled", "cwd": str(root)})
                 self.assertEqual(queue.withdraw_unconsented(), 2)
+                if hasattr(queue, "close"):
+                    queue.close()
                 self.assertEqual(consent_store.read(config / "mindie-consent.json")["choice"], "disabled")
                 self.assertEqual(ensure.call_count, 1)
                 from mindie_diagnostics import logging
-                for (_component, location), recorder in list(logging._FAILURE_RECORDERS.items()):
-                    if Path(location) == logs:
-                        recorder.close()
+                for key, recorder in list(logging._FAILURE_RECORDERS.items()):
+                    recorder.close()
+                    logging._FAILURE_RECORDERS.pop(key, None)
 
     def test_startup_preserves_every_legacy_choice_without_activating_worker(self):
         with tempfile.TemporaryDirectory() as raw:

@@ -58,6 +58,8 @@ export function componentMcpConfig(binding, entry, agent) {
     args: [path.join(path.dirname(entry), 'scripts', 'component_mcp.py')],
     cwd: agent?.session?.header?.cwd || path.dirname(entry),
     env: {
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
       MINDIE_DSH_CONFIG: binding.configFile,
       MINDIE_DSH_STATE_DIR: binding.stateDir,
       MINDIE_DSH_SESSION_ID: agent.session.id,
@@ -143,6 +145,8 @@ async function mount(ctx, entry, config, binding = require('./paths.cjs').paths(
           serverName: 'remote-dev', transport: 'stdio', command: binding.venvPython,
           args: ['-m', 'remote_dev.mcp.server'], cwd: path.dirname(entry),
           env: {
+            PYTHONUTF8: '1',
+            PYTHONIOENCODING: 'utf-8',
             MINDIE_DSH_CONFIG: binding.configFile,
             MINDIE_DSH_STATE_DIR: binding.stateDir,
             REMOTE_DEV_STATE_DIR: sessionStateDir(binding, sessionId),

@@ -20,6 +20,7 @@ contain zero Windows CRLF (`\\r\\n`) or mixed line endings.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -54,11 +55,15 @@ def validate_repo_lf(repo_root: Path) -> list[str]:
         if "end_of_line = lf" not in ec_text:
             errors.append("'.editorconfig' must contain 'end_of_line = lf'.")
 
+    run_kwargs: dict[str, object] = {}
+    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     proc = subprocess.run(
         ["git", "-C", str(repo_root), "ls-files", "--cached", "--others", "--exclude-standard", "--eol", "-z"],
         capture_output=True,
         timeout=GIT_TIMEOUT_SECONDS,
         check=False,
+        **run_kwargs,
     )
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace").strip()
