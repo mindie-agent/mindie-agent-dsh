@@ -25,6 +25,7 @@ from mindie_paths import (  # noqa: E402
     config_file,
     data_home,
     ensure_private_dir,
+    same_path,
     setup_command,
     state_dir,
     venv_dir,
@@ -235,12 +236,7 @@ def running_in_configured_venv(config: dict[str, Any]) -> bool:
     configured = config.get("venv_dir")
     if not isinstance(configured, str):
         return False
-    try:
-        return Path(sys.prefix).resolve() == Path(configured).resolve()
-    except TimeoutError:
-        raise
-    except OSError:
-        return False
+    return same_path(sys.prefix, configured)
 
 
 def maybe_reexec() -> None:
@@ -255,21 +251,42 @@ def maybe_reexec() -> None:
     python = config.get("python")
     if not isinstance(python, str) or not Path(python).is_file():
         return
-    argv = [python, str(Path(__file__).resolve()), *sys.argv[1:]]
+    argv = [python, "-X", "utf8", str(Path(__file__).resolve()), *sys.argv[1:]]
     if os.name != "nt":
         os.execv(python, argv)
         return
     sys.stdout.flush()
     sys.stderr.flush()
+    env = {**os.environ, "MINDIE_DSH_NO_REEXEC": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     child = subprocess.Popen(
         argv,
         stdin=sys.stdin.buffer,
         stdout=sys.stdout.buffer,
         stderr=sys.stderr.buffer,
         close_fds=False,
+        env=env,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    raise SystemExit(child.wait())
+    try:
+        rc = child.wait()
+    except BaseException:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=3.0,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            child.kill()
+            child.wait(timeout=1.0)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    raise SystemExit(rc)
 
 
 def ensure_service(engine_path: str) -> Any:
@@ -289,7 +306,7 @@ def knowledge_connection(config: dict[str, Any], engine_path: str | None = None)
         raise RuntimeError(
             "the local knowledge service could not be started: "
             f"{type(exc).__name__}: {exc}. Inspect "
-            f"`{Path(config['python']).resolve()} -m mindie_knowledge.loop.cli status --config {selected}`"
+            f'`"{Path(config["python"]).resolve()}" -m mindie_knowledge.loop.cli status --config "{selected}"`'
         ) from exc
 
 
@@ -609,7 +626,7 @@ def serve(once: bool = False) -> None:
         if not raw:
             return
         try:
-            message = json.loads(raw.split(b"\n", 1)[0])
+            message = json.loads(raw.split(b"\n", 1)[0].decode("utf-8-sig"))
         except (ValueError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             return
@@ -620,7 +637,7 @@ def serve(once: bool = False) -> None:
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
+            message = json.loads(line.decode("utf-8-sig"))
         except (ValueError, UnicodeDecodeError) as exc:
             send(parse_error(exc))
             continue

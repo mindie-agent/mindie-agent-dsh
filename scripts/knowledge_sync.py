@@ -13,7 +13,7 @@ from component_tools import run
 
 def sync_feeds(python, engine):
     execution = run(
-        [python, "-I", "-m", "mindie_knowledge.loop.cli", "sync",
+        [python, "-I", "-X", "utf8", "-m", "mindie_knowledge.loop.cli", "sync",
          "--config", str(engine), "--resume"],
         timeout=120.0, max_output=1024 * 1024, cancel=None,
     )

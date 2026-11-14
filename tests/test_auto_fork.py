@@ -98,6 +98,13 @@ class ForkTests(unittest.TestCase):
                         {"choice": "contribute", "cwd": str(root), "account": "testuser"}
                     )
             finally:
+                try:
+                    from mindie_diagnostics import logging
+                    for key, recorder in list(logging._FAILURE_RECORDERS.items()):
+                        recorder.close()
+                        logging._FAILURE_RECORDERS.pop(key, None)
+                except ImportError:
+                    pass
                 for key, value in old.items():
                     if value is None:
                         os.environ.pop(key, None)

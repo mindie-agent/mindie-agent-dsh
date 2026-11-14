@@ -16,6 +16,10 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+import mindie_paths  # noqa: E402
+
 ORGANIZER = ROOT / "scripts" / "dsh_organizer.py"
 HARNESS = ROOT / "tests" / "host_summary_harness.mjs"
 
@@ -30,22 +34,37 @@ except Exception:  # pragma: no cover - CI without the union runtime
     SHARED = None
 
 
+def _make_fake_scanner(directory: Path) -> Path:
+    if os.name == "nt":
+        py_script = directory / "fake_gitleaks.py"
+        py_script.write_text(
+            "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('[]')\n",
+            encoding="utf-8",
+        )
+        scanner = directory / "fake-gitleaks.cmd"
+        scanner.write_text(f'@"{sys.executable}" -I -X utf8 "{py_script}" %*\n', encoding="utf-8")
+        return scanner
+    scanner = directory / "fake-gitleaks"
+    scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
+    scanner.chmod(0o755)
+    return scanner
+
+
 class HostDistillRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if distill is None or summarizer is None:
             raise unittest.SkipTest("mindie-knowledge union runtime is unavailable")
-        if os.name == "nt":  # pragma: no cover - the fake Gitleaks shim is POSIX-only
-            raise unittest.SkipTest("the fake Gitleaks shim is POSIX-only")
-        if shutil.which("node") is None:
+        cls.node_bin = mindie_paths.which_native("node")
+        if cls.node_bin is None:
+            if os.environ.get("CI"):
+                raise AssertionError("node must be available in CI")
             raise unittest.SkipTest("node is unavailable")
 
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         self.state = Path(self._temporary.name)
-        self.scanner = self.state / "fake-gitleaks"
-        self.scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
-        self.scanner.chmod(0o755)
+        self.scanner = _make_fake_scanner(self.state)
         self._processes: list[subprocess.Popen] = []
 
     def tearDown(self) -> None:
@@ -76,8 +95,10 @@ class HostDistillRouteTests(unittest.TestCase):
 
     def _identity(self) -> dict:
         completed = subprocess.run(
-            [sys.executable, str(ORGANIZER), "--identity"],
-            env=self._env(), capture_output=True, text=True, timeout=60, check=True,
+            [sys.executable, "-X", "utf8", str(ORGANIZER), "--identity"],
+            env=self._env(), capture_output=True, text=True, encoding="utf-8",
+            timeout=60, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         return json.loads(completed.stdout)
 
@@ -156,8 +177,9 @@ class HostDistillRouteTests(unittest.TestCase):
         if usage is not None:
             env["DISTILL_STUB_USAGE"] = json.dumps(usage)
         process = subprocess.Popen(
-            [shutil.which("node"), str(HARNESS)], env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            [self.node_bin, str(HARNESS)], env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         self._processes.append(process)
         deadline = time.monotonic() + 20
@@ -184,9 +206,10 @@ class HostDistillRouteTests(unittest.TestCase):
 
     def _run_organizer(self, request: dict) -> dict:
         completed = subprocess.run(
-            [sys.executable, str(ORGANIZER)],
+            [sys.executable, "-X", "utf8", str(ORGANIZER)],
             input=json.dumps(request), env=self._env(), capture_output=True,
-            text=True, timeout=60, check=True,
+            text=True, encoding="utf-8", timeout=60, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         return json.loads(completed.stdout)
 

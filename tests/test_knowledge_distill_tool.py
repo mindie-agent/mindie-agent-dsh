@@ -34,13 +34,27 @@ except Exception:  # pragma: no cover - CI without the union runtime
 FIXTURE_WORKER = ROOT / "tests" / "fixtures" / "graded_worker.py"
 
 
+def make_fake_scanner(directory: Path) -> Path:
+    if os.name == "nt":
+        py_script = directory / "fake_gitleaks.py"
+        py_script.write_text(
+            "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('[]')\n",
+            encoding="utf-8",
+        )
+        scanner = directory / "fake-gitleaks.cmd"
+        scanner.write_text(f'@"{sys.executable}" -I -X utf8 "{py_script}" %*\n', encoding="utf-8")
+        return scanner
+    scanner = directory / "fake-gitleaks"
+    scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
+    scanner.chmod(0o755)
+    return scanner
+
+
 class KnowledgeDistillToolTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if distill is None or Service is None:
             raise unittest.SkipTest("mindie-knowledge union runtime is unavailable")
-        if os.name == "nt":  # pragma: no cover - the test scanner is a POSIX shim
-            raise unittest.SkipTest("the fake Gitleaks shim is POSIX-only")
 
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
@@ -61,9 +75,7 @@ class KnowledgeDistillToolTests(unittest.TestCase):
         self.admission = Admission(self.admission_path)
         self.lease = self.admission.activate("manual-A", project_root=str(self.project))
         self.token = self.lease["token"]
-        self.scanner = self.root / "fake-gitleaks"
-        self.scanner.write_text("#!/bin/sh\ncat >/dev/null\nprintf '[]'\n", encoding="utf-8")
-        self.scanner.chmod(0o755)
+        self.scanner = make_fake_scanner(self.root)
         self.calls = self.root / "calls.txt"
         self.knowledge = self.root / "knowledge"
         self.store = Store(self.knowledge, "vllm-ascend")
@@ -120,8 +132,12 @@ class KnowledgeDistillToolTests(unittest.TestCase):
         })
 
     def _restore_env(self) -> None:
-        os.environ.clear()
-        os.environ.update(self._old_env)
+        for key in list(os.environ.keys()):
+            if key not in self._old_env:
+                os.environ.pop(key, None)
+        for key, value in self._old_env.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
     def tearDown(self) -> None:
         self.service.http.shutdown()
@@ -130,6 +146,13 @@ class KnowledgeDistillToolTests(unittest.TestCase):
         self.engine.shutdown()
         self.consumer.release()
         self.store.close()
+        try:
+            from mindie_diagnostics import logging
+            for key, recorder in list(logging._FAILURE_RECORDERS.items()):
+                recorder.close()
+                logging._FAILURE_RECORDERS.pop(key, None)
+        except ImportError:
+            pass
 
     def _inputs(self, *, outcome: str = "observed") -> list[dict]:
         return [{

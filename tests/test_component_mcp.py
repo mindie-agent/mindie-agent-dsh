@@ -156,9 +156,12 @@ def test_stdio_cancel_interrupts_owned_process_and_allows_next_call(installed, t
         "from pathlib import Path; import os,time; Path(" + repr(str(marker)) +
         ").write_text(str(os.getpid())); time.sleep(30)"]}
     installed.write_text(json.dumps(value))
-    process = subprocess.Popen([sys.executable, str(ROOT / "scripts/component_mcp.py")],
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, env=dict(os.environ))
+    process = subprocess.Popen(
+        [sys.executable, "-X", "utf8", str(ROOT / "scripts/component_mcp.py")],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", env=dict(os.environ),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+    )
     received = queue.Queue()
     reader = threading.Thread(target=lambda: [received.put(json.loads(line)) for line in process.stdout],
                               daemon=True)
@@ -194,15 +197,37 @@ def test_stdio_cancel_interrupts_owned_process_and_allows_next_call(installed, t
 
 
 def test_launcher_registers_and_calls_through_native_dsh_mcp_client(installed, tmp_path):
+    import mindie_paths
+
+    node_bin = mindie_paths.which_native("node")
+    if node_bin is None:
+        if os.environ.get("CI"):
+            raise AssertionError("node must be available in CI")
+        pytest.skip("node is unavailable")
     modules = ROOT / "node_modules"
     if not (modules / "@deepseek-ai/dsh-mcp-client/package.json").is_file():
-        executable = shutil.which("dsh")
+        executable = mindie_paths.which_native("dsh")
+        if executable is None and not os.environ.get("CI"):
+            pytest.skip("global or local @deepseek-ai/dsh is unavailable")
         assert executable, "Install the package.json pinned DSH version before native contracts"
-        modules = Path(executable).resolve().parents[1] / "node_modules"
+        unwrapped = mindie_paths.unwrap_cli_argv(executable)
+        entry = Path((unwrapped or [executable])[-1]).resolve()
+        candidates: list[Path] = []
+        for ancestor in (entry.parent, *entry.parents[:4]):
+            candidates.extend((
+                ancestor / "node_modules",
+                ancestor / "node_modules/@deepseek-ai/dsh/node_modules",
+                ancestor,
+            ))
+        for candidate in candidates:
+            if (candidate / "@deepseek-ai/dsh-mcp-client/package.json").is_file():
+                modules = candidate
+                break
     assert (modules / "@deepseek-ai/dsh-mcp-client/package.json").is_file()
     result = subprocess.run(
-        ["node", str(ROOT / "tests/component_native_harness.mjs")],
-        capture_output=True, text=True, timeout=15, check=True,
+        [node_bin, str(ROOT / "tests/component_native_harness.mjs")],
+        capture_output=True, text=True, encoding="utf-8", timeout=15, check=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         env={**os.environ, "COMPONENT_PACKAGE": str(ROOT), "DSH_MODULE_ROOT": str(modules),
              "COMPONENT_PYTHON": sys.executable,
              "COMPONENT_CAPTURE": str(ROOT / "tests/fixtures/profiler/rank_0")},

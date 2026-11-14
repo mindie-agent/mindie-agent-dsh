@@ -136,18 +136,26 @@ def tail(text: str, limit: int = 4000) -> str:
 
 def write_private(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def copy_private(source: Path, destination: Path) -> None:
     if not source.is_file():
         raise SetupError(f"required plugin file is missing: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     tmp.write_bytes(source.read_bytes())
-    os.replace(tmp, destination)
+    try:
+        os.replace(tmp, destination)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 _RETAINED_ITEMS = (
@@ -171,9 +179,13 @@ def _copy_lf_clean(source: Path, destination: Path) -> None:
     if source.suffix in _TEXT_SUFFIXES and b"\r\n" in raw:
         raw = raw.replace(b"\r\n", b"\n")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     tmp.write_bytes(raw)
-    os.replace(tmp, destination)
+    try:
+        os.replace(tmp, destination)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def stage_retained_package(source_dir: Path | None = None) -> Path:
@@ -229,7 +241,7 @@ def check_host() -> None:
             f"Python 3.11+ is required for setup, found {sys.version.split()[0]}. "
             "Run: uv run --quiet --no-project --python 3.11 scripts/setup.py"
         )
-    if shutil.which("uv") is None:
+    if mp.which_native("uv") is None:
         raise SetupError(
             "uv is required. Install it first: https://docs.astral.sh/uv/getting-started/installation/"
         )
@@ -268,8 +280,9 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
             env[f"GIT_CONFIG_VALUE_{next_idx}"] = v
             next_idx += 1
     env["GIT_CONFIG_COUNT"] = str(next_idx)
+    uv_exe = mp.which_native("uv") or "uv"
     argv = [
-        "uv", "sync", "--frozen", "--quiet", "--no-dev",
+        uv_exe, "sync", "--frozen", "--quiet", "--no-dev",
         "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
     ]
     progress(f"building locked runtime at {venv}")
@@ -282,7 +295,7 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
 
 def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
     completed = run(
-        [str(runtime_python()), str(HERE / "runtime_probe.py")],
+        [str(runtime_python()), "-X", "utf8", str(HERE / "runtime_probe.py")],
         timeout=timeout,
     )
     if completed.returncode != 0:
@@ -303,7 +316,7 @@ def prepare_bound_runtime() -> bool:
     """Let a new candidate complete an old updater's core-only runtime once."""
     global INSTALL_RUNTIME_DIR
     config = mp.config_file()
-    if not config.is_file() or not json.loads(config.read_text()).get("component_commands"):
+    if not config.is_file() or not json.loads(config.read_text(encoding="utf-8")).get("component_commands"):
         return False
     # The old updater supplies 600s. The later probe/configuration/publication
     # stages share 180s through run(), plus five seconds for this child's cleanup.
@@ -327,7 +340,7 @@ def prepare_bound_runtime() -> bool:
 def install_redactor(*, timeout: int = 300) -> str:
     progress("installing the deterministic transcript redactor")
     completed = run(
-        [str(runtime_python()), "-m", "mindie_knowledge.loop.transcript_redaction"],
+        [str(runtime_python()), "-X", "utf8", "-m", "mindie_knowledge.loop.transcript_redaction"],
         timeout=timeout,
     )
     if completed.returncode != 0:
@@ -354,9 +367,9 @@ def engine_configuration(redactor: str) -> dict[str, Any]:
         "service_launch_context": {"paths": {}, "environment": ["MINDIE_DIAGNOSTICS_CONFIG"]},
         "feeds": [dict(FEED)],
     }
-    previous = json.loads(mp.config_file().read_text()) if mp.config_file().is_file() else {}
+    previous = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().is_file() else {}
     if previous.get('engine_config'):
-        original = json.loads(Path(previous['engine_config']).read_text())
+        original = json.loads(Path(previous['engine_config']).read_text(encoding="utf-8"))
         for key in ('root', 'domain', 'admission_path', 'community_config', 'feeds'):
             if key in original:
                 value[key] = original[key]
@@ -369,7 +382,7 @@ def prepare_domains(adapter, engine):
                    authority_directory=str(mp.config_home() / 'knowledge-domains'),
                    consent_config=str(mp.config_home() / 'mindie-consent.json'),
                    domains=PUBLIC_FEEDS)
-    completed = run([str(runtime_python()), '-m', 'mindie_knowledge.loop.domain_catalog'],
+    completed = run([str(runtime_python()), '-X', 'utf8', '-m', 'mindie_knowledge.loop.domain_catalog'],
                     input_text=json.dumps(request), timeout=90)
     if completed.returncode:
         raise SetupError('domain preparation failed: ' + tail(completed.stderr))
@@ -402,7 +415,7 @@ def install_updater() -> dict[str, Any]:
 def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
     path = Path(adapter['engine_config'])
     if path.exists():
-        if json.loads(path.read_text()) != engine:
+        if json.loads(path.read_text(encoding='utf-8')) != engine:
             raise SetupError('prepared engine path contains different immutable config')
     else:
         write_private(path, engine)
@@ -411,7 +424,7 @@ def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
     outer = min(50, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 50
     if outer <= 5:
         raise SetupError('setup has no remaining idle handoff and cleanup budget')
-    completed = run([str(runtime_python()), str(HERE / 'install_binding.py')],
+    completed = run([str(runtime_python()), '-X', 'utf8', str(HERE / 'install_binding.py')],
                     input_text=json.dumps(dict(path=str(mp.config_file()), previous=previous,
                                                candidate=adapter, timeout=outer - 5)), timeout=outer)
     if completed.returncode:
@@ -430,7 +443,7 @@ def report_setup_failure(error: Exception, *, activation=None) -> None:
         progress("diagnostic storage unavailable: runtime installation did not complete")
         return
     try:
-        result = run([str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
+        result = run([str(runtime_python()), "-X", "utf8", str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
                       "record", "--operation", "setup", "--category", type(error).__name__], timeout=5)
         progress("diagnostic: " + result.stdout.strip())
     except TimeoutError:
@@ -444,6 +457,8 @@ def _read_json_dict(path: Path) -> tuple[dict[str, Any] | None, str]:
         return None, "missing"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         return None, "corrupt"
     if not isinstance(data, dict):
@@ -614,6 +629,10 @@ def run_sharing_cli(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     global RUN_DEADLINE, INSTALL_RUNTIME_DIR
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] == "sharing":
         return run_sharing_cli(raw_argv[1:])
@@ -644,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest = json.loads(args.component_manifest.read_text(encoding="utf-8"))
             effective_identity(source_baseline(mp.PACKAGE_DIR), manifest)
             INSTALL_RUNTIME_DIR = args.component_manifest.parent / 'runtime/.venv'
-            if Path(sys.prefix).resolve() != INSTALL_RUNTIME_DIR.resolve():
+            if not mp.same_path(sys.prefix, INSTALL_RUNTIME_DIR):
                 raise SetupError('component setup must run in its prepared interpreter')
             verify_lock(manifest)
             verify(manifest['runtime'])
@@ -663,7 +682,7 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(
                     {
                         "schema": SCHEMA, "status": "dry-run", "version": VERSION,
-                        "python": sys.version.split()[0], "uv": shutil.which("uv"),
+                        "python": sys.version.split()[0], "uv": mp.which_native("uv"),
                         "components": COMPONENTS, "paths": paths,
                         "knowledge": {"status": "inactive"},
                     },
@@ -674,11 +693,11 @@ def main(argv: list[str] | None = None) -> int:
 
         for d in (mp.data_home(), mp.config_home(), mp.state_dir()):
             mp.ensure_private_dir(d)
-        previous = json.loads(mp.config_file().read_text()) if mp.config_file().is_file() else {}
+        previous = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().is_file() else {}
         probe = None
         if args.component_manifest:
             probe = probe_runtime()
-        if not args.component_manifest and previous.get('venv_dir') == str(runtime_dir()):
+        if not args.component_manifest and mp.same_path(previous.get('venv_dir'), runtime_dir()):
             try:
                 probe = probe_runtime()
             except SetupError:
@@ -706,7 +725,7 @@ def main(argv: list[str] | None = None) -> int:
         knowledge = {"status": "inactive"}
         update = install_updater()
         reporting_process = run(
-            [str(runtime_python()), str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
+            [str(runtime_python()), "-X", "utf8", str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
             timeout=90,
         )
         if reporting_process.returncode:

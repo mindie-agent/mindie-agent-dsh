@@ -11,6 +11,7 @@ no host configuration or external state is modified.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -27,6 +28,7 @@ for location in (ROOT / "tests", ROOT / "scripts"):
         sys.path.insert(0, str(location))
 
 import test_knowledge_distill_tool as _fixture_module  # noqa: E402
+import mindie_paths  # noqa: E402
 import mindie_sidecar  # noqa: E402
 from mindie_knowledge.graded.units import GradedUnit  # noqa: E402
 
@@ -80,7 +82,10 @@ class DomainHarnessTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         _fixture_module.KnowledgeDistillToolTests.setUpClass()
-        if shutil.which("node") is None:  # pragma: no cover - node is the native host
+        cls.node_bin = mindie_paths.which_native("node")
+        if cls.node_bin is None:  # pragma: no cover - node is the native host
+            if os.environ.get("CI"):
+                raise AssertionError("node must be available in CI")
             raise unittest.SkipTest("node is unavailable")
 
     def setUp(self) -> None:
@@ -154,11 +159,6 @@ class DomainHarnessTestCase(unittest.TestCase):
         }
         self.adapter_config.write_text(json.dumps(adapter), encoding="utf-8")
         (self.root / "state").mkdir(exist_ok=True)
-        venv = self.root / "venv"
-        if not venv.exists():
-            venv.symlink_to(
-                Path(sys.executable).parent.parent, target_is_directory=True,
-            )
 
     def _stop_target(self) -> None:
         service = getattr(self, "target_service", None)
@@ -234,7 +234,7 @@ class DomainHarnessTestCase(unittest.TestCase):
 
     @staticmethod
     def _stored_token(admission_path, session):
-        with sqlite3.connect(admission_path) as database:
+        with contextlib.closing(sqlite3.connect(admission_path)) as database:
             row = database.execute(
                 "SELECT token FROM leases WHERE session=?", (session,),
             ).fetchone()
@@ -258,8 +258,9 @@ class DomainHarnessTestCase(unittest.TestCase):
             DOMAIN_SKIP_ACTIVATION="0" if activate else "1",
         )
         completed = subprocess.run(
-            [shutil.which("node"), str(HARNESS)], env=env,
-            capture_output=True, text=True, timeout=90,
+            [self.node_bin, str(HARNESS)], env=env,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         if completed.returncode != 0:
             self.fail(f"native domain harness failed: {completed.stderr or completed.stdout}")
@@ -275,8 +276,9 @@ class DomainHarnessTestCase(unittest.TestCase):
         if domain is not None:
             env["DISTILL_DOMAIN"] = domain
         completed = subprocess.run(
-            [shutil.which("node"), str(TOOL_HARNESS)], env=env,
-            capture_output=True, text=True, timeout=90,
+            [self.node_bin, str(TOOL_HARNESS)], env=env,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
         if completed.returncode != 0:
             self.fail(f"native distill harness failed: {completed.stderr or completed.stdout}")

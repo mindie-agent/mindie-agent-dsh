@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
+import ssl
 import sys
 import time
 import urllib.error
@@ -106,6 +108,30 @@ def identity() -> dict:
     return value
 
 
+class _TrackedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, state: dict, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._state = state
+
+    def send(self, data):
+        if self.sock is None and self.auto_open:
+            self.connect()
+        self._state["transmitted"] = True
+        return super().send(data)
+
+
+class _TrackedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, state: dict):
+        super().__init__()
+        self._state = state
+
+    def http_open(self, req):
+        return self.do_open(
+            lambda host, **kw: _TrackedHTTPConnection(host, state=self._state, **kw),
+            req,
+        )
+
+
 def _post(value: dict) -> tuple[str, dict]:
     from mindie_knowledge.loop.summary_budget import native_timeout
 
@@ -117,8 +143,9 @@ def _post(value: dict) -> tuple[str, dict]:
         method="POST",
     )
     timeout = native_timeout(DEADLINE_SECONDS)
+    tx_state = {"transmitted": False}
     try:
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _TrackedHTTPHandler(tx_state))
         with opener.open(request, timeout=timeout) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
@@ -131,10 +158,18 @@ def _post(value: dict) -> tuple[str, dict]:
         if exc.code == 409:
             raise ConfigurationError("the DSH session has no active model route") from exc
         raise UncertainError(f"summary endpoint HTTP {exc.code}: {detail[:500]}") from exc
-    except urllib.error.URLError as exc:
-        raise UncertainError(f"summary endpoint unavailable: {exc.reason}") from exc
     except TimeoutError as exc:
+        if not tx_state["transmitted"]:
+            raise
         raise UncertainError("summary endpoint exceeded the deadline") from exc
+    except urllib.error.URLError as exc:
+        if not tx_state["transmitted"]:
+            raise ConfigurationError(f"summary endpoint unavailable: {exc.reason}") from exc
+        raise UncertainError(f"summary endpoint unavailable: {exc.reason}") from exc
+    except (ssl.SSLError, ConnectionError, OSError, http.client.HTTPException) as exc:
+        if not tx_state["transmitted"]:
+            raise ConfigurationError(f"summary endpoint connection failed: {exc}") from exc
+        raise UncertainError(f"summary endpoint transport failed after send: {exc}") from exc
     if len(raw) > MAX_RESPONSE_BYTES:
         raise UncertainError("summary endpoint response exceeds the limit")
     try:
@@ -274,6 +309,10 @@ def _distill_outcome(request: dict, started: float, summarizer) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     from mindie_knowledge.materials import summarizer
 
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -286,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         raw = sys.stdin.buffer.read(MAX_DISTILL_REQUEST_BYTES + 1)
         if len(raw) > MAX_DISTILL_REQUEST_BYTES:
             raise ValueError("worker request exceeds the limit")
-        value = json.loads(raw)
+        value = json.loads(raw.decode("utf-8-sig"))
         if isinstance(value, dict) and "schema_version" in value:
             if value.get("schema_version") != DISTILL_REQUEST_SCHEMA:
                 print(json.dumps({

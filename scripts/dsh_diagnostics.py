@@ -328,7 +328,13 @@ def _file_url_to_path(url: str) -> Path | None:
     if not isinstance(url, str) or not url.startswith("file://"):
         return None
     from urllib.parse import unquote, urlparse
-    raw = unquote(urlparse(url).path or "")
+    parsed = urlparse(url)
+    host = unquote(parsed.netloc or "")
+    raw = unquote(parsed.path or "")
+    if host and host.lower() != "localhost":
+        if os.name == "nt":
+            return Path("\\\\" + host + raw.replace("/", "\\"))
+        return Path(f"//{host}{raw}")
     return Path(raw[1:] if re.match(r"^/[A-Za-z]:/", raw) else raw) if raw else None
 
 

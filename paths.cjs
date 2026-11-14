@@ -19,7 +19,39 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const PACKAGE_DIR = __dirname
+function stripExtendedPrefix(raw) {
+  if (process.platform !== 'win32' || typeof raw !== 'string') return raw
+  if (raw.startsWith('\\\\?\\UNC\\')) return '\\\\' + raw.slice(8)
+  if (raw.startsWith('\\\\?\\')) return raw.slice(4)
+  return raw
+}
+
+function expandHome(raw) {
+  if (raw === '~') return os.homedir()
+  if (raw.startsWith('~/') || raw.startsWith('~\\')) {
+    return path.join(os.homedir(), raw.slice(2))
+  }
+  return raw
+}
+
+function resolveCanonical(raw) {
+  const abs = path.resolve(expandHome(raw))
+  const tail = []
+  let cur = abs
+  while (true) {
+    try {
+      const real = stripExtendedPrefix(fs.realpathSync.native(cur))
+      return tail.length > 0 ? path.join(real, ...tail.reverse()) : real
+    } catch {
+      const parent = path.dirname(cur)
+      if (parent === cur) return abs
+      tail.push(path.basename(cur))
+      cur = parent
+    }
+  }
+}
+
+const PACKAGE_DIR = resolveCanonical(__dirname)
 const APP = path.join('mindie-agent', 'dsh')
 
 function env(name) {
@@ -28,27 +60,27 @@ function env(name) {
 }
 
 function posixDataBase() {
-  return env('XDG_DATA_HOME') || path.join(os.homedir(), '.local', 'share')
+  return expandHome(env('XDG_DATA_HOME') || path.join(os.homedir(), '.local', 'share'))
 }
 
 function posixConfigBase() {
-  return env('XDG_CONFIG_HOME') || path.join(os.homedir(), '.config')
+  return expandHome(env('XDG_CONFIG_HOME') || path.join(os.homedir(), '.config'))
 }
 
 function dataHome() {
   const override = env('MINDIE_DSH_DATA_HOME')
-  if (override) return path.resolve(override)
+  if (override) return resolveCanonical(override)
   if (process.platform === 'win32') {
-    return path.join(env('LOCALAPPDATA') || path.join(os.homedir(), 'AppData', 'Local'), APP)
+    return path.join(expandHome(env('LOCALAPPDATA') || path.join(os.homedir(), 'AppData', 'Local')), APP)
   }
   return path.join(posixDataBase(), APP)
 }
 
 function configHome() {
   const override = env('MINDIE_DSH_CONFIG_HOME')
-  if (override) return path.resolve(override)
+  if (override) return resolveCanonical(override)
   if (process.platform === 'win32') {
-    return path.join(env('APPDATA') || path.join(os.homedir(), 'AppData', 'Roaming'), APP)
+    return path.join(expandHome(env('APPDATA') || path.join(os.homedir(), 'AppData', 'Roaming')), APP)
   }
   return path.join(posixConfigBase(), APP)
 }
@@ -56,7 +88,8 @@ function configHome() {
 function paths() {
   const data = dataHome()
   const config = configHome()
-  const configFile = env('MINDIE_DSH_CONFIG') || path.join(config, 'config.json')
+  const cfgOverride = env('MINDIE_DSH_CONFIG')
+  const configFile = cfgOverride ? resolveCanonical(cfgOverride) : path.join(config, 'config.json')
   let installed = {}
   try {
     installed = JSON.parse(fs.readFileSync(configFile, 'utf8'))
@@ -79,13 +112,15 @@ function paths() {
     venv,
     process.platform === 'win32' ? path.join('Scripts', 'python.exe') : path.join('bin', 'python'),
   ))
+  const engOverride = env('MINDIE_DSH_ENGINE_CONFIG')
+  const stateOverride = env('MINDIE_DSH_STATE_DIR')
   return {
     packageDir: PACKAGE_DIR,
     dataHome: data,
     configHome: config,
     configFile,
-    engineConfig: env('MINDIE_DSH_ENGINE_CONFIG') || selected('engine_config', path.join(config, 'engine.json')),
-    stateDir: env('MINDIE_DSH_STATE_DIR') || path.join(data, 'state'),
+    engineConfig: engOverride ? resolveCanonical(engOverride) : selected('engine_config', path.join(config, 'engine.json')),
+    stateDir: stateOverride ? resolveCanonical(stateOverride) : path.join(data, 'state'),
     venvDir: venv,
     venvPython: python,
     skillsDir: path.join(PACKAGE_DIR, 'skills'),

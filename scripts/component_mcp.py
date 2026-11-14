@@ -99,6 +99,12 @@ def serve(reader=None, writer=None):
 
 
 if __name__ == "__main__":
+    for _stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
     if "--once" in sys.argv:
         message = json.loads(sys.stdin.readline())
         result = handle(message)
@@ -112,7 +118,10 @@ if __name__ == "__main__":
             value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
             package = Path(value.get("package_dir") or component_tools.paths.PACKAGE_DIR)
             return [value.get("python") or sys.executable,
+                    "-X", "utf8",
                     str(package / "scripts/component_mcp.py"), "--once"], {
+                        "PYTHONUTF8": "1",
+                        "PYTHONIOENCODING": "utf-8",
                         "MINDIE_DSH_CONFIG": str(config),
                     }
 

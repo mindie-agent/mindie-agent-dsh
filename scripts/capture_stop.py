@@ -67,7 +67,7 @@ def main() -> int:
         raw = sys.stdin.buffer.read(MAX_INPUT + 1)
         if len(raw) > MAX_INPUT:
             raise ValueError("capture envelope exceeds limit")
-        event = json.loads(raw)
+        event = json.loads(raw.decode("utf-8-sig"))
         if not isinstance(event, dict):
             raise ValueError("capture envelope is not an object")
         config = mp.engine_config()

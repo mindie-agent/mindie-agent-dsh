@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.20 — 2026-11-15
+
+- Harden Windows 11 (`CP936` / UTF-8 BOM / Smart App Control `WinError 4551` / `\\?\` extended paths / UNC `file://` URIs) and WSL2 (`/mnt/<drive>` PE/cmd-shim `PATH` filtering) across `paths.cjs`, `host.mjs`, `host3.mjs`, and all Python sidecar/MCP/updater/organizer modules; enforce Win32 Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) grandchild timeout reaping, pre-send vs post-send `dsh_organizer` transport honesty (`model_calls=0` vs `UncertainError`), cross-platform non-symlink test isolation, and zero-skip `windows-latest` CI gating.
+
 ## 0.1.16 — 2026-11-05
 
 - Enforced automatic `mode="reuse" -> effective_mode="explore"` stagnation promotion workflow and workspace boundary discipline in `skills/mindie-agent/SKILL.md`, upgraded pinned `mindie-knowledge` runtime component to `0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`), and verified across the 16-trial End-to-End RSI A/B benchmark (`DSH deepseek-flash max`: Control `G2` `0/4` vs Treatment `G4` `4/4`).

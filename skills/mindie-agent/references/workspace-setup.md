@@ -5,7 +5,7 @@ presenting the existing MindIE Agent user notice. The offer is part of setup eve
 when contribution is disabled. Reuse the user's creation, initialization and
 registration decisions; ordinary tasks and updates do not repeat onboarding.
 
-1. Check `uv run --no-project --python 3.13 python scripts/setup.py sharing --status` first.
+1. Check `uv run --no-project --python 3.11 python scripts/setup.py sharing --status` first.
    When `"needs_onboarding_prompt": true` (or no workspace choice has been recorded yet),
    invoke the native question tool in the current DSH session (or present a
    structured 3-item numbered `[1]/[2]` choice card if no question tool is
@@ -39,10 +39,12 @@ registration decisions; ordinary tasks and updates do not repeat onboarding.
    a child-shell `cd` or filesystem access grant is not project registration.
 5. If initialization was not already decided, offer it now for a new or reused
    scaffold that needs it. On approval, read its `AGENTS.md`, `README.md` and
-   `.agents/scripts/README.md`. Use the checked-out initializer:
-   `python3 .agents/scripts/repo_init.py --no-input` reuses saved `workspace.json`
-   fork selections. For first setup using the verified account's existing forks,
-   use `python3 .agents/scripts/repo_init.py --github-user <account> --no-input`.
+   `.agents/scripts/README.md`. Use the checked-out initializer via `uv` so
+   Windows hosts do not hit the Microsoft Store `python3` alias:
+   `uv run --no-project --python 3.11 python .agents/scripts/repo_init.py --no-input`
+   reuses saved `workspace.json` fork selections. For first setup using the verified
+   account's existing forks, use
+   `uv run --no-project --python 3.11 python .agents/scripts/repo_init.py --github-user <account> --no-input`.
    The initializer configures forks; it does not create GitHub forks. Resolve
    missing forks within the requested setup and keep existing personal remotes.
    Do not replace this flow with manual submodule commands or copying the sample

@@ -61,9 +61,12 @@ class UpdaterTests(unittest.TestCase):
             "fd=updater.acquire_lock();print('locked' if fd is not None else 'busy',flush=True);"
             "sys.stdin.readline()"
         )
-        child = subprocess.Popen([sys.executable, '-I', '-c', code, str(ROOT / 'scripts')],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 text=True, env=dict(os.environ))
+        child = subprocess.Popen(
+            [sys.executable, "-I", "-X", "utf8", "-c", code, str(ROOT / "scripts")],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", env=dict(os.environ),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
         output = queue.Queue()
         reader = threading.Thread(target=lambda: output.put(child.stdout.readline()))
         reader.start()

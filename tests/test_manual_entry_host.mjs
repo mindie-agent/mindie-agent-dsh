@@ -89,12 +89,12 @@ try {
   listeners.get('agent/turn-stopping')({ agent: activatedExec.agent, turn: 1 })
   assert.equal(spawnedOptions.length, 3)
   assert.ok(spawnedOptions[0].args.some(arg => String(arg).endsWith('updater.py')))
-  assert.equal(spawnedOptions[0].detached, true)
+  assert.equal(spawnedOptions[0].detached, process.platform !== 'win32')
   assert.equal(spawnedOptions[0].windowsHide, true)
   assert.ok(spawnedOptions[1].args.some(arg => String(arg).endsWith('mindie_sidecar.py')))
   assert.equal(spawnedOptions[1].windowsHide, true)
   assert.ok(spawnedOptions[2].args.some(arg => String(arg).endsWith('capture_stop.py')))
-  assert.equal(spawnedOptions[2].detached, true)
+  assert.equal(spawnedOptions[2].detached, process.platform !== 'win32')
   assert.equal(spawnedOptions[2].windowsHide, true)
 } finally {
   ChildProcess.prototype.spawn = originalSpawn

@@ -10,9 +10,16 @@ import hashlib
 import io
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import mindie_paths as mp  # noqa: E402
 
 try:
     import zstandard
@@ -57,7 +64,17 @@ class FileIdentity:
                 or len(anchor_digest) != 64
             ):
                 return None
-            return FileIdentity(path, int(data["dev"]), int(data["ino"]), 0, 0, anchor_len, anchor_digest)
+            clean = mp.strip_win_extended_prefix(str(path))
+            if os.name != "nt" and len(clean) >= 3 and clean[1] == ":" and clean[2] in ("\\", "/"):
+                norm_path = clean
+            else:
+                try:
+                    norm_path = mp.strip_win_extended_prefix(str(Path(clean).resolve()))
+                except TimeoutError:
+                    raise
+                except OSError:
+                    norm_path = clean
+            return FileIdentity(norm_path, int(data["dev"]), int(data["ino"]), 0, 0, anchor_len, anchor_digest)
         except (ValueError, KeyError, TypeError):
             return None
 
@@ -67,12 +84,13 @@ def identify(path) -> FileIdentity | None:
         with open(path, "rb") as stream:
             stat = os.fstat(stream.fileno())
             anchor = stream.read(ANCHOR_BYTES)
+        resolved = mp.strip_win_extended_prefix(str(Path(path).resolve()))
     except TimeoutError:
         raise
     except (OSError, ValueError):
         return None
     return FileIdentity(
-        str(Path(path).resolve()), stat.st_dev, stat.st_ino,
+        resolved, stat.st_dev, stat.st_ino,
         stat.st_size, stat.st_mtime_ns, len(anchor), hashlib.sha256(anchor).hexdigest(),
     )
 

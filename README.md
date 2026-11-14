@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.19-0F766E.svg" alt="Release v0.1.19"></a>
+  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.20-0F766E.svg" alt="Release v0.1.20"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
@@ -27,13 +27,13 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 面向 DeepSeek Harness（DSH）的原生插件适配器，当前正式版本为 `0.1.19`（配套主产品 `0.1.12`）。
+**MindIE Agent for DeepSeek Harness**（`mindie-agent-dsh`）是 [MindIE Agent](https://github.com/mindie-agent/mindie-agent) 面向 DeepSeek Harness（DSH）的原生插件适配器，当前正式版本为 `0.1.20`（配套主产品 `0.1.12`）。
 
-它面向昇腾（Ascend）NPU AI Infra 设计、开发与测试全流程，当前 `0.1.19` 已交付 **`vLLM-Ascend` 特性开发与测试**、**`AscendC` / `Triton` 算子实现验证**等能力（更多昇腾基础软件方向按路线图持续扩展）：
+它面向昇腾（Ascend）NPU AI Infra 设计、开发与测试全流程，当前 `0.1.20` 已交付 **`vLLM-Ascend` 特性开发与测试**、**`AscendC` / `Triton` 算子实现验证**等能力（更多昇腾基础软件方向按路线图持续扩展）：
 
 - **`/mindie-agent` 领域知识、Skill 与经验沉淀入口**：按需调用 `mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_distill`、`knowledge_feedback`、`knowledge_sync`，检索 `knowledge-vllm-ascend` 工程案例，并按 `L1`/`L2` 基础基线、`L3` Hermes 收敛与 `L4` RSI 去偏探索推进任务；开启贡献时自动完成 `session.v4.jsonl.zstd` 公开对话脱敏采集与社区 PR 发布；
-- **远端开发与本地组件工具**：`remote-dev` 负责远端文件读写、命令执行与后台任务管理；`mindie-tools` 提供本地诊断、状态查询，以及 `profiler`、`sim`、`coordinator` 的调用入口。两组工具默认可用；
-- **生态支持**：当前 `v0.1.19`（配套主产品 `0.1.12`）同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）、Google Antigravity（[`mindie-agent-agy`](https://github.com/mindie-agent/mindie-agent-agy)）与 DeepSeek Harness（本仓库）。
+- **远端开发与本地组件工具**：`remote-dev` 负责远端文件读写、命令执行与后台任务管理；`mindie-tools` 提供本地诊断、状态查询，以及 `debugger`、`profiler`、`sim`、`coordinator` 的调用入口。两组工具默认可用；
+- **生态支持**：当前 `v0.1.20`（配套主产品 `0.1.12`）同步支持 Claude Code（[`mindie-agent-cc`](https://github.com/mindie-agent/mindie-agent-cc)）、OpenAI Codex CLI（[`mindie-agent-codex`](https://github.com/mindie-agent/mindie-agent-codex)）、Kimi Code（[`mindie-agent-kimi`](https://github.com/mindie-agent/mindie-agent-kimi)）、Google Antigravity（[`mindie-agent-agy`](https://github.com/mindie-agent/mindie-agent-agy)）与 DeepSeek Harness（本仓库）。
 
 项目遵循 [MindIE Agent 工程设计原则](https://github.com/mindie-agent/mindie-agent/blob/main/docs/design-principles.md) 的薄适配层架构：本仓库专注于 DSH Host 组合、会话采集与本地代数切换，而多领域分层路由、分片索引、`L1–L4` 分级知识单元校验与社区发布门禁均由共享组件 [`mindie-knowledge`](https://github.com/mindie-agent/knowledge) 统一承载。
 
@@ -59,29 +59,41 @@
 
 1. **检查基础工具与环境前置条件**：
    ```bash
-   git --version && uv --version && node --version
+   git --version
+   uv --version
+   node --version
    ```
-   - 确认 Node.js `>= 22`、Python `>= 3.11`（由 `uv` 管理）。若用户计划开启社区知识贡献或故障上报，按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 复用已有认证；需要登录时提供浏览器或企业网络 Token 创建/输入流程。验证账号后通过进程级环境变量（`export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.https://github.com.provider" GIT_CONFIG_VALUE_0="github"`）注入凭证，**严禁调用 `gh auth setup-git`、`git config --global` 或 `git config --system` 修改宿主机全局 Git 配置**（仅使用只读知识与 `remote-dev` 时不强制依赖 `gh`）。
+   - 确认 Node.js `>= 22`、Python `>= 3.11`（由 `uv` 管理）。若用户计划开启社区知识贡献或故障上报，按 [GitHub 登录引导](skills/mindie-agent/references/github-authentication.md) 复用已有认证；需要登录时提供浏览器或企业网络 Token 创建/输入流程。验证账号后通过进程级环境变量（POSIX: `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.https://github.com.provider" GIT_CONFIG_VALUE_0="github"`；PowerShell: `$env:GIT_CONFIG_COUNT="1"; $env:GIT_CONFIG_KEY_0="credential.https://github.com.provider"; $env:GIT_CONFIG_VALUE_0="github"`）注入凭证，**严禁调用 `gh auth setup-git`、`git config --global` 或 `git config --system` 修改宿主机全局 Git 配置**（仅使用只读知识与 `remote-dev` 时不强制依赖 `gh`）。
 
 2. **构建持久化锁定运行时（须在启用 DSH bundle 前完成）**：
-   - 安装当前正式版 `v0.1.19`（若与主仓 `v0.0.2` 配套安装，将下方分支标签替换为 `v0.0.2` 即可）：
+   - 安装当前正式版 `v0.1.20`（若与主仓 `v0.0.2` 配套安装，将下方分支标签替换为 `v0.0.2` 即可）：
+   - **Linux / macOS / WSL2 (Bash)**：
    ```bash
    MINDIE_TMP="${TMPDIR:-/tmp}/mindie-agent-dsh-install"
    rm -rf "$MINDIE_TMP"
-   git clone --depth 1 --branch v0.1.19 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
-   uv --native-tls run --quiet --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py"
+   git clone --depth 1 --branch v0.1.20 https://github.com/mindie-agent/mindie-agent-dsh.git "$MINDIE_TMP"
+   uv --native-tls run --quiet --no-project --python 3.11 python "$MINDIE_TMP/scripts/setup.py"
+   ```
+   - **Windows PowerShell 5.1 / PowerShell 7**：
+   ```powershell
+   $MINDIE_TMP = Join-Path ([IO.Path]::GetTempPath()) "mindie-agent-dsh-install"
+   if (Test-Path $MINDIE_TMP) { Remove-Item -Recurse -Force $MINDIE_TMP }
+   git clone --depth 1 --branch v0.1.20 https://github.com/mindie-agent/mindie-agent-dsh.git $MINDIE_TMP
+   if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
+   uv --native-tls run --quiet --no-project --python 3.11 python "$MINDIE_TMP/scripts/setup.py"
+   if ($LASTEXITCODE -ne 0) { throw "setup.py failed" }
    ```
 
 3. **在 DSH 中安装并启用插件 bundle**：
    - 如果当前就在 DSH 会话内且具备 `plugin_manager` 工具，直接调用：
      ```text
-     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.19")
+     plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.20")
      ```
      （若安装 `v0.0.2` 配套版本，使用 `plugin_manager(action="install_bundle", target="git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.0.2")`）
-   - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.19`（或 `#v0.0.2`）。
+   - 或者在 DSH Web 的 **Plugins** 页面填入并启用：`git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.20`（或 `#v0.0.2`）。
 
 4. **核对插件安装状态**：
-   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.13 / remote-dev 0.11.5 / mindie-diagnostics 0.5.6`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
+   - 确认 `setup.py` 输出的最终 JSON 中 `status` 为 `"ready"`、`activation.status` 为 `"active"`、`components` 为 `mindie-knowledge 0.13.17 / remote-dev 0.11.10 / mindie-diagnostics 0.5.11`、`knowledge.status` 为 `"inactive"`（安装与更新期不启动知识服务或拉取语料，待会话内手动调用 `/mindie-agent` 后再启用），且 **Plugins** 页面显示 `mindie-agent-dsh` 已启用。
    - 提醒用户打开**新会话**后输入 `/mindie-agent` 即可唤醒昇腾领域知识与 Skill，而 `remote-dev` 远端 NPU 工具在日常对话中默认自动触发。
 
    验证成功后继续第 5 步，完成首次配置后一起汇报安装结果。
@@ -89,7 +101,7 @@
 5. **完成首次配置与开发工作区引导（首次安装后立即触发交互问答）**：
    - 先执行以下命令只读检查当前授权与工作区状态：
      ```bash
-     uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --status
+     uv run --no-project --python 3.11 python "$MINDIE_TMP/scripts/setup.py" sharing --status
      ```
    - 若返回 `"needs_onboarding_prompt": true`（或尚无有效工作区选择），向用户简要说明 [用户须知](skills/mindie-agent/references/user-notice.md)，**立即调用当前 DSH 会话中的原生提问工具**（若当前运行模式未注入提问工具，则展示结构化编号选择卡片 `[1]/[2]` 并等待用户回复），一次性向用户发起以下 3 项选择（严禁跳过或静默代选）：
      1. **本地开发工作区（`Local Workspace`）**：
@@ -105,15 +117,16 @@
      - 先根据第 1 题选择确定工作区绝对路径 `WORKSPACE_ROOT`（见 [工作区配置指南](skills/mindie-agent/references/workspace-setup.md)，自动登记到客户端工作区列表并按需执行 `repo_init.py`）。
      - 若第 2 题选开启贡献，执行：
        ```bash
-       uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --enable --project-root "$WORKSPACE_ROOT"
+       uv run --no-project --python 3.11 python "$MINDIE_TMP/scripts/setup.py" sharing --enable --project-root "$WORKSPACE_ROOT"
        ```
        若选仅本地只读，执行：
        ```bash
-       uv run --no-project --python 3.13 python "$MINDIE_TMP/scripts/setup.py" sharing --disable
+       uv run --no-project --python 3.11 python "$MINDIE_TMP/scripts/setup.py" sharing --disable
        ```
-     - **严格授权原则**：仅当用户对第 3 题明确选择同意点个 Star 时，才执行以下命令点上并校验 Star（严禁未经用户同意自动静默执行）：
+     - **严格授权原则**：仅当用户对第 3 题明确选择同意点个 Star 时，才按顺序执行以下两条命令点上并校验 Star（避免在 Windows PowerShell 5.1 中使用 `&&`，且严禁未经用户同意自动静默执行）：
        ```sh
-       gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent && gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
+       gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent
+       gh api --hostname github.com --silent /user/starred/mindie-agent/mindie-agent
        ```
    - 最后汇总汇报插件状态、`setup.py sharing --status` 最终结果、工作区路径与源码初始化结果。
 
@@ -129,7 +142,7 @@
 | `uv` | 任意近期版本 | 构建锁定运行时、提供 Python 解释器 |
 | `git` & `gh` | 已安装并完成认证 | 拉取插件与知识源、支持社区知识 PR 与故障上报 |
 
-`setup.py` 是幂等的：再次执行会按 `uv.lock` 重新校验运行时、更新持久化脚本并原子刷新运行时配置，不会在安装期启动知识循环。运行时、配置、知识与 `remote-dev` 状态默认位于 `~/.local/share/mindie-agent/dsh` 与 `~/.config/mindie-agent/dsh`；临时克隆目录随后可以删除。
+`setup.py` 是幂等的：再次执行会按 `uv.lock` 重新校验运行时、更新持久化脚本并原子刷新运行时配置，不会在安装期启动知识循环。运行时、配置、知识与 `remote-dev` 状态默认位于 `~/.local/share/mindie-agent/dsh` 与 `~/.config/mindie-agent/dsh`（原生 Windows 下位于 `%LOCALAPPDATA%\mindie-agent\dsh` 与 `%APPDATA%\mindie-agent\dsh`）；临时克隆目录随后可以删除。
 
 ## 装好之后怎么用
 
@@ -167,10 +180,10 @@ flowchart TB
     HPLUG --> GEN
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
-  GEN --> KS["mindie-knowledge 0.13.13<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
-  GEN --> DIAG["mindie-diagnostics 0.5.6<br/>本地有界诊断 & 统一贡献开关故障上报"]
+  GEN --> KS["mindie-knowledge 0.13.17<br/>mindie_entry / knowledge_* / Stop 脱敏采集"]
+  GEN --> DIAG["mindie-diagnostics 0.5.11<br/>本地有界诊断 & 统一贡献开关故障上报"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
-  GEN --> RD["remote-dev 0.11.5<br/>remote_dev.mcp.server"]
+  GEN --> RD["remote-dev 0.11.10<br/>remote_dev.mcp.server"]
   GEN --> MT["mindie-tools MCP<br/>scripts/component_mcp.py"]
   RD --> NPU[("远端昇腾主机 / Docker 容器")]
 ```
@@ -180,7 +193,7 @@ flowchart TB
 | Host 行 ID | 使用的插件 / 入口 | 核心职责 | 是否 experimental |
 | --- | --- | --- | --- |
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | 暴露 `/mindie-agent` 显式入口 Skill（`disable-model-invocation: true`） | 否 |
-| `mindie-agent-host` | `./host.mjs`（在 `mindie-agent-generation` 子纤维中同代挂载 `./host3.mjs` 与 `@deepseek-ai/dsh-mcp-client`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_distill`、`knowledge_sync`）、按会话挂载同代锁定的 `remote-dev 0.11.5`（`remote_dev.mcp.server`）与 `mindie-tools`（`scripts/component_mcp.py`）MCP 服务、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接并在无运行中任务时按权威适配器绑定（`paths.configFile` 的 `package_dir` 与 `venvPython`；`current.json` 仅作缺少该字段的 legacy seed 兼容回退）同代热切换 | 否 |
+| `mindie-agent-host` | `./host.mjs`（在 `mindie-agent-generation` 子纤维中同代挂载 `./host3.mjs` 与 `@deepseek-ai/dsh-mcp-client`） | 注册原生 Host 工具（`mindie_entry`、`knowledge_query`、`knowledge_explain`、`knowledge_feedback`、`knowledge_distill`、`knowledge_sync`）、按会话挂载同代锁定的 `remote-dev 0.11.10`（`remote_dev.mcp.server`）与 `mindie-tools`（`scripts/component_mcp.py`）MCP 服务、处理 `agent/turn-stopping` 会话采集、提供模型摘要桥接并在无运行中任务时按权威适配器绑定（`paths.configFile` 的 `package_dir` 与 `venvPython`；`current.json` 仅作缺少该字段的 legacy seed 兼容回退）同代热切换 | 否 |
 
 #### `mindie-tools` 本地诊断与分析组件服务（`scripts/component_mcp.py`）
 
@@ -206,7 +219,7 @@ flowchart TB
 
 ## 范围与已知限制
 
-- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.13`（`da64fe111d878f44b7efec6af6ca46d3f5887be6`）、`remote-dev 0.11.5`（`131b24533479e9cefc572144adccdcb345f70846`）、`mindie-diagnostics 0.5.6`（`9b331956b00737dd6d8c956da3416316f2de1ddf`），以及组件契约锁定 `mindie-debugger 0.1.0`（`e9406b2b178335190d5cb59dff4d6985894497ba`）、`mindie-profiler 0.5.6`（`79d97e75bff7351b0472b93c03b072c1cf47f5e7`）、`mindie-sim 0.9.3`（`dbadff04b60937a0722b0a227cdad01beed083cd`）、`mindie-coordinator 0.7.4`（`79a8b28eef72d57f965a01c6660849f024fbb1c0`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
+- **锁定运行时版本**：目标配套正式发布的 `mindie-knowledge 0.13.17`（`315fc4bc51ee9a7afef32a3666599d608ff59f9d`）、`remote-dev 0.11.10`（`3556df571450dab481a25e0157167f1c3727dc6c`）、`mindie-diagnostics 0.5.11`（`171623584aa812677df907518dcb55b06493241b`），以及组件契约锁定 `mindie-debugger 0.1.2`（`d40a250e4048ac63d4a478a5dbfa993702ceddd0`）、`mindie-profiler 0.5.6`（`79d97e75bff7351b0472b93c03b072c1cf47f5e7`）、`mindie-sim 0.9.4`（`6f1d5a871a7b1ef20ff7a8cab33aaf4637fb3f66`）、`mindie-coordinator 0.7.9`（`d8977114e8cd0e5b7befa59a5ff5e53f40a74521`；精确提交哈希以随包 `uv.lock`、`runtime-requirements.txt` 与 `harness-compatibility.json` 为准）。
 - **历史同版本刷新边界**：`0.0.2` 曾替换早期 `0.0.2`（`828c375d1f546ed653250526465b8075c1691390`）。继续使用 `0.0.2` 的用户需按 [`docs/same-version-refresh.md`](docs/same-version-refresh.md) 显式刷新运行时与插件 bundle，并重启整个 DSH 进程。
 - **`remote-dev` 状态按会话隔离**：每个 Agent 会话使用 `~/.local/share/mindie-agent/dsh/state/remote` 下独立的目录。
 - **后台自动更新边界**：稳定启动器 `host.mjs` 支持在 DSH Host 存活且无运行中任务时定时检查正式插件 Release 与各官方组件仓正式 Release（详见 [`docs/releases/mindie-agent-dsh-0.1.2.md`](docs/releases/mindie-agent-dsh-0.1.2.md)）。`host.mjs` 的 `entryFor()` 优先读取 `paths.configFile`（`config.json`）中的 `package_dir` 作为权威适配器绑定（`current.json` 仅在无该字段的 legacy seed 情形下作兼容回退），`remote-dev` Python 解释器与 `host3.mjs` 均由该权威绑定决定；纯组件更新直接构建旁路 `uv` 环境并更新权威适配器绑定（无需重装原生插件定义）；插件级更新通过 `dsh plugin add`/`list --json` 回读校验并标记 `needs_host_reload=True`（原生插件定义变更需重载宿主生效）；DSH 停止期间不依赖操作系统级后台常驻计划任务。
@@ -223,12 +236,12 @@ uv run --no-sync python -m pytest -q
 node --test tests/test_*.mjs
 
 # 只检查前置条件与路径，不构建运行时
-uv --native-tls run --quiet --no-project --python 3.13 python scripts/setup.py --dry-run
+uv --native-tls run --quiet --no-project --python 3.11 python scripts/setup.py --dry-run
 ```
 
 ### 发布基准测试（Release Benchmark）
 
-本仓库随 `0.1.14` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
+本仓库随 `0.1.20` 正式版发布可复现的 CPU 微基准测试资产（`benchmark-results.json`、`benchmark-results.md`）：
 - [`benchmarks/release.json`](benchmarks/release.json)（由 `benchmarks/release.py` 执行）测量 100 条消息的 DSH v4 `session.v4.jsonl.zstd` 公开对话提取与隐藏推理过滤延迟（用例 `public-transcript`，指标 `public_100_message_parse_latency`，单位 `us/op`）。
 - 上述 CPU 微基准仅证明本地解析的耗时基线，与常备昇腾 A2/A3 NPU 真机集成验收及 `mindie-bench` 端到端 Agent 研发任务评估相互独立。详见 [`docs/benchmark.md`](docs/benchmark.md) 与 [`docs/verification.md`](docs/verification.md)。
 
