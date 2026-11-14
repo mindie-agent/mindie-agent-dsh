@@ -40,7 +40,7 @@ git -C $MINDIE_STAGE checkout --detach $MINDIE_RELEASE_COMMIT
 if ($LASTEXITCODE -ne 0) { throw "checkout failed" }
 uv run --quiet --no-project --python 3.11 "$MINDIE_STAGE/scripts/setup.py" --python 3.11
 if ($LASTEXITCODE -ne 0) { throw "runtime setup failed" }
-dsh plugin --profile $MINDIE_PROFILE add "git+https://github.com/mindie-agent/mindie-agent-dsh.git#$MINDIE_RELEASE_COMMIT" --ignore-scripts
+dsh.cmd plugin --profile $MINDIE_PROFILE add "git+https://github.com/mindie-agent/mindie-agent-dsh.git#$MINDIE_RELEASE_COMMIT" --ignore-scripts
 if ($LASTEXITCODE -ne 0) { throw "bundle refresh failed" }
 ```
 

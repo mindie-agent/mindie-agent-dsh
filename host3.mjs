@@ -355,12 +355,13 @@ export function apply(ctx) {
     const profile = profileName()
     if (!profile) return false
     try {
-      // On Win32, libuv sets DETACHED_PROCESS when detached=true, which causes
-      // CreateProcessW to ignore CREATE_NO_WINDOW (windowsHide) and flash a console.
+      // Keep detached=true with windowsHide=true on all platforms: on Win32,
+      // non-detached children join libuv's KILL_ON_JOB_CLOSE job and die when
+      // DSH exits, while detached+windowsHide starts python.exe with no console.
       const child = spawn(
         p.venvPython,
         ['-X', 'utf8', updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
-        { detached: process.platform !== 'win32', stdio: 'ignore', windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } },
+        { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } },
       )
       child.unref()
       return true
@@ -729,7 +730,7 @@ export function apply(ctx) {
           MINDIE_DSH_STATE_DIR: p.stateDir,
           MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
         },
-        detached: process.platform !== 'win32',
+        detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
         windowsHide: true,
       })

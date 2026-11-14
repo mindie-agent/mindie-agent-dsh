@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import threading
 import time
 
 CLEANUP_SECONDS = 5.0
@@ -100,14 +101,35 @@ def _terminate_windows_job(job_ctx, *, terminate: bool) -> None:
             pass
 
 
-def _close_process_streams(process: subprocess.Popen) -> None:
-    for attr in ("stdin", "stdout", "stderr"):
-        stream = getattr(process, attr, None)
-        if stream is not None:
-            try:
-                stream.close()
-            except Exception:  # noqa: BLE001
-                pass
+def _close_process_streams(process: subprocess.Popen, *, background_pipes: bool = False) -> None:
+    stdin = getattr(process, "stdin", None)
+    if stdin is not None:
+        try:
+            stdin.close()
+        except Exception:  # noqa: BLE001
+            pass
+    pipes = [s for attr in ("stdout", "stderr") if (s := getattr(process, attr, None)) is not None]
+    if not pipes:
+        return
+    if background_pipes:
+        # When cleanup timed out and a surviving descendant still holds the write
+        # end of stdout/stderr, Popen.communicate's reader thread holds the
+        # BufferedReader lock on Windows; closing synchronously would block past
+        # CLEANUP_SECONDS until the descendant exits.
+        def _close_later() -> None:
+            for stream in pipes:
+                try:
+                    stream.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        threading.Thread(target=_close_later, name="mindie-pipe-close", daemon=True).start()
+        return
+    for stream in pipes:
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _kill_tree(process: subprocess.Popen, job_ctx, deadline: float) -> tuple[bool, subprocess.CompletedProcess | None]:
@@ -164,6 +186,7 @@ def run(command, *, timeout, cwd=None, env=None, input_text=None):
         creationflags=creationflags,
     )
     job_ctx = _attach_windows_job(process)
+    undrained = False
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired as error:
@@ -173,7 +196,7 @@ def run(command, *, timeout, cwd=None, env=None, input_text=None):
         try:
             stdout, stderr = process.communicate(timeout=max(0.05, deadline - time.monotonic()))
         except subprocess.TimeoutExpired as cleanup:
-            _close_process_streams(process)
+            undrained = True
             raise subprocess.SubprocessError(
                 "setup command tree did not drain within cleanup budget"
             ) from cleanup
@@ -190,12 +213,10 @@ def run(command, *, timeout, cwd=None, env=None, input_text=None):
             job_ctx = None
             process.communicate(timeout=max(0.05, deadline - time.monotonic()))
         except Exception:  # noqa: BLE001
-            pass
-        finally:
-            _close_process_streams(process)
+            undrained = True
         raise
     finally:
         if job_ctx is not None:
             _terminate_windows_job(job_ctx, terminate=False)
-        _close_process_streams(process)
+        _close_process_streams(process, background_pipes=undrained)
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)

@@ -196,6 +196,56 @@ def test_stdio_cancel_interrupts_owned_process_and_allows_next_call(installed, t
             stream.close()
 
 
+def test_back_to_back_tool_call_after_response_flush_never_hits_stale_running(installed, monkeypatch):
+    r_in, w_in = os.pipe()
+    r_out, w_out = os.pipe()
+    reader = os.fdopen(r_in, "r", encoding="utf-8")
+    client_in = os.fdopen(w_in, "w", encoding="utf-8")
+    client_out = os.fdopen(r_out, "r", encoding="utf-8")
+
+    class DelayedExitWriter:
+        def __init__(self, raw):
+            self._raw = raw
+
+        def write(self, text):
+            return self._raw.write(text)
+
+        def flush(self):
+            self._raw.flush()
+            # Simulate Windows scheduler waking the client on pipe flush before
+            # the server worker thread finishes exiting its Python frame.
+            if threading.current_thread().name != "MainThread":
+                time.sleep(0.05)
+
+        def close(self):
+            self._raw.close()
+
+    writer = DelayedExitWriter(os.fdopen(w_out, "w", encoding="utf-8"))
+    server = threading.Thread(target=component_mcp.serve, args=(reader, writer), daemon=True)
+    server.start()
+    try:
+        for req_id in (1, 2, 3):
+            client_in.write(json.dumps({
+                "id": req_id,
+                "method": "tools/call",
+                "params": {"name": "mindie_status", "arguments": {}},
+            }) + "\n")
+            client_in.flush()
+            reply = json.loads(client_out.readline())
+            assert reply["id"] == req_id, reply
+            assert "error" not in reply, reply
+            assert reply["result"]["structuredContent"]["status"] == "configured"
+        client_in.close()
+        server.join(timeout=5)
+        assert not server.is_alive()
+    finally:
+        for stream in (client_in, client_out, reader, writer):
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+
 def test_launcher_registers_and_calls_through_native_dsh_mcp_client(installed, tmp_path):
     import mindie_paths
 

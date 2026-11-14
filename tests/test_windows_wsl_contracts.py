@@ -348,3 +348,29 @@ def test_updater_extract_rejects_windows_drive_and_backslash_traversal(tmp_path:
             stream.addfile(info, io.BytesIO(payload))
         with pytest.raises(updater.UpdateError):
             updater.extract(archive, tmp_path / "out")
+
+
+def test_setup_process_undrained_pipe_returns_within_cleanup_budget() -> None:
+    import setup_process
+
+    # Spawn a grandchild that inherits stdout and outlives a failed tree kill.
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import subprocess, sys, time; "
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(0.8)'], "
+            "close_fds=False); "
+            "time.sleep(0.8)"
+        ),
+    ]
+    with pytest.MonkeyPatch.context() as mp_ctx:
+        mp_ctx.setattr(setup_process, "CLEANUP_SECONDS", 0.08)
+        mp_ctx.setattr(setup_process, "_attach_windows_job", lambda _p: None)
+        mp_ctx.setattr(setup_process, "_kill_tree", lambda _p, _j, _d: (False, None))
+        started = time.monotonic()
+        with pytest.raises(subprocess.SubprocessError, match="did not drain within cleanup budget"):
+            setup_process.run(cmd, timeout=0.05)
+        elapsed = time.monotonic() - started
+    assert elapsed < 0.45, f"undrained pipe cleanup blocked for {elapsed:.3f}s"
+    time.sleep(0.85)
