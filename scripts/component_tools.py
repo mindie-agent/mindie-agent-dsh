@@ -92,8 +92,9 @@ def catalog():
         ("diagnostics_status", "Read local diagnostic/reporting status without starting a worker or contacting GitHub.",
          {"config": {"type": "string", "description": "Optional existing diagnostics policy path."}}, []),
         ("diagnostics_bundle", "Export a bounded sanitized local support bundle; does not upload it.",
-         {"root": {"type": "string"}, "operation_id": {"type": "string"},
-          "output": {"type": "string"}}, ["root"]),
+         {"root": {"type": "string", "description": "Optional local diagnostics log root; defaults to the active MindIE diagnostics root."},
+          "operation_id": {"type": "string"}, "incident_id": {"type": "string", "description": "Incident identifier alias for operation_id."},
+          "output": {"type": "string"}}, []),
     ):
         tools.append({
             "name": name, "description": description,
@@ -138,12 +139,16 @@ def command(adapter, component):
     return [executable]
 
 
-def run(command_argv, *, timeout, max_output, cancel, cwd=None):
+def run(command_argv, *, timeout, max_output, cancel, cwd=None, extra_env=None):
     """Use the runtime's owned process tree; temporary output keeps memory bounded."""
     from remote_dev.core.local_process import OwnedProcess
 
     deadline = time.monotonic() + timeout
     environment = {"MINDIE_DIAGNOSTICS_CONFIG": str(paths.diagnostics_config()), "PYTHONPATH": ""}
+    if os.environ.get("MINDIE_DIAGNOSTICS_ROOT"):
+        environment["MINDIE_DIAGNOSTICS_ROOT"] = os.environ["MINDIE_DIAGNOSTICS_ROOT"]
+    if isinstance(extra_env, dict):
+        environment.update(extra_env)
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         status = "completed"
         cleanup_error = None
@@ -224,10 +229,23 @@ def execute(name, arguments, *, cancel=None):
         if arguments.get("config") is not None:
             argv += ["--config", arguments["config"]]
     else:
-        component, argv = "diagnostics", ["bundle", "--root", arguments["root"]]
-        for key in ("operation_id", "output"):
-            if arguments.get(key) is not None:
-                argv += ["--" + key.replace("_", "-"), arguments[key]]
+        root_val = arguments.get("root")
+        if root_val is None:
+            explicit_root = os.environ.get("MINDIE_DIAGNOSTICS_ROOT")
+            if explicit_root:
+                root_val = str(Path(explicit_root).expanduser())
+            elif os.name == "nt" and not os.environ.get("XDG_STATE_HOME") and os.environ.get("LOCALAPPDATA"):
+                root_val = str(Path(os.environ["LOCALAPPDATA"]) / "mindie" / "diagnostics")
+            elif os.environ.get("XDG_STATE_HOME"):
+                root_val = str(Path(os.environ["XDG_STATE_HOME"]) / "mindie" / "diagnostics")
+            else:
+                root_val = str(Path.home() / ".local" / "state" / "mindie" / "diagnostics")
+        component, argv = "diagnostics", ["bundle", "--root", root_val]
+        op_id = arguments.get("operation_id") if arguments.get("operation_id") is not None else arguments.get("incident_id")
+        if op_id is not None:
+            argv += ["--operation-id", op_id]
+        if arguments.get("output") is not None:
+            argv += ["--output", arguments["output"]]
     budget, milliseconds = arguments.get("max_output_tokens", 16384), arguments.get("timeout_ms", 120000)
     if type(budget) is not int or not 1 <= budget <= 262144:
         raise ValueError("max_output_tokens must be between 1 and 262144")
@@ -236,12 +254,24 @@ def execute(name, arguments, *, cancel=None):
     cwd = arguments.get("cwd")
     if cwd is not None and (not isinstance(cwd, str) or not Path(cwd).is_absolute()):
         raise ValueError("cwd must be an absolute path")
-    result = run(command(adapter, component) + argv, timeout=milliseconds / 1000,
-                 max_output=budget * 4, cancel=cancel, cwd=cwd)
+    cmd_prefix = command(adapter, component)
+    invocation_token = os.urandom(16).hex() if name in DESCRIPTIONS else None
+    extra_env = {"MINDIE_DIAGNOSTICS_INVOCATION_TOKEN": invocation_token} if invocation_token is not None else None
+    result = run(cmd_prefix + argv, timeout=milliseconds / 1000,
+                 max_output=budget * 4, cancel=cancel, cwd=cwd, extra_env=extra_env)
     result["component"] = component
     if not result["output_truncated"]:
         try:
             result["result"] = json.loads(result["stdout"])
         except json.JSONDecodeError:
             pass
+    if name in DESCRIPTIONS and result["status"] == "completed" and result["exit_code"] not in (0, 2, None):
+        import dsh_diagnostics
+        diag = dsh_diagnostics.record_component_crash(
+            name, argv, result["exit_code"], result["stderr"],
+            parsed_result=result.get("result"), executable=cmd_prefix[0],
+            invocation_token=invocation_token,
+        )
+        if diag is not None:
+            result["diagnostic"] = diag
     return response(result, is_error=result["status"] != "completed" or result["exit_code"] != 0)
