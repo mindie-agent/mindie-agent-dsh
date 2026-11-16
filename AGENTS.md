@@ -32,11 +32,12 @@ Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindi
   - Loopback organizer HTTP POST: `DEADLINE_SECONDS = 300s` (`MAX_REQUEST_BYTES = MAX_RESPONSE_BYTES = 256 KiB`).
   - Transcript incremental scan: `max_seconds = 2.0s`, `max_text_bytes = 48 KiB`, `MAX_DECOMPRESSED_BYTES = 32 MiB`.
   - Setup & Updater: standalone `uv sync` has a `900s` stage budget and redactor installation `300s`. Updater supplies one `600s` total candidate setup deadline and reserves `10s` for cleanup. GitHub API lookup `30s`, asset download `60s`. Explicit contribution configuration has a `600s` outer budget including community operations and the shared reporter's `75s` startup; ordinary sidecar calls use `120s`.
-- **Four `v0.0.2` Iron Rules**:
+- **Five Anti-Over-Defensive Iron Rules**:
   1. Lightweight SQLite connections (WAL + busy timeout set once on open; no per-query schema reflection or `.owner` `lstat` ceremony).
   2. Reserve `unknown` (`outcome_unknown`) strictly for irreversible external model/network writes; never brick local state on transient errors.
   3. Use `os.replace()` for atomic file updates (`write_private`, `copy_private`, `atomic_json`); no Win32 `icacls`/`ctypes` ACL ceremonies or recursive symlink paranoia.
   4. Every script carries a top-of-file `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, `[Side-Effect Policy]` contract docstring.
+  5. **Zero Pre-Call Session-Binding Gates on Deterministic Tools (`P2.7`)**: `scripts/component_mcp.py` and `remote-dev` execute directly over standard MCP `tools/call` without requiring session hooks, nonces, or `context_file`; strict `knowledge_lease` admission applies exclusively to `knowledge_mcp.py`, `mindie_sidecar.py` knowledge RPCs, and `capture_stop.py`.
 
 ## 4. Verification Commands
 
