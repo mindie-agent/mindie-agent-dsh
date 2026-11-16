@@ -16,6 +16,17 @@ import threading
 import component_tools
 import runtime_lease
 
+TIMEOUT_ERROR_CODE = -32001
+
+
+def _timeout_error(identifier, stage: str, error: str = "TimeoutError") -> dict:
+    """One honest JSON-RPC timeout reply; the connection stays usable."""
+    return {"jsonrpc": "2.0", "id": identifier,
+            "error": {"code": TIMEOUT_ERROR_CODE,
+                      "message": "component call timed out; not completed",
+                      "data": {"status": "timeout", "stage": stage,
+                               "error_type": error, "automatic_retry": False}}}
+
 
 def handle(message, *, cancel=None):
     if "id" not in message:
@@ -67,11 +78,18 @@ def serve(reader=None, writer=None):
 
     def dispatch_call(request, event):
         nonlocal in_flight
-        response = handle(request, cancel=event)
-        with output_lock:
+        try:
+            response = handle(request, cancel=event)
+        except TimeoutError as exc:
+            # The helper boundary keeps `TimeoutError` distinct from a broad
+            # `OSError`; here it becomes a protocol reply so `in_flight` clears
+            # and the next request on this connection can run.
+            response = _timeout_error(request["id"], "execute", type(exc).__name__)
+        finally:
             with state_lock:
                 if request_id == request["id"]:
                     in_flight = False
+        with output_lock:
             if response is not None:
                 writer.write(json.dumps(response, ensure_ascii=False) + "\n")
                 writer.flush()
@@ -165,8 +183,11 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
                 argv, message, env=env, cancel=cancel,
                 timeout=660 if message.get("method") == "tools/call" else 15,
             )
-        except TimeoutError:
-            raise
+        except TimeoutError as exc:
+            # A helper-boundary timeout must not kill the worker before the
+            # reply and the `in_flight` reset, or every later call would see
+            # `-32000: component call already running`.
+            response = _timeout_error(message.get("id"), stage, type(exc).__name__)
         except Exception as exc:
             response = {"jsonrpc": "2.0", "id": message["id"], "result": {
                 "isError": True, "content": [{"type": "text", "text": str(exc)}],
@@ -178,12 +199,13 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
                                   and message.get("method") == "tools/call" else "not_started"),
                 },
             }}
-        refresh.check()
-        with output_lock:
+        finally:
             if is_tool_call:
                 with state_lock:
-                    if request_id == message["id"]:
+                    if request_id == message.get("id"):
                         in_flight = False
+        refresh.check()
+        with output_lock:
             writer.write(json.dumps(response, ensure_ascii=False) + "\n")
             writer.flush()
 

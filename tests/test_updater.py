@@ -370,5 +370,69 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(updater.resolve_adapter_source(adapter, setup.VERSION), staged)
 
 
+    def test_release_lookup_429_carries_typed_transport_facts(self):
+        from unittest import mock
+        import io
+        import urllib.error
+
+        error = urllib.error.HTTPError(
+            "https://example.invalid", 429, "Too Many Requests", {}, io.BytesIO(b""))
+        with mock.patch.object(updater.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(updater.UpdateError) as caught:
+                updater.fetch_releases("https://example.invalid")
+        self.assertEqual(caught.exception.category, "rate_limited")
+        self.assertEqual(caught.exception.code, "release_http_error")
+        self.assertEqual(caught.exception.stage, "release_lookup")
+
+    def test_release_lookup_dns_cause_is_a_resolver_fact(self):
+        from unittest import mock
+        import socket
+        import urllib.error
+
+        error = urllib.error.URLError(socket.gaierror(-2, "Name or service not known"))
+        with mock.patch.object(updater.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(updater.UpdateError) as caught:
+                updater.fetch_releases("https://example.invalid")
+        self.assertEqual(caught.exception.category, "resolver")
+        self.assertEqual(caught.exception.stage, "release_lookup")
+
+    def test_candidate_setup_timeout_is_a_deferred_deadline(self):
+        from unittest import mock
+
+        with mock.patch.object(updater.setup_process, "run",
+                               side_effect=subprocess.TimeoutExpired(["uv"], 600)):
+            with self.assertRaises(updater.UpdateError) as caught:
+                updater.run(["uv", "sync"], timeout=600)
+        self.assertEqual(caught.exception.category, "deadline")
+        self.assertEqual(caught.exception.code, "update_deadline")
+        self.assertEqual(caught.exception.stage, "candidate_setup")
+
+    def test_candidate_setup_output_classifies_resolver_and_deferred(self):
+        from unittest import mock
+
+        for detail, category in (
+            ("setup: failed: uv sync failed. version solving failed: conflicting dependencies",
+             "resolver"),
+            ('setup: failed: runtime activation did not complete: '
+             '{"status": "deferred", "reason": "operation_busy"}', "deferred"),
+        ):
+            with mock.patch.object(updater.mp, "which_native", return_value="/usr/bin/uv"), \
+                    mock.patch.object(updater, "run", return_value=(1, detail)):
+                with self.assertRaises(updater.UpdateError) as caught:
+                    updater.setup_candidate(ROOT, sys.executable)
+            self.assertEqual(caught.exception.category, category)
+            self.assertEqual(caught.exception.stage, "candidate_setup")
+            self.assertIsInstance(caught.exception.code, str)
+
+    def test_missing_uv_is_a_prerequisite_not_an_internal_bug(self):
+        from unittest import mock
+
+        with mock.patch.object(updater.mp, "which_native", return_value=None):
+            with self.assertRaises(updater.UpdateError) as caught:
+                updater.setup_candidate(ROOT, sys.executable)
+        self.assertEqual(caught.exception.category, "prerequisite")
+        self.assertEqual(caught.exception.stage, "candidate_setup")
+
+
 if __name__ == "__main__":
     unittest.main()

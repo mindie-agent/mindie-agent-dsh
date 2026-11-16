@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import select
 import shutil
 import subprocess
 import sys
@@ -392,3 +393,104 @@ def test_sim_partial_study_keeps_success_and_failure_in_the_nonzero_cli_result(
     assert "unavailable_source_implementation" in evaluations["unavailable"]["error"]
     assert {row["candidate"] for ranking in report["rankings"]
             for row in ranking["candidates"]} == {"ordinary"}
+
+
+def _pipe_server(target, *args, **kwargs):
+    r_in, w_in = os.pipe()
+    r_out, w_out = os.pipe()
+    reader = os.fdopen(r_in, "r", encoding="utf-8")
+    client_in = os.fdopen(w_in, "w", encoding="utf-8")
+    client_out = os.fdopen(r_out, "r", encoding="utf-8")
+    writer = os.fdopen(w_out, "w", encoding="utf-8")
+    server = threading.Thread(target=target, args=args,
+                              kwargs={**kwargs, "reader": reader, "writer": writer},
+                              daemon=True)
+    server.start()
+    return server, reader, writer, client_in, client_out
+
+
+def _send_request(client_in, request_id):
+    client_in.write(json.dumps({
+        "id": request_id, "method": "tools/call",
+        "params": {"name": "mindie_status", "arguments": {}},
+    }) + "\n")
+    client_in.flush()
+
+
+def _read_reply(client_out, timeout=8.0):
+    ready, _, _ = select.select([client_out], [], [], timeout)
+    assert ready, "the MCP server did not publish a reply"
+    return json.loads(client_out.readline())
+
+
+def _stop_pipe_server(server, client_in, *streams):
+    try:
+        client_in.close()
+    except Exception:
+        pass
+    server.join(timeout=8)
+    for stream in streams:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
+def test_worker_timeout_reports_protocol_error_and_next_call_succeeds(installed, monkeypatch):
+    calls = []
+    original_handle = component_mcp.handle
+
+    def flaky_handle(message, *, cancel=None):
+        calls.append(message["id"])
+        if message["id"] == 1:
+            raise TimeoutError("synthetic component deadline")
+        return original_handle(message, cancel=cancel)
+
+    monkeypatch.setattr(component_mcp, "handle", flaky_handle)
+    server, reader, writer, client_in, client_out = _pipe_server(component_mcp.serve)
+    try:
+        _send_request(client_in, 1)
+        first = _read_reply(client_out)
+        assert first["id"] == 1 and "result" not in first, first
+        assert first["error"]["code"] == component_mcp.TIMEOUT_ERROR_CODE
+        assert first["error"]["data"]["status"] == "timeout"
+        assert first["error"]["data"]["automatic_retry"] is False
+        _send_request(client_in, 2)
+        second = _read_reply(client_out)
+        assert second["id"] == 2 and "error" not in second, second
+        assert second["result"]["structuredContent"]["status"] == "configured"
+        assert calls == [1, 2], "the wedged request must not block the next call"
+    finally:
+        _stop_pipe_server(server, client_in, client_out, reader, writer)
+
+
+def test_selected_helper_timeout_clears_in_flight_and_next_call_runs(installed, monkeypatch):
+    from remote_dev.mcp import catalog_refresh
+
+    invocations = {"count": 0}
+
+    def select():
+        invocations["count"] += 1
+        if invocations["count"] == 2:  # the first call seeds CatalogRefresh
+            raise TimeoutError("synthetic helper deadline")
+        return [sys.executable], {}
+
+    def fake_rpc(argv, message, *, env=None, cancel=None, timeout=15):
+        return {"jsonrpc": "2.0", "id": message["id"],
+                "result": {"structuredContent": {"status": "configured"}}}
+
+    monkeypatch.setattr(catalog_refresh, "selected_rpc", fake_rpc)
+    server, reader, writer, client_in, client_out = _pipe_server(
+        component_mcp.serve_selected_serialized, select)
+    try:
+        _send_request(client_in, 1)
+        first = _read_reply(client_out)
+        assert first["id"] == 1 and "result" not in first, first
+        assert first["error"]["code"] == component_mcp.TIMEOUT_ERROR_CODE
+        assert first["error"]["data"]["stage"] == "select_runtime"
+        _send_request(client_in, 2)
+        second = _read_reply(client_out)
+        assert second["id"] == 2 and "error" not in second, second
+        assert second["result"]["structuredContent"]["status"] == "configured"
+    finally:
+        _stop_pipe_server(server, client_in, client_out, reader, writer)

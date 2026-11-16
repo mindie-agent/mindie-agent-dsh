@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import sys
 from types import SimpleNamespace
 import urllib.error
@@ -102,4 +103,63 @@ def test_unclassified_update_runtimeerror_remains_internal():
     assert event['attributes']['category'] == 'internal'
     assert event['attributes']['error_code'] == 'update_internal_failure'
     assert event['attributes']['error_type'] == 'RuntimeError'
+    assert event['reportable'] is True
+
+
+@pytest.mark.parametrize('category,expected', [
+    ('resolver', 'prerequisite'),
+    ('validation', 'prerequisite'),
+    ('busy', 'prerequisite'),
+    ('deferred', 'prerequisite'),
+    ('temporary_network', 'connectivity'),
+    ('rate_limited', 'connectivity'),
+    ('certificate', 'credentials'),
+])
+def test_owned_update_category_never_becomes_an_internal_bug(category, expected):
+    error = updater.UpdateError('update failed')
+    error.category = category
+    receipt, event, _logs = _record(error)
+    assert receipt['state'] == 'failed'
+    assert event['attributes']['category'] == expected
+    assert event['reportable'] is False
+
+
+@pytest.mark.parametrize('cause,reason_code', [
+    (socket.gaierror(-2, 'Name or service not known'), 'update_prerequisite_unavailable'),
+    (BlockingIOError(11, 'another update is running'), 'update_deferred'),
+])
+def test_typed_dns_and_lock_contention_stay_local_prerequisites(cause, reason_code):
+    error = updater.UpdateError('update failed')
+    error.__cause__ = cause
+    _receipt, event, _logs = _record(error)
+    assert event['attributes']['category'] == 'prerequisite'
+    assert event['attributes']['reason_code'] == reason_code
+    assert event['reportable'] is False
+
+
+def test_recovered_child_resolver_fact_survives_the_failure_envelope():
+    from component_update import FAILURE_SCHEMA, recover_failure
+
+    error = recover_failure(json.dumps({
+        'schema': FAILURE_SCHEMA,
+        'error': {'type': 'RuntimeError', 'category': 'resolver',
+                  'code': 'update_prerequisite_unavailable'},
+    }), RuntimeError('candidate setup failed'))
+    assert error.category == 'resolver'
+    _receipt, event, _logs = _record(error)
+    assert event['attributes']['category'] == 'prerequisite'
+    assert event['reportable'] is False
+
+
+def test_internal_update_failure_preserves_stage_substage_and_reason():
+    error = updater.UpdateError('candidate setup failed')
+    error.stage = 'candidate_setup'
+    error.substage = 'publish_binding'
+    error.reason_code = 'runtime_contract_mismatch'
+    _receipt, event, _logs = _record(error)
+    assert event['attributes']['category'] == 'internal'
+    assert event['attributes']['error_code'] == 'update_internal_failure'
+    assert event['attributes']['stage'] == 'candidate_setup'
+    assert event['attributes']['substage'] == 'publish_binding'
+    assert event['attributes']['reason_code'] == 'runtime_contract_mismatch'
     assert event['reportable'] is True

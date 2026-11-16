@@ -3,7 +3,9 @@
 runtime. New plugin releases inherit all installed component version floors.
 A missing source manifest or configured interpreter fails with FileNotFoundError
 naming that artifact before catalog discovery or a build. Child failures carry
-only typed public facts and a diagnostic reference, never exception text.
+only typed public facts and a diagnostic reference, never exception text;
+transport, resolver, validation, busy and deferred categories stay
+non-reportable local facts instead of becoming internal product bugs.
 [Timeouts & Locks] Metadata, catalog and build share one deadline; the builder
 has at most 420s and leaves five seconds for cleanup. The setup caller reserves
 180s shared across its remaining probe/configuration/handoff stages.
@@ -23,24 +25,72 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 FAILURE_SCHEMA = "mindie-component-failure/1"
-_CATEGORIES = {"temporary_network", "rate_limited", "certificate", "deadline", "internal"}
+_CATEGORIES = {
+    "authentication", "busy", "certificate", "deadline", "deferred",
+    "internal", "permission", "prerequisite", "rate_limited", "resolver",
+    "temporary_network", "validation",
+}
+# Categories the shared update policy does not know: keep them non-reportable
+# and give each one a structured reason code instead of "internal".
+_NON_REPORTABLE = {
+    "prerequisite": ("prerequisite", "update_prerequisite_unavailable"),
+    "resolver": ("prerequisite", "update_prerequisite_unavailable"),
+    "validation": ("prerequisite", "update_validation_failed"),
+    "busy": ("prerequisite", "update_deferred"),
+    "deferred": ("prerequisite", "update_deferred"),
+}
+_OUTPUT_CATEGORIES = (
+    ("resolver", ("resolutionimpossible", "conflicting dependencies",
+                  "no solution found", "version solving failed",
+                  "the conflict is caused by", "resolver conflict")),
+    ("rate_limited", ("too many requests", "rate limit", "http 429")),
+    ("certificate", ("certificate verify failed", "ssl certificate problem",
+                     "unknown ca", "certificate has expired")),
+    ("temporary_network", ("temporary failure in name resolution",
+                           "could not resolve host", "name or service not known",
+                           "connection timed out", "read timed out",
+                           "connection reset by peer", "connection refused",
+                           "network is unreachable", "failed to connect")),
+    ("deferred", ("operation_busy", "installation_busy", "check_busy",
+                  '"status": "deferred"', '"status":"deferred"')),
+)
+_OUTPUT_CODES = {
+    "resolver": "update_prerequisite_unavailable",
+    "rate_limited": "update_transport_unavailable",
+    "certificate": "update_credentials_required",
+    "temporary_network": "update_transport_unavailable",
+    "deferred": "update_deferred",
+}
 _CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
 def failure_facts(error):
     """Only typed public facts cross installer processes; never stderr text."""
     import http.client
+    import socket
     import ssl
     import urllib.error
     facts = dict(getattr(error, "mindie_component_failure", {"type": type(error).__name__}))
     code, category = getattr(error, "code", None), getattr(error, "category", None)
     if isinstance(error, urllib.error.HTTPError):
         code = "release_http_error"
-        category = "rate_limited" if error.code == 429 else "temporary_network"
+        category = ("rate_limited" if error.code == 429 else
+                    "authentication" if error.code == 401 else
+                    "permission" if error.code == 403 else
+                    "temporary_network")
     elif isinstance(error, ssl.SSLCertVerificationError):
         category = "certificate"
     elif isinstance(error, TimeoutError):
         category = "deadline"
+    elif isinstance(error, (socket.gaierror, socket.herror)):
+        category = "resolver"
+    elif isinstance(error, BlockingIOError):
+        category = "busy"
+    elif isinstance(error, urllib.error.URLError):
+        reason = getattr(error, "reason", None)
+        category = ("certificate" if isinstance(reason, ssl.SSLCertVerificationError) else
+                    "resolver" if isinstance(reason, (socket.gaierror, socket.herror)) else
+                    "temporary_network")
     elif (isinstance(error, (urllib.error.URLError, ConnectionError, ssl.SSLError, http.client.HTTPException))
           and not isinstance(error, (http.client.InvalidURL, http.client.ImproperConnectionState,
                                      http.client.NotConnected, http.client.UnimplementedFileMode))):
@@ -53,6 +103,57 @@ def failure_facts(error):
     if type(status) is int and 100 <= status <= 599:
         facts["status"] = status
     return facts
+
+
+def _failure_chain(error):
+    """Typed causes/contexts only, bounded; exception text is never parsed."""
+    seen: set[int] = set()
+    pending = [error]
+    while pending and len(seen) < 32:
+        current = pending.pop(0)
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        yield current
+        cause = getattr(current, "__cause__", None)
+        if cause is not None:
+            pending.append(cause)
+        if not getattr(current, "__suppress_context__", False):
+            context = getattr(current, "__context__", None)
+            if context is not None:
+                pending.append(context)
+
+
+def update_failure_classification(error):
+    """Map an owned updater category the shared policy would call internal.
+
+    Returns `(category, reportable, reason_code)` or `None` so the shared
+    `update_failure_policy` still classifies its own transport/credential
+    vocabulary. Typed DNS and lock facts are handled here because a recovered
+    child failure loses its concrete exception type.
+    """
+    import socket
+    for current in _failure_chain(error):
+        category = getattr(current, "category", None)
+        if isinstance(category, str) and category in _NON_REPORTABLE:
+            mapped, code = _NON_REPORTABLE[category]
+            return mapped, False, code
+        if isinstance(current, (socket.gaierror, socket.herror)):
+            return "prerequisite", False, "update_prerequisite_unavailable"
+        if isinstance(current, BlockingIOError):
+            return "prerequisite", False, "update_deferred"
+    return None
+
+
+def classify_update_output(text):
+    """Narrow category for an untyped child diagnostic; never echoes output."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    sample = text[-16384:].casefold()
+    for category, phrases in _OUTPUT_CATEGORIES:
+        if any(phrase in sample for phrase in phrases):
+            return category, _OUTPUT_CODES[category]
+    return None
 
 
 def failure_envelope(error):

@@ -26,6 +26,8 @@ import threading
 import time
 from unittest import mock
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -428,3 +430,110 @@ def test_safe_sweep_degrades_a_failed_secondary_cleanup(monkeypatch):
     assert summary["stage"] == "test-secondary"
     assert summary["status"] in {"failed", "partial"}
     assert summary["partial"] is True
+
+
+def test_migrated_data_home_and_custom_profile_keep_rollback_generations(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    default_shared = home / ".local" / "share" / "mindie-agent"
+    default_dsh = default_shared / "dsh"
+    custom_data = tmp_path / "custom" / "dsh"
+    custom_config = tmp_path / "custom" / "config" / "dsh"
+    custom_home = tmp_path / "custom-home"
+    for directory in (default_dsh, custom_data, custom_config):
+        directory.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("MINDIE_DSH_DATA_HOME", str(custom_data))
+    monkeypatch.setenv("MINDIE_DSH_CONFIG_HOME", str(custom_config))
+    monkeypatch.setenv("MINDIE_DSH_STATE_DIR", str(custom_data / "state"))
+    monkeypatch.delenv("MINDIE_DATA_HOME", raising=False)
+    monkeypatch.setenv("DSH_HOME", str(custom_home))
+
+    generations = {}
+    for name, age_days in (("v0.1.0", 9), ("v0.1.1", 8), ("v0.1.9", 7),
+                           ("v0.1.2", 3), ("v0.1.3", 1)):
+        generation = default_dsh / "update" / "generations" / name
+        _write(generation / "package" / "package.json", json.dumps({"version": name[1:]}))
+        _age(generation, age_days * 86400)
+        generations[name] = generation
+    custom_generation = custom_data / "update" / "generations" / "v0.1.4"
+    _write(custom_generation / "package" / "package.json", json.dumps({"version": "0.1.4"}))
+    _age(custom_generation, 2 * 86400)
+    _write(custom_data / "update" / "current.json", json.dumps({
+        "schema": "mindie-dsh-generation/1",
+        "generation": str(custom_generation / "package"),
+        "previous_generation": str(generations["v0.1.1"] / "package"),
+        "tag": "v0.1.4",
+        "previous_tag": "v0.1.1",
+    }))
+    profile = custom_home / "profiles" / "web" / "node_modules" / "@mindie-agent"
+    profile.mkdir(parents=True)
+    try:
+        (profile / "dsh").symlink_to(generations["v0.1.0"], target_is_directory=True)
+    except OSError:
+        pytest.skip("this filesystem cannot create a profile symlink")
+
+    summary = storage_lifecycle.safe_sweep(stage="test-migrated", force=True)
+    assert summary["status"] in {"completed", "partial"}
+    assert generations["v0.1.0"].is_dir(), "the custom DSH_HOME profile target survives"
+    assert generations["v0.1.1"].is_dir(), "previous_generation in the default root survives"
+    assert (generations["v0.1.1"] / "package" / "package.json").is_file()
+    assert not generations["v0.1.9"].exists(), "the unreferenced historical generation is reclaimed"
+    assert custom_generation.is_dir()
+
+    monkeypatch.setattr("native_update.install", lambda *args, **kwargs: None)
+    monkeypatch.setattr(updater, "setup_candidate", lambda *args, **kwargs: None)
+    recovered = updater.recover("web")
+    assert recovered["recovered"] is True
+    assert Path(recovered["generation"]) == generations["v0.1.1"] / "package"
+    assert Path(recovered["generation"]).is_dir()
+
+
+def test_orphan_engine_prune_keeps_cross_plugin_reference_and_defers_incomplete_reads(
+        tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    data, config, shared = tmp_path / "data", tmp_path / "config", tmp_path / "shared"
+    for directory in (data, config, shared / "config"):
+        directory.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("MINDIE_DSH_DATA_HOME", str(data))
+    monkeypatch.setenv("MINDIE_DSH_CONFIG_HOME", str(config))
+    monkeypatch.setenv("MINDIE_DSH_STATE_DIR", str(data / "state"))
+    monkeypatch.setenv("MINDIE_DATA_HOME", str(shared))
+    monkeypatch.setenv("MINDIE_CONFIG_HOME", str(shared / "config"))
+
+    _write(data / "runtimes" / "active" / "venv" / "bin" / "python")
+    engines = config / "engines"
+    for name in ("active", "ghost", "orphan"):
+        _write(engines / f"{name}.json", "{}")
+        _age(engines / f"{name}.json")
+    borrowed = shared / "config" / "cc.json"
+    borrowed.write_text(json.dumps({"engine_config": str(engines / "ghost.json")}),
+                        encoding="utf-8")
+
+    result = storage_lifecycle._prune_orphan_engines(
+        keep_paths=[], deadline=time.monotonic() + 30)
+    assert result["status"] == "completed", result
+    assert (engines / "ghost.json").is_file(), "a sibling plugin's engine must survive"
+    assert (engines / "active.json").is_file(), "the live runtime keeps its engine"
+    assert not (engines / "orphan.json").exists(), "an unreferenced orphan is removed"
+
+    _write(engines / "orphan.json", "{}")
+    _age(engines / "orphan.json")
+    borrowed.write_text("{not-json", encoding="utf-8")
+    before = sorted(path.name for path in engines.glob("*.json"))
+    deferred = storage_lifecycle._prune_orphan_engines(
+        keep_paths=[], deadline=time.monotonic() + 30)
+    assert deferred["status"] == "partial"
+    assert deferred["partial"] is True
+    assert "engine references incomplete" in deferred["warnings"]
+    assert sorted(path.name for path in engines.glob("*.json")) == before
+
+    def expire(_path):
+        raise TimeoutError("synthetic config deadline")
+
+    monkeypatch.setattr(storage_lifecycle, "_read_document", expire)
+    with pytest.raises(TimeoutError):
+        storage_lifecycle._prune_orphan_engines(
+            keep_paths=[], deadline=time.monotonic() + 30)
