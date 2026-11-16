@@ -2,7 +2,7 @@
 """[Role] Bounded background release updater for mindie-agent-dsh.
 [Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; compares current and candidate versions with SemVer 2.0 precedence including prereleases; refuses an unparseable current version (including leading-zero numeric prereleases such as 1.0.0-01), an unreadable package.json, a non-object update.json, or a non-boolean enabled flag instead of inventing 0.0.0 / 0.1.4 or forcing updates. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
 [Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
-[Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
+[Side-Effect Policy] Writes generation artifacts under data_home()/update, atomically updates status.json and current.json via os.replace, and runs best-effort historical storage reclamation.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ if str(HERE) not in sys.path:
 import mindie_paths as mp  # noqa: E402
 import semver_range  # noqa: E402
 import setup_process  # noqa: E402
+import storage_lifecycle  # noqa: E402
 
 SCHEMA = "mindie-dsh-update-status/1"
 DEFAULT_API = "https://api.github.com/repos/mindie-agent/mindie-agent-dsh/releases"
@@ -389,6 +390,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         "active_version": active_version, "native_version": native_version,
         "profile": profile, "checked_at": time.time(), "needs_host_reload": False, "detail": "",
     }
+    status["storage_gc"] = {"pre_build": storage_lifecycle.safe_sweep(stage="pre-build")}
     atomic_json(status_path(), status)
     candidate = choose(fetch_releases(api), current)
     if candidate is None:
@@ -403,6 +405,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
             if apply:
                 previous = read_json(current_path(), {})
                 write_current(package, current, previous)
+                status["storage_gc"]["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
             status['components'] = dict(status='active' if apply else 'staged', runtime=artifact['components'])
         else:
             status['components'] = dict(status='up_to_date' if adapter.get('python') else 'unconfigured')
@@ -428,13 +431,14 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
             raise UpdateError("candidate package.json is invalid") from exc
         if manifest.get("version") != tag.lstrip("v"):
             raise UpdateError("candidate version does not match the release tag")
+        storage_lifecycle.discard_archives(asset, sums)
     previous = read_json(current_path(), {})
     from component_update import prepare as component_prepare
     adapter = read_json(mp.config_file(), {})
     effective = component_prepare(package, adapter.get('python') or sys.executable)
     if effective:
         package = Path(effective['source'])
-    setup_candidate(package, sys.executable, artifact=effective, apply=False)
+    setup_candidate(package, (effective or {}).get('python') or sys.executable, artifact=effective, apply=False)
     if not apply:
         status.update(
             state="staged", checked_at=time.time(), previous=previous.get("generation"),
@@ -444,8 +448,9 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         return status
     from native_update import install as native_install
     native_install(package, profile, status, lambda value: atomic_json(status_path(), value))
-    setup_candidate(package, sys.executable, artifact=effective, apply=True)
+    setup_candidate(package, (effective or {}).get('python') or sys.executable, artifact=effective, apply=True)
     write_current(package, tag, previous if isinstance(previous, dict) else None)
+    status["storage_gc"]["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
     status.update(
         state="applied", checked_at=time.time(), previous=previous.get("generation"),
         generation=str(package),
@@ -486,7 +491,7 @@ def recover(profile):
     if manifest.is_file():
         artifact = dict(generation=str(package.parent), python=str(
             package.parent / 'runtime/.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')))
-    setup_candidate(package, sys.executable, artifact=artifact)
+    setup_candidate(package, (artifact or {}).get('python') or sys.executable, artifact=artifact)
     write_current(package, str(current.get('previous_tag') or ''), current)
     status.update(state='recovered', generation=str(package), checked_at=time.time())
     atomic_json(status_path(), status)

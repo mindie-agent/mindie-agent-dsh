@@ -2,7 +2,7 @@
 """[Role] One-step runtime provisioner for the DeepSeek Harness adapter.
 [Invariants] Prepares an independent pinned runtime and immutable engine paths. One adapter pointer selects all domains after their old owners confirm idle retirement.
 [Timeouts & Locks] Every subprocess receives the remaining shared setup budget; timeout cleanup has a separate five-second allowance.
-[Side-Effect Policy] Populates data_home()/runtimes, prepares immutable engine JSON, publishes config.json atomically, and stages updater scripts. Saved consent remains unchanged.
+[Side-Effect Policy] Populates data_home()/runtimes, prepares immutable engine JSON, publishes config.json atomically, stages updater scripts, and runs best-effort historical storage reclamation. Saved consent remains unchanged.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ if str(HERE) not in sys.path:
 
 import mindie_paths as mp  # noqa: E402
 import setup_process  # noqa: E402
+import storage_lifecycle  # noqa: E402
 
 SCHEMA = "mindie-dsh-setup/1"
 ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
@@ -251,6 +252,7 @@ def sync_runtime(python: str | None, *, timeout: int) -> None:
     venv = runtime_dir()
     mp.ensure_private_dir(mp.data_home())
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
+    storage_lifecycle.configure_prebuild_uv_cache(env, data_home=mp.data_home())
     env.setdefault("UV_NO_PROGRESS", "1")
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     env.setdefault("GCM_INTERACTIVE", "never")
@@ -394,7 +396,7 @@ def prepare_domains(adapter, engine):
 def install_updater() -> dict[str, Any]:
     stage_retained_package()
     directory = mp.data_home() / "update"
-    for name in ("updater.py", "component_update.py", "native_update.py", "semver_range.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
+    for name in ("updater.py", "component_update.py", "native_update.py", "semver_range.py", "storage_lifecycle.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
         source = mp.PACKAGE_DIR / "scripts" / name
         destination = directory / name
         try:
@@ -620,9 +622,9 @@ def run_sharing_cli(argv: list[str]) -> int:
                 )
             else:
                 mindie_sidecar.cmd_sharing_disable(project_root=project_root)
+        except TimeoutError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            if isinstance(exc, TimeoutError):
-                raise
             print(f"error: {exc}", file=sys.stderr)
             return 1
         print(json.dumps(sharing_status(cfg_home), ensure_ascii=False, indent=2))
@@ -661,6 +663,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(mp.diagnostics_config())
     started = time.time()
     publication = None
+    storage_gc: dict = {}
     try:
         check_host()
         INSTALL_RUNTIME_DIR = mp.data_home() / 'runtimes' / runtime_identity() / 'venv'
@@ -701,6 +704,11 @@ def main(argv: list[str] | None = None) -> int:
 
         for d in (mp.data_home(), mp.config_home(), mp.state_dir()):
             mp.ensure_private_dir(d)
+        if not args.component_manifest:
+            # The updater already swept before component_prepare; a second
+            # Pre-Build sweep here could reclaim the just-prepared artifact
+            # before its binding is published.
+            storage_gc["pre_build"] = storage_lifecycle.safe_sweep(stage="pre-build")
         previous = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().is_file() else {}
         probe = None
         if args.component_manifest:
@@ -729,6 +737,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.prepare_only:
             print(json.dumps(dict(status='prepared', components=probe['versions'], paths=paths)))
             return 0
+        storage_gc["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
         paths.update(engine_config=adapter['engine_config'], venv_dir=adapter['venv_dir'], venv_python=adapter['python'])
         knowledge = {"status": "inactive"}
         update = install_updater()
@@ -751,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
             "sqlite": probe.get("sqlite"), "executable": probe.get("executable"),
             "components": probe.get("versions"), "paths": paths,
             "knowledge": knowledge, "update": update, "reporting": reporting, "activation": publication,
+            "storage_gc": storage_gc,
             "contribution_notice": "One contribution choice controls public knowledge sharing and sanitized fault reports. Existing choices are preserved; legacy choices require explicit confirmation before reporting.",
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (

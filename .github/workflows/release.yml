@@ -15,7 +15,7 @@ jobs:
     secrets:
       MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
     with:
-      release-notes-path: docs/releases/mindie-agent-dsh-0.1.21.md
+      release-notes-path: docs/releases/mindie-agent-dsh-0.1.22.md
       version-files: |
         package.json
         pyproject.toml
@@ -33,6 +33,7 @@ jobs:
         node --test tests/test_update_host.mjs
         node --test tests/test_generation_launcher.mjs
         node --test tests/test_remote_isolation.mjs
+        node --test tests/test_log_rotation.mjs
         node --test tests/test_summary_host.mjs
       node: true
       build-command: |

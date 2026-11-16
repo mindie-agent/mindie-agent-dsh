@@ -45,6 +45,7 @@ jobs:
           node --test tests/test_update_host.mjs
           node --test tests/test_generation_launcher.mjs
           node --test tests/test_remote_isolation.mjs
+          node --test tests/test_log_rotation.mjs
           node --test tests/test_summary_host.mjs
 
   release-ready:

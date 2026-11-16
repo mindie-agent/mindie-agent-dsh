@@ -2,7 +2,7 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.15`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.22`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
@@ -17,29 +17,28 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | --- | --- |
 | data / runtime | `$XDG_DATA_HOME/mindie-agent/dsh` (`~/.local/share/mindie-agent/dsh`) |
 | config | `$XDG_CONFIG_HOME/mindie-agent/dsh` (`~/.config/mindie-agent/dsh`) |
-| runtime interpreter | `<data>/venv/bin/python` |
+| runtime interpreter | the `python` binding in `<config>/config.json` (`<data>/runtimes/<key>/venv/bin/python` or `update/component-runtimes/<id>/runtime/.venv/bin/python`) |
 | persistent worker scripts | `<data>/state/bin/` |
-| engine config | `<config>/engine.json` |
+| engine config | the `engine_config` binding in `<config>/config.json` |
 | adapter config | `<config>/config.json` |
 | unified consent authority | `<config>/mindie-consent.json` |
 | diagnostics policy | `<config>/diagnostics.json` |
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.15` Runtime Components
+## Pinned `0.1.22` Runtime Components
 
 `scripts/setup.py` runs `uv sync --locked` against `uv.lock`, installs persistent worker scripts, and writes `engine.json` and `diagnostics.json` without starting the knowledge service or syncing feeds during installation (`knowledge.status: "inactive"` until `/mindie-agent` is invoked).
 
 Current runtime pins:
 
-- `mindie-knowledge` `0.13.13` (`da64fe111d878f44b7efec6af6ca46d3f5887be6`)
-- `remote-dev` `0.11.5` (`131b24533479e9cefc572144adccdcb345f70846`)
-- `mindie-diagnostics` `0.5.6` (`9b331956b00737dd6d8c956da3416316f2de1ddf`)
-- `mindie-debugger` `0.1.0` (`e9406b2b178335190d5cb59dff4d6985894497ba`)
-- `mindie-profiler` `0.5.6` (`79d97e75bff7351b0472b93c03b072c1cf47f5e7`)
-- `mindie-sim` `0.9.3` (`dbadff04b60937a0722b0a227cdad01beed083cd`)
-- `mindie-coordinator` `0.7.4` (`14d7cec7247bdcbea9b9878db4770e3a05a6ea41`)
-- `npu-top` `0.3.1` (`8f0cb3ec66393812e90e118cd73704070c6027a2`)
+- `mindie-knowledge` `0.13.22` (`c991b64a1ead277b5ce91b7835337b01aed03998`)
+- `remote-dev` `0.11.12` (`c4d38f99c1ef5aace1c088af07647941adc2d394`)
+- `mindie-diagnostics` `0.5.14` (`cd16baa406070bcd41bbe39a9e488cc8753c60c5`)
+- `mindie-debugger` `0.1.3` (`33052a2fc10c7475e4b819577870ca822efcebd0`)
+- `mindie-profiler` `0.5.14` (`889b6ef161862938cc07b1b4123c57e302965d48`)
+- `mindie-sim` `0.9.15` (`9dbab02f10843c7b829d6fda7e7b9ad89e4f92e5`)
+- `mindie-coordinator` `0.7.11` (`33e2c6966d21d62969a2148145e74885dc826e3c`)
 
 ## Unified Contribution Switch
 

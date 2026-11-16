@@ -3,6 +3,7 @@
 [Invariants] Discovery needs no task or knowledge state; the selected profile owns the runtime.
 [Timeouts & Locks] One in-flight call; cancellation/EOF stop its child within the five-second cleanup budget.
 [Side-Effect Policy] Only tools/call executes components; protocol writes are serialized.
+The resident process holds a shared runtime lease for its disposable generation.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import sys
 import threading
 
 import component_tools
+import runtime_lease
 
 
 def handle(message, *, cancel=None):
@@ -38,6 +40,8 @@ def handle(message, *, cancel=None):
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be an object")
             result = component_tools.execute(params.get("name"), arguments, cancel=cancel)
+        except TimeoutError:
+            raise
         except Exception as exc:
             result = component_tools.response(
                 {"status": "failed", "error": f"{type(exc).__name__}: {exc}",
@@ -161,6 +165,8 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
                 argv, message, env=env, cancel=cancel,
                 timeout=660 if message.get("method") == "tools/call" else 15,
             )
+        except TimeoutError:
+            raise
         except Exception as exc:
             response = {"jsonrpc": "2.0", "id": message["id"], "result": {
                 "isError": True, "content": [{"type": "text", "text": str(exc)}],
@@ -251,6 +257,7 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
 
 
 if __name__ == "__main__":
+    runtime_lease.hold_runtime_lease()
     for _stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(_stream, "reconfigure"):
             try:
