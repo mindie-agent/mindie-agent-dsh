@@ -2,7 +2,8 @@
 [Invariants] The active native package is retained with an independently locked
 runtime. New plugin releases inherit all installed component version floors.
 A missing source manifest or configured interpreter fails with FileNotFoundError
-naming that artifact before catalog discovery or a build.
+naming that artifact before catalog discovery or a build. Child failures carry
+only typed public facts and a diagnostic reference, never exception text.
 [Timeouts & Locks] Metadata, catalog and build share one deadline; the builder
 has at most 420s and leaves five seconds for cleanup. The setup caller reserves
 180s shared across its remaining probe/configuration/handoff stages.
@@ -15,10 +16,91 @@ import argparse
 import importlib.metadata as metadata
 import json
 from pathlib import Path
+import re
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+FAILURE_SCHEMA = "mindie-component-failure/1"
+_CATEGORIES = {"temporary_network", "rate_limited", "certificate", "deadline", "internal"}
+_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+
+
+def failure_facts(error):
+    """Only typed public facts cross installer processes; never stderr text."""
+    import http.client
+    import ssl
+    import urllib.error
+    facts = dict(getattr(error, "mindie_component_failure", {"type": type(error).__name__}))
+    code, category = getattr(error, "code", None), getattr(error, "category", None)
+    if isinstance(error, urllib.error.HTTPError):
+        code = "release_http_error"
+        category = "rate_limited" if error.code == 429 else "temporary_network"
+    elif isinstance(error, ssl.SSLCertVerificationError):
+        category = "certificate"
+    elif isinstance(error, TimeoutError):
+        category = "deadline"
+    elif (isinstance(error, (urllib.error.URLError, ConnectionError, ssl.SSLError, http.client.HTTPException))
+          and not isinstance(error, (http.client.InvalidURL, http.client.ImproperConnectionState,
+                                     http.client.NotConnected, http.client.UnimplementedFileMode))):
+        category = "temporary_network"
+    if isinstance(code, str) and _CODE.fullmatch(code):
+        facts["code"] = code
+    if isinstance(category, str) and category in _CATEGORIES:
+        facts["category"] = category
+    status = getattr(error, "status", None)
+    if type(status) is int and 100 <= status <= 599:
+        facts["status"] = status
+    return facts
+
+
+def failure_envelope(error):
+    value = dict(schema=FAILURE_SCHEMA, error=failure_facts(error))
+    receipt = _diagnostic_reference(getattr(error, "mindie_diagnostic", None))
+    if receipt is not None:
+        value["diagnostic"] = receipt
+    return value
+
+
+def _diagnostic_reference(value):
+    if not isinstance(value, dict) or type(value.get("logging_failed")) is not bool:
+        return None
+    incident = value.get("incident_id")
+    if isinstance(incident, str) and re.fullmatch(r"[0-9a-f]{32}", incident):
+        return dict(incident_id=incident, logging_failed=value["logging_failed"])
+    if value == {"logging_failed": True}:
+        return value
+    return None
+
+
+def recover_failure(raw, target):
+    """Recover the closed envelope; unrelated child crashes remain internal."""
+    if not isinstance(raw, str) or len(raw) > 8192:
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or value.get("schema") != FAILURE_SCHEMA:
+        return None
+    original = value.get("error")
+    if not isinstance(original, dict):
+        return None
+    facts = {"type": original.get("type") if isinstance(original.get("type"), str) else "RuntimeError"}
+    for key in ("code", "category", "status"):
+        item = original.get(key)
+        valid = (isinstance(item, str) and _CODE.fullmatch(item) if key == "code" else
+                 isinstance(item, str) and item in _CATEGORIES if key == "category" else
+                 type(item) is int and 100 <= item <= 599)
+        if valid:
+            facts[key] = item
+            setattr(target, key, item)
+    target.mindie_component_failure = facts
+    diagnostic = _diagnostic_reference(value.get("diagnostic"))
+    if diagnostic is not None:
+        target.mindie_diagnostic = diagnostic
+    return target
 
 
 def _require_source(source, python) -> None:
@@ -83,5 +165,9 @@ if __name__ == "__main__":
     parser.add_argument("--ensure-bound", action="store_true")
     parser.add_argument("--timeout", type=float, default=570)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.source, args.python, ensure_bound=args.ensure_bound,
-                             timeout=args.timeout), sort_keys=True))
+    try:
+        result = prepare(args.source, args.python, ensure_bound=args.ensure_bound, timeout=args.timeout)
+    except Exception as error:
+        print(json.dumps(failure_envelope(error), sort_keys=True))
+        raise SystemExit(1)
+    print(json.dumps(result, sort_keys=True))

@@ -329,7 +329,9 @@ def prepare_bound_runtime() -> bool:
         timeout=outer,
     )
     if completed.returncode:
-        raise SetupError("bound component preparation failed: " + tail(completed.stderr))
+        from component_update import recover_failure
+        error = SetupError("bound component preparation failed")
+        raise (recover_failure(completed.stdout, error) or error) from None
     artifact = json.loads(completed.stdout)
     if artifact is None:
         return False
@@ -443,12 +445,18 @@ def report_setup_failure(error: Exception, *, activation=None) -> None:
         progress("diagnostic storage unavailable: runtime installation did not complete")
         return
     try:
+        facts = getattr(error, "mindie_component_failure", None)
+        detail_args = (["--category", "update", "--failure-json", json.dumps(facts, sort_keys=True)]
+                       if isinstance(facts, dict) else ["--category", type(error).__name__])
         result = run([str(runtime_python()), "-X", "utf8", str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
-                      "record", "--operation", "setup", "--category", type(error).__name__], timeout=5)
+                      "record", "--operation", "setup", *detail_args], timeout=5)
         progress("diagnostic: " + result.stdout.strip())
+        receipt = json.loads(result.stdout)
+        if isinstance(receipt, dict):
+            error.mindie_diagnostic = receipt
     except TimeoutError:
         raise
-    except (OSError, SetupError) as exc:
+    except (OSError, SetupError, ValueError) as exc:
         progress("diagnostic storage unavailable: " + type(exc).__name__)
 
 
@@ -755,6 +763,9 @@ def main(argv: list[str] | None = None) -> int:
     except SetupError as exc:
         progress("failed: " + str(exc))
         report_setup_failure(exc, activation=publication)
+        if hasattr(exc, "mindie_component_failure"):
+            from component_update import failure_envelope
+            print(json.dumps(failure_envelope(exc), sort_keys=True))
         return 1
     except TimeoutError:
         raise
