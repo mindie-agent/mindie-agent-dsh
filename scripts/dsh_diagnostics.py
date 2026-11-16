@@ -592,11 +592,21 @@ def main() -> int:
     parser.add_argument("command", choices=("activate", "record"))
     parser.add_argument("--operation", default="setup")
     parser.add_argument("--category", default="internal")
+    parser.add_argument("--failure-json")
     args = parser.parse_args()
     if args.command == "activate":
         result = activate()
     else:
-        result = failure(args.operation, args.operation, None, category=args.category)
+        error = None
+        if args.failure_json is not None:
+            from component_update import FAILURE_SCHEMA, recover_failure
+            facts = json.loads(args.failure_json)
+            kind = {"FileNotFoundError": FileNotFoundError, "PermissionError": PermissionError,
+                    "TimeoutError": TimeoutError, "ValueError": ValueError, "RecursionError": RecursionError}.get(
+                        facts.get("type"), RuntimeError)
+            error = recover_failure(json.dumps(dict(schema=FAILURE_SCHEMA, error=facts)),
+                                    kind("component preparation failed"))
+        result = failure(args.operation, args.operation, error, category=args.category)
     print(json.dumps(result))
     return 0
 

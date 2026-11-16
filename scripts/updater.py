@@ -327,6 +327,10 @@ def run(command, timeout, cwd=None, env=None):
         raise
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, f"{type(exc).__name__}: {exc}"
+    if completed.returncode:
+        from component_update import recover_failure
+        if (typed := recover_failure(completed.stdout, UpdateError("candidate setup failed"))) is not None:
+            raise typed
     return completed.returncode, (completed.stderr or completed.stdout or "").strip()[-2000:]
 
 

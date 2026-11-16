@@ -14,6 +14,64 @@ from mindie_knowledge import component_runtime
 from test_setup_budget import setup
 
 
+@pytest.mark.parametrize("local", [False, True])
+def test_bound_prepare_preserves_http_vs_local_failure_through_real_child(tmp_path, monkeypatch, local):
+    import os
+    import updater
+    from mindie_diagnostics.fallback import update_failure_policy
+    source = Path(__file__).resolve().parents[1]
+    child = tmp_path / "driver.py"
+    child.write_text('''import io, runpy, sys, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from mindie_knowledge import component_bindings, release_http, component_releases
+component_bindings.required_components = lambda *_a, **_kw: {"mindie-profiler": "999.0.0"}
+release_http.token = lambda: None
+class Response(io.BytesIO):
+    status = 200
+    headers = {}
+local = sys.argv[3] == "True"
+class Opener:
+    def open(self, *_a, **_kw): return Response(b'{}' if local else b'{')
+urllib.request.build_opener = lambda *_: Opener()
+if local:
+    def broken(_body): raise ValueError("PRIVATE local parser failure")
+    component_releases._json = broken
+script = Path(sys.argv[1]) / "component_update.py"
+source = sys.argv[2]
+sys.argv = [str(script), source, sys.executable, "--ensure-bound"]
+runpy.run_path(str(script), run_name="__main__")
+''', encoding="utf-8")
+    completed = subprocess.run([sys.executable, str(child), str(source / "scripts"), str(source), str(local)],
+                               capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 1
+    assert "PRIVATE" not in completed.stdout
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"component_commands": {"profiler": [sys.executable]}}))
+    monkeypatch.setattr(setup.mp, "config_file", lambda: config)
+    monkeypatch.setattr(setup, "RUN_DEADLINE", None)
+    monkeypatch.setattr(setup, "INSTALL_RUNTIME_DIR", Path(sys.prefix))
+    original_run = setup.run
+    monkeypatch.setattr(setup, "run", lambda *_a, **_kw: completed)
+    with pytest.raises(setup.SetupError) as caught:
+        setup.prepare_bound_runtime()
+    error = caught.value
+    assert update_failure_policy(error)[:2] == (("internal", True) if local else ("connectivity", False))
+    monkeypatch.setattr(setup, "run", original_run)
+    setup.report_setup_failure(error)
+    assert error.mindie_diagnostic["incident_id"]
+    receipt = json.dumps(component_update.failure_envelope(error))
+    monkeypatch.setattr(updater.setup_process, "run", lambda *_a, **_kw:
+                        subprocess.CompletedProcess([], 1, receipt, "PRIVATE stderr"))
+    with pytest.raises(updater.UpdateError) as outer:
+        updater.run([], timeout=1)
+    assert outer.value.mindie_diagnostic == error.mindie_diagnostic
+    logs = Path(os.environ["MINDIE_DIAGNOSTICS_ROOT"])
+    events = [json.loads(line) for path in logs.glob("events/*/*.jsonl") for line in path.read_text().splitlines()]
+    assert len(events) == 1
+    assert events[0]["attributes"]["category"] == ("internal" if local else "connectivity")
+
+
 def test_isolated_candidate_with_sufficient_bound_components_needs_no_build(tmp_path):
     config = mindie_paths.config_file()
     config.parent.mkdir(parents=True, exist_ok=True)
@@ -31,6 +89,19 @@ def test_isolated_candidate_with_sufficient_bound_components_needs_no_build(tmp_
     assert json.loads(result.stdout) is None
     assert json.loads(config.read_text()) == value
     assert not (mindie_paths.data_home() / "update/component-runtimes").exists()
+
+
+def test_invalid_diagnostic_receipt_does_not_replace_component_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup, "runtime_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(setup, "run", lambda *_a, **_kw:
+                        subprocess.CompletedProcess([], 0, "broken receipt", ""))
+    error = component_update.recover_failure(json.dumps({
+        "schema": component_update.FAILURE_SCHEMA,
+        "error": {"type": "ReleaseJSONError", "code": "invalid_release_json",
+                  "category": "temporary_network"},
+    }), setup.SetupError("bound component preparation failed"))
+    setup.report_setup_failure(error)
+    assert component_update.failure_envelope(error)["error"]["category"] == "temporary_network"
 
 
 def test_missing_bound_component_uses_existing_runtime_builder(tmp_path, monkeypatch):

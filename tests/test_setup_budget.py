@@ -38,7 +38,7 @@ class SetupBudgetTests(unittest.TestCase):
                     patch.object(setup.mp, 'venv_python', return_value=Path(sys.executable)):
                 adapter = setup.adapter_configuration()
                 engine = setup.engine_configuration(sys.executable)
-                self.assertEqual(adapter['components']['mindie-knowledge'], '0.13.17')
+                self.assertEqual(adapter['components']['mindie-knowledge'], '0.13.21')
                 self.assertEqual(adapter['components']['remote-dev'], '0.11.10')
                 self.assertEqual(adapter['components']['mindie-coordinator'], '0.7.9')
                 self.assertEqual(engine['feeds'][0]['repository'],
