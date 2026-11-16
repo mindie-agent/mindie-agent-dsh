@@ -2,7 +2,7 @@
 """[Role] Long-lived JSON-line sidecar serving DSH Host-plugin entry, admission, and knowledge RPCs.
 [Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs. Optional target activation uses the shared domain helper and never replaces the default host token.
 [Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s plus 5s process cleanup, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; target activation reuses Admission's 5s write budget; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
-[Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations.
+[Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations; the resident process holds a shared runtime lease.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 import sidecar_github  # noqa: E402
 from knowledge_sync import sync_feeds  # noqa: E402
+import runtime_lease  # noqa: E402
 
 MAX_LINE = 256 * 1024
 COMMUNITY_REPOSITORY = "mindie-agent/knowledge-vllm-ascend"
@@ -699,6 +700,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:  # noqa: BLE001
                 pass
     diagnostics.bind_environment()
+    runtime_lease.hold_runtime_lease()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] in {"sharing-enable", "sharing-disable"}:
         return _run_cli(raw_argv)

@@ -1,7 +1,7 @@
 // Lifecycle unit contract: remote MCP is scoped to each real agent session.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -86,9 +86,13 @@ test('an idle generation switch replaces host and per-session remote MCP', async
     return agent
   }
   try {
+    writeFileSync(path.join(data, 'update', 'launcher.log'), 'x'.repeat(2 * 1024 * 1024 + 1024))
     publish(0)
     const launcher = await import('../host.mjs')
     await launcher.apply(ctx, { mcpPluginUrl: pathToFileURL(remote).href })
+    const activeLog = path.join(data, 'update', 'launcher.log')
+    assert.ok(statSync(activeLog + '.1').size > 0, 'launcher.log must rotate to .1')
+    assert.ok(statSync(activeLog).size + statSync(activeLog + '.1').size <= 4 * 1024 * 1024 + 64 * 1024)
     assert.deepEqual(events, [['host', 'one']])
     const createdHandler = () => [...ctx.children].reverse().find(
       (child) => child.listeners.has('agent/created'))

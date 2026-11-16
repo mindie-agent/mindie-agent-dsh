@@ -272,6 +272,26 @@ def _chain_inner_diagnostic(exc):
     return None
 
 
+def _update_failure_category(error, category, reportable):
+    """Keep an owned updater category the shared policy cannot map honest.
+
+    The shared update policy knows transport/credential/prerequisite causes but
+    would report an unknown child category (resolver, busy, deferred) as an
+    internal bug. Those are local prerequisites, never reportable product faults.
+    """
+    if category != "update":
+        return category, reportable, None
+    try:
+        from component_update import update_failure_classification
+    except ImportError:
+        return category, reportable, None
+    local = update_failure_classification(error)
+    if local is None:
+        return category, reportable, None
+    mapped, eligible, code = local
+    return mapped, eligible, code
+
+
 def failure(operation, stage, error, *, reportable=True, category=None,
             revision=None, exit_code=None, reason_code=None, substage=None) -> dict:
     if (inner := _chain_inner_diagnostic(error)) is not None:
@@ -285,12 +305,16 @@ def failure(operation, stage, error, *, reportable=True, category=None,
         eff_reason = reason_code if reason_code is not None else getattr(error, "reason_code", None)
         eff_substage = substage if substage is not None else getattr(error, "substage", None)
         eff_exit = exit_code if exit_code is not None else getattr(error, "returncode", None)
+        eff_category, eff_reportable, local_reason = _update_failure_category(
+            error, category, reportable)
+        if eff_reason is None:
+            eff_reason = local_reason
         receipt = _invoke_record(
             record_failure, "mindie-agent-dsh", operation, stage=stage,
-            category=category or ("internal" if reportable else "caller"),
+            category=eff_category or ("internal" if eff_reportable else "caller"),
             exception=error, revision=explicit or build.get("revision"),
             version=build.get("version"), exit_code=eff_exit if type(eff_exit) is int else None,
-            reportable=reportable, source_root=Path(__file__).resolve().parent,
+            reportable=eff_reportable, source_root=Path(__file__).resolve().parent,
             evidence=getattr(error, "mindie_failure_evidence", None),
             reason_code=eff_reason, substage=eff_substage,
         )

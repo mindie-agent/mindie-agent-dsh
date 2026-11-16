@@ -81,6 +81,10 @@ _ISOLATED_PATHS = {
     "XDG_DATA_HOME": ("xdg-data",),
     "XDG_STATE_HOME": ("xdg-state",),
     "XDG_CACHE_HOME": ("xdg-cache",),
+    "TMPDIR": ("tmp",),
+    "TMP": ("tmp",),
+    "TEMP": ("tmp",),
+    "UV_CACHE_DIR": ("uv-cache",),
 }
 
 
@@ -117,5 +121,6 @@ def isolated_host_environment(request, tmp_path, monkeypatch):
                 raise
             except OSError:
                 shutil.copytree(real_ssh, home_ssh)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
     yield
     close_failure_recorders()

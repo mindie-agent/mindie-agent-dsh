@@ -2,7 +2,7 @@
 """[Role] Bounded background release updater for mindie-agent-dsh.
 [Invariants] Selects only formal non-draft/non-prerelease GitHub Releases; compares current and candidate versions with SemVer 2.0 precedence including prereleases; refuses an unparseable current version (including leading-zero numeric prereleases such as 1.0.0-01), an unreadable package.json, a non-object update.json, or a non-boolean enabled flag instead of inventing 0.0.0 / 0.1.4 or forcing updates. A missing expected artifact raises FileNotFoundError naming that file and omitting the local path.
 [Timeouts & Locks] Single-instance check.lock; candidate setup receives 600s total plus 10s outer cleanup allowance. Commands drain owned children on timeout.
-[Side-Effect Policy] Writes generation artifacts under data_home()/update and atomically updates status.json and current.json via os.replace.
+[Side-Effect Policy] Writes generation artifacts under data_home()/update, atomically updates status.json and current.json via os.replace, and runs best-effort historical storage reclamation.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ if str(HERE) not in sys.path:
 import mindie_paths as mp  # noqa: E402
 import semver_range  # noqa: E402
 import setup_process  # noqa: E402
+import storage_lifecycle  # noqa: E402
 
 SCHEMA = "mindie-dsh-update-status/1"
 DEFAULT_API = "https://api.github.com/repos/mindie-agent/mindie-agent-dsh/releases"
@@ -37,6 +39,24 @@ INSTALL_TIMEOUT = 600
 
 class UpdateError(RuntimeError):
     pass
+
+
+def _update_error(message: str, cause: BaseException | None, *, stage: str,
+                  default_code: str = "release_transport_unavailable") -> UpdateError:
+    """Bind typed transport facts to an owned updater error, never its text."""
+    error = UpdateError(message)
+    facts = {}
+    if cause is not None:
+        from component_update import failure_facts
+        facts = failure_facts(cause)
+    if isinstance(facts.get("category"), str):
+        error.category = facts["category"]
+    if isinstance(facts.get("code"), str):
+        error.code = facts["code"]
+    if not isinstance(getattr(error, "code", None), str):
+        error.code = default_code
+    error.stage = stage
+    return error
 
 
 def update_dir() -> Path:
@@ -147,6 +167,14 @@ def version_order(version):
     return (major, minor, patch, not prerelease, prerelease)
 
 
+def _deadline_error() -> UpdateError:
+    """A child deadline is a deferred prerequisite, never an internal bug."""
+    error = _update_error("candidate setup exceeded its deadline", None,
+                          stage="candidate_setup", default_code="update_deadline")
+    error.category = "deadline"
+    return error
+
+
 def fetch_releases(api: str) -> list:
     request = urllib.request.Request(
         api,
@@ -158,15 +186,25 @@ def fetch_releases(api: str) -> list:
     except TimeoutError:
         raise
     except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
-        raise UpdateError(f"release lookup failed: {type(exc).__name__}") from exc
+        raise _update_error(f"release lookup failed: {type(exc).__name__}", exc,
+                            stage="release_lookup") from exc
     if len(raw) > 4 * 1024 * 1024:
-        raise UpdateError("release lookup exceeds the limit")
+        error = _update_error("release lookup exceeds the limit", None,
+                              stage="release_lookup", default_code="update_content_invalid")
+        error.category = "validation"
+        raise error
     try:
         values = json.loads(raw)
     except ValueError as exc:
-        raise UpdateError("release lookup returned invalid JSON") from exc
+        error = _update_error("release lookup returned invalid JSON", None,
+                              stage="release_lookup", default_code="update_content_invalid")
+        error.category = "validation"
+        raise error from exc
     if not isinstance(values, list):
-        raise UpdateError("release lookup did not return a list")
+        error = _update_error("release lookup did not return a list", None,
+                              stage="release_lookup", default_code="update_content_invalid")
+        error.category = "validation"
+        raise error
     return values
 
 
@@ -205,7 +243,11 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
             while chunk := response.read(1024 * 1024):
                 total += len(chunk)
                 if total > limit:
-                    raise UpdateError("release asset exceeds the limit")
+                    error = _update_error("release asset exceeds the limit", None,
+                                          stage="asset_download",
+                                          default_code="update_content_invalid")
+                    error.category = "validation"
+                    raise error
                 stream.write(chunk)
     except TimeoutError:
         raise
@@ -215,7 +257,8 @@ def download(url: str, destination: Path, limit: int = 128 * 1024 * 1024) -> Non
             raise clarified from None
         raise
     except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
-        raise UpdateError(f"release asset download failed: {type(exc).__name__}") from exc
+        raise _update_error(f"release asset download failed: {type(exc).__name__}", exc,
+                            stage="asset_download") from exc
 
 
 def missing_update_file(error: BaseException) -> BaseException:
@@ -318,6 +361,8 @@ def run(command, timeout, cwd=None, env=None):
         )
     except TimeoutError:
         raise
+    except subprocess.TimeoutExpired as exc:
+        raise _deadline_error() from exc
     except FileNotFoundError as exc:
         clarified = missing_update_file(exc)
         if clarified is exc:
@@ -337,7 +382,11 @@ def run(command, timeout, cwd=None, env=None):
 def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) -> None:
     updater = mp.which_native("uv")
     if updater is None:
-        raise UpdateError("uv is not available to provision the candidate")
+        error = _update_error("uv is not available to provision the candidate", None,
+                              stage="candidate_setup",
+                              default_code="update_prerequisite_unavailable")
+        error.category = "prerequisite"
+        raise error
     command = [
         artifact['python'] if artifact else sys.executable,
         "-X", "utf8",
@@ -351,7 +400,13 @@ def setup_candidate(package: Path, python: str, *, artifact=None, apply=True) ->
         command.append('--prepare-only')
     code, detail = run(command, timeout=INSTALL_TIMEOUT + 10, cwd=package)
     if code != 0:
-        raise UpdateError("candidate setup failed: " + detail[-800:])
+        error = UpdateError("candidate setup failed: " + detail[-800:])
+        from component_update import classify_update_output
+        facts = classify_update_output(detail)
+        if facts is not None:
+            error.category, error.code = facts
+        error.stage = "candidate_setup"
+        raise error
 
 
 def _has_source_manifest(root: Path) -> bool:
@@ -389,6 +444,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         "active_version": active_version, "native_version": native_version,
         "profile": profile, "checked_at": time.time(), "needs_host_reload": False, "detail": "",
     }
+    status["storage_gc"] = {"pre_build": storage_lifecycle.safe_sweep(stage="pre-build")}
     atomic_json(status_path(), status)
     candidate = choose(fetch_releases(api), current)
     if candidate is None:
@@ -403,6 +459,7 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
             if apply:
                 previous = read_json(current_path(), {})
                 write_current(package, current, previous)
+                status["storage_gc"]["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
             status['components'] = dict(status='active' if apply else 'staged', runtime=artifact['components'])
         else:
             status['components'] = dict(status='up_to_date' if adapter.get('python') else 'unconfigured')
@@ -428,13 +485,14 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
             raise UpdateError("candidate package.json is invalid") from exc
         if manifest.get("version") != tag.lstrip("v"):
             raise UpdateError("candidate version does not match the release tag")
+        storage_lifecycle.discard_archives(asset, sums)
     previous = read_json(current_path(), {})
     from component_update import prepare as component_prepare
     adapter = read_json(mp.config_file(), {})
     effective = component_prepare(package, adapter.get('python') or sys.executable)
     if effective:
         package = Path(effective['source'])
-    setup_candidate(package, sys.executable, artifact=effective, apply=False)
+    setup_candidate(package, (effective or {}).get('python') or sys.executable, artifact=effective, apply=False)
     if not apply:
         status.update(
             state="staged", checked_at=time.time(), previous=previous.get("generation"),
@@ -444,8 +502,9 @@ def check(profile: str, current: str, api: str, apply: bool = True) -> dict:
         return status
     from native_update import install as native_install
     native_install(package, profile, status, lambda value: atomic_json(status_path(), value))
-    setup_candidate(package, sys.executable, artifact=effective, apply=True)
+    setup_candidate(package, (effective or {}).get('python') or sys.executable, artifact=effective, apply=True)
     write_current(package, tag, previous if isinstance(previous, dict) else None)
+    status["storage_gc"]["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
     status.update(
         state="applied", checked_at=time.time(), previous=previous.get("generation"),
         generation=str(package),
@@ -486,7 +545,7 @@ def recover(profile):
     if manifest.is_file():
         artifact = dict(generation=str(package.parent), python=str(
             package.parent / 'runtime/.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')))
-    setup_candidate(package, sys.executable, artifact=artifact)
+    setup_candidate(package, (artifact or {}).get('python') or sys.executable, artifact=artifact)
     write_current(package, str(current.get('previous_tag') or ''), current)
     status.update(state='recovered', generation=str(package), checked_at=time.time())
     atomic_json(status_path(), status)
@@ -517,6 +576,10 @@ def default_current_version() -> str:
 
 def record_update_failure(error: Exception, args) -> int:
     error = missing_update_file(error)
+    stage = getattr(error, "stage", None)
+    if not isinstance(stage, str) or not re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_.:-]{0,119}", stage):
+        stage = "update"
     result = {**read_json(status_path(), {}),
         "schema": SCHEMA, "state": "failed", "current": args.current_version,
         "checked_at": time.time(), "detail": f"{type(error).__name__}: {str(error)[:800]}",
@@ -525,7 +588,7 @@ def record_update_failure(error: Exception, args) -> int:
         result['state'] = 'unknown'
     from dsh_diagnostics import failure
 
-    result["diagnostic"] = failure("update", "update", error, category="update")
+    result["diagnostic"] = failure("update", stage, error, category="update")
     atomic_json(status_path(), result)
     if not args.silent:
         print(json.dumps(result, ensure_ascii=False))

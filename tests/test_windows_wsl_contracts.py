@@ -74,6 +74,7 @@ def test_all_runtime_modules_obey_line_cap_and_top_30_header() -> None:
         ROOT / "host.mjs",
         ROOT / "host3.mjs",
         SCRIPTS / "knowledge_tools.mjs",
+        SCRIPTS / "log_rotate.mjs",
     ]
     assert len(targets) >= 20
     for module_path in targets:

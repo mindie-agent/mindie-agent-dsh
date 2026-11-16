@@ -2,7 +2,7 @@
 """[Role] Thin stdio MCP bridge exposing MindIE knowledge tools for DeepSeek Harness.
 [Invariants] Re-executes into the configured venv interpreter when available; never activates tasks, never accepts tool-supplied identity tokens, and never mutates corpus rows directly. Distillation requires the existing active native lease and an explicit task_state; a Stop does not imply completion.
 [Timeouts & Locks] RPC calls bounded at 30.0s (query/explain/feedback); sync uses 120.0s CLI work plus 5s cleanup; distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup.
-[Side-Effect Policy] Read-only query/explain RPCs and explicit activated feedback, feed sync and distill; writes JSON-RPC responses to stdout and diagnostics to stderr.
+[Side-Effect Policy] Read-only query/explain RPCs and explicit activated feedback, feed sync and distill; writes JSON-RPC responses to stdout and diagnostics to stderr; the resident bridge holds a shared runtime lease.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from mindie_paths import (  # noqa: E402
 import knowledge_domain_routing as routing  # noqa: E402
 import rsi_explore  # noqa: E402
 from knowledge_sync import sync_feeds  # noqa: E402
+import runtime_lease  # noqa: E402
 
 SERVER_NAME = "mindie-agent-dsh-knowledge"
 SERVER_VERSION = json.loads((HERE.parent / "package.json").read_text(encoding="utf-8"))["version"]
@@ -278,6 +279,8 @@ def maybe_reexec() -> None:
                 check=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+        except TimeoutError:
+            raise
         except Exception:  # noqa: BLE001
             pass
         try:
@@ -572,6 +575,8 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
     if method == "tools/list":
         try:
             return {"jsonrpc": "2.0", "id": ident, "result": {"tools": discoverable_tools()}}
+        except TimeoutError:
+            raise
         except Exception as exc:
             return {"jsonrpc": "2.0", "id": ident,
                     "error": {"code": -32000, "message": f"{type(exc).__name__}: {exc}"}}
@@ -655,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     ensure_private_dir(state_dir())
     maybe_reexec()
+    runtime_lease.hold_runtime_lease()
     serve(once=once)
     return 0
 

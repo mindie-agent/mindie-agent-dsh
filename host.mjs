@@ -10,7 +10,7 @@
 // [Timeouts & Locks] One 5s pointer poll; component calls allow 600s plus
 // cleanup inside the 660s MCP client deadline. No model calls.
 // [Side-Effect Policy] Reads `current.json`; mounts/disposes Cordis fibers and
-// writes only the launcher log. Remote MCP toolCallTimeoutMs is derived from
+// writes and rotates only the launcher log. Remote MCP toolCallTimeoutMs is derived from
 // the 600000 ms native Bash maximum plus a 60000 ms SSH/cleanup grace, and is
 // configurable above that floor.
 //
@@ -21,9 +21,10 @@
 // the natural host reload boundary above. The bundled host3.mjs is the seed.
 
 import { createRequire } from 'node:module'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
+import { appendBoundedLine } from './scripts/log_rotate.mjs'
 
 const require = createRequire(import.meta.url)
 const paths = require('./paths.cjs').paths()
@@ -32,7 +33,7 @@ if (seedProfileMatch && !process.env.MINDIE_DSH_PROFILE) {
   process.env.MINDIE_DSH_PROFILE = seedProfileMatch[1]
 }
 const logPath = path.join(paths.dataHome, 'update', 'launcher.log')
-const log = (message) => { try { appendFileSync(logPath, new Date().toISOString() + ' ' + message + '\n') } catch {} }
+const log = (message) => { try { appendBoundedLine(logPath, new Date().toISOString() + ' ' + message) } catch {} }
 
 export const name = 'mindie-agent-dsh'
 export const inject = ['tools', 'agents', 'llm']

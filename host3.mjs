@@ -9,15 +9,16 @@
 // [Timeouts & Locks] Existing update/setup timers and capture budgets are
 // unchanged; the summary handler keeps its 512 KiB request-body cap.
 // [Side-Effect Policy] The host calls only the active DSH model route and the
-// sidecar; knowledge mutation, redaction and publication stay in the shared
-// mindie-knowledge components.
+// sidecar; the host log is bounded by atomic rotation, and knowledge mutation,
+// redaction and publication stay in the shared mindie-knowledge components.
 
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { appendBoundedLine } from './scripts/log_rotate.mjs'
 import {
   createSummaryServer,
   dispatchSummaryPayload,
@@ -289,7 +290,7 @@ export function apply(ctx) {
   const updateHostLog = path.join(p.dataHome, 'update', 'host.log')
   const hostLog = (message) => {
     try {
-      appendFileSync(updateHostLog, new Date().toISOString() + ' ' + message + '\n')
+      appendBoundedLine(updateHostLog, new Date().toISOString() + ' ' + message)
     } catch (error) {
       console.error(`[mindie-agent] host log write failed: ${error.message}`)
     }
@@ -354,6 +355,7 @@ export function apply(ctx) {
     if (agents.some((agent) => agent?.status === 'running')) return false
     const profile = profileName()
     if (!profile) return false
+    hostLog(`update check started profile=${profile}`)
     try {
       // Keep detached=true with windowsHide=true on all platforms: on Win32,
       // non-detached children join libuv's KILL_ON_JOB_CLOSE job and die when

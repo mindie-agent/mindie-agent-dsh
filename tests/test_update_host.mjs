@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ChildProcess } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { apply } from '../host3.mjs'
@@ -37,6 +37,9 @@ async function withUpdateHost(options, fn) {
       path.join(root, 'config', 'update.json'),
       JSON.stringify(options.config, null, 2) + '\n',
     )
+  }
+  if (options.hostLogBytes) {
+    writeFileSync(path.join(root, 'data', 'update', 'host.log'), 'x'.repeat(options.hostLogBytes))
   }
   const ctx = hostContext(options)
   apply(ctx)
@@ -118,6 +121,28 @@ test('agents.list failure is not treated as a quiet idle skip', async () => {
         ctx.toolsMap.get('mindie_entry').execute({ op: 'update-check' }, exec),
         /agents\.list unavailable/,
       )
+    })
+  } finally {
+    ChildProcess.prototype.spawn = original
+  }
+})
+
+test('host.log rotates at 2 MiB during an update check', async () => {
+  const original = ChildProcess.prototype.spawn
+  ChildProcess.prototype.spawn = function spawnStub() {
+    return { unref() {} }
+  }
+  try {
+    await withUpdateHost({
+      config: { enabled: true, interval_minutes: 5 },
+      hostLogBytes: 2 * 1024 * 1024 + 1024,
+    }, async ({ ctx, exec }) => {
+      const reply = JSON.parse(await ctx.toolsMap.get('mindie_entry').execute({ op: 'update-check' }, exec))
+      assert.equal(reply.started, true)
+      const active = path.join(process.env.MINDIE_DSH_DATA_HOME, 'update', 'host.log')
+      const rotated = active + '.1'
+      assert.ok(statSync(rotated).size > 0, 'host.log must rotate to .1')
+      assert.ok(statSync(active).size + statSync(rotated).size <= 4 * 1024 * 1024 + 64 * 1024)
     })
   } finally {
     ChildProcess.prototype.spawn = original
