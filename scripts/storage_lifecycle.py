@@ -63,13 +63,17 @@ def _read_document(path: Path) -> tuple[dict[str, Any] | None, bool]:
     return (value, True) if isinstance(value, dict) else (None, False)
 
 
-def _strings(value: Any, *, absolute_only: bool = False,
-             depth: int = 0) -> Iterable[str]:
-    if depth > 12:
-        return
+def _strip_win_prefix(text: str) -> str:
+    if text[:8].upper() == "\\\\?\\UNC\\": return "\\\\" + text[8:]
+    return text[4:] if text.startswith(("\\\\?\\", "//?/")) else text
+
+
+def _strings(value: Any, *, absolute_only: bool = False, depth: int = 0) -> Iterable[str]:
+    if depth > 12: return
     if isinstance(value, str):
-        if value and (not absolute_only or Path(value).is_absolute()):
-            yield value
+        clean = _strip_win_prefix(value)
+        if clean and (not absolute_only or Path(clean).is_absolute()):
+            yield clean
     elif isinstance(value, dict):
         for item in value.values():
             yield from _strings(item, absolute_only=absolute_only, depth=depth + 1)
@@ -83,15 +87,14 @@ def _absolute_strings(value: Any) -> Iterable[str]:
 
 
 def _path_key(value: Any) -> str:
-    text = os.fspath(value)
-    return os.path.normcase(os.path.realpath(os.path.abspath(text)))
+    text = _strip_win_prefix(os.fspath(value))
+    return os.path.normcase(_strip_win_prefix(os.path.realpath(os.path.abspath(text))))
 
 
 def _unique(values: Iterable[Any]) -> list[Path]:
-    result: list[Path] = []
-    seen: set[str] = set()
+    result, seen = [], set()
     for value in values:
-        path = Path(value)
+        path = Path(_strip_win_prefix(os.fspath(value)))
         key = os.path.normcase(os.path.abspath(os.fspath(path)))
         if key not in seen:
             seen.add(key)
@@ -157,27 +160,20 @@ def _dsh_homes() -> list[Path]:
 
 
 def _profile_targets() -> list[Path]:
-    """Resolve every DSH profile link, explicit or default, to its generation."""
+    """Resolve every DSH profile link; propagate unexpected I/O failures."""
     targets: list[Path] = []
     for home in _dsh_homes():
-        try:
-            entries = list((home / "profiles").iterdir())
-        except TimeoutError:
-            raise
-        except OSError:
-            continue
+        try: entries = list((home / "profiles").iterdir())
+        except TimeoutError: raise
+        except FileNotFoundError: continue
         for profile in entries:
             link = profile / "node_modules" / "@mindie-agent" / "dsh"
-            try:
-                if not (link.is_symlink() or _is_junction(link)):
-                    continue
-                target = Path(os.path.realpath(link))
-            except TimeoutError:
-                raise
-            except OSError:
-                continue
-            if target != link:
-                targets.append(target)
+            try: is_link = link.is_symlink() or _is_junction(link)
+            except TimeoutError: raise
+            except FileNotFoundError: continue
+            if not is_link: continue
+            target = Path(_strip_win_prefix(os.path.realpath(link)))
+            if target != link: targets.append(target)
     return _unique(targets)
 
 
@@ -266,18 +262,14 @@ def _uv_default_cache(env: dict[str, str]) -> Path:
     if isinstance(xdg, str) and xdg.strip():
         return Path(xdg) / "uv"
     if os.name == "nt":
-        base = env.get("LOCALAPPDATA") or os.environ.get("LOCALAPPDATA") \
-            or str(Path.home() / "AppData" / "Local")
+        base = env.get("LOCALAPPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(base) / "uv" / "cache"
     if sys.platform == "darwin":
         legacy = Path.home() / ".cache" / "uv"
         try:
-            if legacy.exists() or legacy.is_symlink():
-                return legacy
-        except TimeoutError:
-            raise
-        except OSError:
-            pass
+            if legacy.exists() or legacy.is_symlink(): return legacy
+        except TimeoutError: raise
+        except OSError: pass
         return Path.home() / "Library" / "Caches" / "uv"
     return Path.home() / ".cache" / "uv"
 
@@ -285,83 +277,55 @@ def _uv_default_cache(env: dict[str, str]) -> Path:
 def _device(path: Path) -> int | None:
     probe = Path(path)
     while True:
-        try:
-            return os.stat(probe).st_dev
+        try: return os.stat(probe).st_dev
         except FileNotFoundError:
-            if probe.parent == probe:
-                return None
+            if probe.parent == probe: return None
             probe = probe.parent
-        except TimeoutError:
-            raise
-        except OSError:
-            return None
+        except TimeoutError: raise
+        except OSError: return None
 
 
-def configure_prebuild_uv_cache(env: dict[str, str], *,
-                                data_home: Path | None = None) -> dict[str, str]:
-    """Pin cold-build uv cache to `<data_home>/.uv-cache` only when needed.
-
-    An explicit non-empty caller value always wins. The platform default is
-    compared on device identity; a same-device default is left untouched so a
-    normal user cache stays shared and warm. This mirrors the shared
-    `mindie_knowledge.storage.configure_same_volume_uv_cache` contract while
-    remaining importable before the runtime component is installed.
-    """
-    if not isinstance(env, dict):
-        return env
+def configure_prebuild_uv_cache(env: dict[str, str], *, data_home: Path | None = None) -> dict[str, str]:
+    """Pin cold-build uv cache to `<data_home>/.uv-cache` only when cross-volume."""
+    if not isinstance(env, dict): return env
     explicit = env.get("UV_CACHE_DIR")
-    if isinstance(explicit, str) and explicit.strip():
-        return env
-    base = Path(data_home or mp.data_home())
-    target = base / ".uv-cache"
+    if isinstance(explicit, str) and explicit.strip(): return env
+    target = Path(data_home or mp.data_home()) / ".uv-cache"
     target_device = _device(target)
-    if target_device is None:
-        return env
+    if target_device is None: return env
     cache = _uv_default_cache(env)
     cache_devices = {_device(cache)}
-    try:
-        cache_devices.add(_device(cache.resolve()))
-    except TimeoutError:
-        raise
-    except (OSError, RuntimeError):
-        pass
-    if target_device in cache_devices:
-        return env
-    env["UV_CACHE_DIR"] = str(target)
+    try: cache_devices.add(_device(cache.resolve()))
+    except TimeoutError: raise
+    except (OSError, RuntimeError): pass
+    if target_device not in cache_devices:
+        env["UV_CACHE_DIR"] = str(target)
     return env
 
 
 def discard_archives(*paths: Path) -> None:
     """Remove an unpacked release tarball or its checksum without failing a switch."""
     for path in paths:
-        try:
-            Path(path).unlink(missing_ok=True)
-        except TimeoutError:
-            raise
-        except OSError:
-            pass
+        try: Path(path).unlink(missing_ok=True)
+        except TimeoutError: raise
+        except OSError: pass
 
 
 def _best_effort(call) -> dict[str, Any]:
     """Run one secondary cleanup stage; its deadline stays local and counted."""
-    try:
-        return call()
+    try: return call()
     except TimeoutError as exc:
-        return {"status": "deferred", "partial": True,
-                "warnings": [type(exc).__name__]}
+        return {"status": "deferred", "partial": True, "warnings": [type(exc).__name__]}
     except Exception as exc:  # noqa: BLE001 - cleanup must never brick setup/update
-        return {"status": "failed", "partial": True,
-                "warnings": [type(exc).__name__]}
+        return {"status": "failed", "partial": True, "warnings": [type(exc).__name__]}
 
 
 def _protected(*, config_roots, data_roots, codex_home, deadline):
     from mindie_knowledge.storage import collect_global_protected_roots
     from mindie_knowledge.storage.legacy_roots import protected_source_roots
     keep = collect_global_protected_roots(
-        config_home=config_roots, data_home=data_roots,
-        codex_home=codex_home, deadline=deadline)
-    forbidden = protected_source_roots(
-        config_home=config_roots, deadline=deadline)
+        config_home=config_roots, data_home=data_roots, codex_home=codex_home, deadline=deadline)
+    forbidden = protected_source_roots(config_home=config_roots, deadline=deadline)
     return list(keep), list(forbidden)
 
 
@@ -370,12 +334,9 @@ def _ancestor_link(path: Path) -> bool:
     probe = Path(os.path.abspath(os.fspath(path)))
     for candidate in (probe, *probe.parents):
         try:
-            if candidate.is_symlink() or _is_junction(candidate):
-                return True
-        except TimeoutError:
-            raise
-        except (OSError, ValueError):
-            return True
+            if candidate.is_symlink() or _is_junction(candidate): return True
+        except TimeoutError: raise
+        except (OSError, ValueError): return True
     return False
 
 
@@ -388,16 +349,8 @@ def _engine_tails(text: str) -> set[tuple[str, str]]:
 
 
 def _engine_references(deadline: float) -> tuple[set[str], set[tuple[str, str]], list[str], bool]:
-    """Scan every JSON file in every relevant config home for engine references.
-
-    A present-but-unreadable config makes the reference set incomplete; the
-    caller then defers every engine deletion instead of deleting with partial
-    knowledge. A missing config home is not an error.
-    """
-    keys: set[str] = set()
-    tails: set[tuple[str, str]] = set()
-    warnings: list[str] = []
-    complete = True
+    """Scan every JSON file (including symlinks) in all relevant config homes."""
+    keys, tails, warnings, complete = set(), set(), [], True
     homes = _dsh_config_homes()
     bases = _unique([*homes, *[home / "configs" for home in homes]])
     for home in bases:
@@ -406,11 +359,13 @@ def _engine_references(deadline: float) -> tuple[set[str], set[tuple[str, str]],
         try:
             with os.scandir(home) as iterator:
                 entries = [Path(home) / entry.name for entry in iterator
-                           if entry.is_file(follow_symlinks=False)
+                           if (entry.is_file(follow_symlinks=False) or entry.is_symlink())
                            and entry.name.endswith(".json")]
-        except TimeoutError:
-            raise
+        except TimeoutError: raise
+        except FileNotFoundError: continue
         except OSError:
+            complete = False
+            warnings.append("scan " + home.name[:24])
             continue
         for path in entries:
             if time.monotonic() >= deadline:
@@ -425,6 +380,44 @@ def _engine_references(deadline: float) -> tuple[set[str], set[tuple[str, str]],
                     keys.add(_path_key(text))
                 tails.update(_engine_tails(text))
     return keys, tails, warnings, complete
+
+
+def _protect_referenced_engines(references: set[str], tails: set[tuple[str, str]],
+                                deadline: float) -> tuple[list[Path], list[tuple[Path, Any]], list[str]]:
+    """Return runtime pins and mtime-shielded engine files for `sweep_legacy_installations`."""
+    runtime_pins, shielded, warnings = [], [], []
+    stems = {name[:-5] for _, name in tails if name.endswith(".json")}
+    for home in _dsh_data_homes():
+        for stem in stems:
+            candidate = home / "runtimes" / stem
+            if candidate.is_dir():
+                runtime_pins.append(candidate)
+    for cfg in _dsh_config_homes():
+        engines = cfg / "engines"
+        if time.monotonic() >= deadline:
+            return runtime_pins, shielded, warnings + ["budget exhausted"]
+        try:
+            with os.scandir(engines) as iterator:
+                files = [Path(engines) / e.name for e in iterator
+                         if e.is_file(follow_symlinks=False) and e.name.endswith(".json")]
+        except TimeoutError: raise
+        except FileNotFoundError: continue
+        except OSError:
+            warnings.append("engines " + cfg.name[:24])
+            continue
+        for path in files:
+            if not _engine_referenced(path, references, tails):
+                continue
+            for data_root in _dsh_data_homes():
+                rt = data_root / "runtimes" / path.stem
+                if rt.is_dir(): runtime_pins.append(rt)
+            try:
+                before = os.stat(path)
+                os.utime(path, None)
+                shielded.append((path, before))
+            except TimeoutError: raise
+            except OSError: warnings.append("shield " + path.name[:24])
+    return runtime_pins, shielded, warnings
 
 
 def _engine_referenced(path: Path, references: set[str],
@@ -577,57 +570,38 @@ def _discard_retained_archives(*, deadline: float) -> dict[str, Any]:
             "partial": bool(deferred), "warnings": warnings}
 
 
-def _summary(stage: str, results: list[dict[str, Any]], *,
-             started: float, available: bool = True) -> dict[str, Any]:
+def _summary(stage: str, results: list[dict[str, Any]], *, started: float, available: bool = True) -> dict[str, Any]:
     counts = {name: 0 for name in _COUNT_FIELDS}
-    warnings = 0
-    statuses: list[str] = []
+    warnings, statuses = 0, []
     for result in results:
-        if not isinstance(result, dict):
-            continue
+        if not isinstance(result, dict): continue
         for name in _COUNT_FIELDS:
             value = result.get(name)
-            if type(value) is int and value > 0:
-                counts[name] += value
+            if type(value) is int and value > 0: counts[name] += value
         items = result.get("warnings")
-        if isinstance(items, list):
-            warnings += len(items)
+        if isinstance(items, list): warnings += len(items)
         statuses.append(str(result.get("status") or "unknown"))
-    partial = any(status in {"partial", "deferred", "failed"}
-                  for status in statuses)
-    failed = bool(statuses) and all(status in {"failed", "unavailable"}
-                                    for status in statuses)
-    if not available:
-        status = "unavailable"
-    else:
-        status = "failed" if failed else "partial" if partial else "completed"
-    return {
-        "schema": SCHEMA,
-        "stage": stage,
-        "status": status,
-        "available": available,
-        **counts,
-        "partial": partial,
-        "warnings": warnings,
-        "stages": statuses,
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-    }
+    partial = any(status in {"partial", "deferred", "failed"} for status in statuses)
+    failed = bool(statuses) and all(status in {"failed", "unavailable"} for status in statuses)
+    status = "unavailable" if not available else ("failed" if failed else "partial" if partial else "completed")
+    return {"schema": SCHEMA, "stage": stage, "status": status, "available": available, **counts,
+            "partial": partial, "warnings": warnings, "stages": statuses,
+            "elapsed_seconds": round(time.monotonic() - started, 3)}
 
 
 def _managed_lease(target: Any, owning) -> Path | None:
     """The disposable generation/runtime directory one protected pin owns."""
-    try:
-        candidate = Path(os.fspath(target)).expanduser()
-    except (TypeError, ValueError):
-        return None
-    if not candidate.is_absolute():
-        return None
+    try: candidate = Path(_strip_win_prefix(os.fspath(target))).expanduser()
+    except (TypeError, ValueError): return None
+    if not candidate.is_absolute(): return None
     for item in (candidate, owning(str(candidate))):
-        if item is not None and not item.name.startswith(".trash-"):
-            name, parent = item.name.casefold(), item.parent.name.casefold()
+        if item is None: continue
+        clean = Path(_strip_win_prefix(os.fspath(item)))
+        if not clean.name.startswith(".trash-"):
+            name, parent = clean.name.casefold(), clean.parent.name.casefold()
             if (parent in _MANAGED_CONTAINERS or (parent == "dsh" and name == "venv")
                     or name in {"bootstrap-venv", "bootstrap-package"}):
-                return Path(item)
+                return clean
     return None
 
 
@@ -719,29 +693,40 @@ def sweep(*, stage: str, home_roots: bool = True, force: bool = False,
     if not pins.get("config_complete", True):
         results.append({"status": "partial", "partial": True,
                         "warnings": pins.get("warnings") or ["config_pins_partial"]})
+    eng_refs, eng_tails, eng_warnings, eng_complete = _engine_references(deadline)
+    if not eng_complete:
+        results.append({"status": "partial", "partial": True,
+                        "warnings": eng_warnings[:8] + ["engine references incomplete"]})
     stack = ExitStack()
     leased_times: list[tuple[Path, Any]] = []
     try:
-        lease_warnings, leased_times = _lease_protected(
-            stack, merged, deadline=deadline)
-        if lease_warnings:
+        rt_pins, shielded, shield_warns = (
+            _protect_referenced_engines(eng_refs, eng_tails, deadline)
+            if eng_complete else ([], [], []))
+        leased_times.extend(shielded)
+        merged = _unique([*merged, *rt_pins, *(Path(p) for p in eng_refs)])
+        lease_warnings, pin_times = _lease_protected(stack, merged, deadline=deadline)
+        leased_times.extend(pin_times)
+        all_lease_warnings = [*lease_warnings, *shield_warns]
+        if all_lease_warnings:
             results.append({"status": "partial", "partial": True,
-                            "warnings": lease_warnings[:8]})
-        if home_roots:
+                            "warnings": all_lease_warnings[:8]})
+        can_sweep_legacy = eng_complete and not all_lease_warnings and pins.get("config_complete", True)
+        if can_sweep_legacy and home_roots:
             results.append(_best_effort(lambda: sweep_legacy_installations(
                 budget_seconds=max(0.1, deadline - time.monotonic()),
                 force=force, deadline=deadline)))
-        results.append(_best_effort(lambda: sweep_legacy_installations(
-            config_home=config_roots, data_home=data_roots, codex_home=codex_home,
-            budget_seconds=max(0.1, deadline - time.monotonic()),
-            force=force, deadline=deadline)))
+        if can_sweep_legacy:
+            results.append(_best_effort(lambda: sweep_legacy_installations(
+                config_home=config_roots, data_home=data_roots, codex_home=codex_home,
+                budget_seconds=max(0.1, deadline - time.monotonic()),
+                force=force, deadline=deadline)))
         root = mp.data_home() / "update" / "component-runtimes"
         if root.is_dir():
             def prune() -> dict[str, Any]:
                 protected = _protected(
                     config_roots=config_roots, data_roots=data_roots,
                     codex_home=codex_home, deadline=deadline)
-                forbidden = protected[1]
                 live, complete = live_process_prefixes(
                     timeout=min(2.0, max(0.1, deadline - time.monotonic())))
                 return prune_component_runtimes(
@@ -749,13 +734,13 @@ def sweep(*, stage: str, home_roots: bool = True, force: bool = False,
                     keep_recent_verified=2, staging_grace_seconds=1800.0,
                     budget_seconds=max(0.1, deadline - time.monotonic()),
                     live_paths=live, inspection_complete=complete,
-                    include_global_roots=False, forbidden_roots=forbidden,
+                    include_global_roots=False, forbidden_roots=protected[1],
                     deadline=deadline)
             results.append(_best_effort(prune))
-        results.append(_best_effort(lambda: _prune_orphan_engines(
-            keep_paths=merged, deadline=deadline)))
-        results.append(_best_effort(lambda: _discard_retained_archives(
-            deadline=deadline)))
+        if eng_complete:
+            results.append(_best_effort(lambda: _prune_orphan_engines(
+                keep_paths=merged, deadline=deadline)))
+        results.append(_best_effort(lambda: _discard_retained_archives(deadline=deadline)))
     except TimeoutError as exc:
         results.append({"status": "deferred", "partial": True,
                         "warnings": [type(exc).__name__]})

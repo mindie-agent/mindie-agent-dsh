@@ -41,7 +41,10 @@ _NON_REPORTABLE = {
 _OUTPUT_CATEGORIES = (
     ("resolver", ("temporary failure in name resolution",
                   "could not resolve host", "name or service not known",
-                  "getaddrinfo failed")),
+                  "getaddrinfo failed", "version solving failed",
+                  "conflicting dependencies",
+                  "no solution found when resolving dependencies",
+                  "requirements contain conflicting urls")),
     ("rate_limited", ("too many requests", "rate limit", "http 429")),
     ("certificate", ("certificate verify failed", "ssl certificate problem",
                      "unknown ca", "certificate has expired")),

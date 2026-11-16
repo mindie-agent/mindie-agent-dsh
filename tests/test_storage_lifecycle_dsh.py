@@ -537,3 +537,54 @@ def test_orphan_engine_prune_keeps_cross_plugin_reference_and_defers_incomplete_
     with pytest.raises(TimeoutError):
         storage_lifecycle._prune_orphan_engines(
             keep_paths=[], deadline=time.monotonic() + 30)
+
+
+def test_sweep_skips_legacy_when_lease_or_profile_or_configs_scan_fails(tmp_path, monkeypatch):
+    home, data, config = tmp_path / "home", tmp_path / "data", tmp_path / "config"
+    for directory in (home, data, config / "configs", config / "engines"):
+        directory.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("DSH_HOME", str(home / ".dsh"))
+    monkeypatch.setenv("MINDIE_DSH_DATA_HOME", str(data))
+    monkeypatch.setenv("MINDIE_DSH_CONFIG_HOME", str(config))
+    monkeypatch.setenv("MINDIE_DATA_HOME", str(data.parent))
+    monkeypatch.setenv("MINDIE_CONFIG_HOME", str(config.parent))
+
+    # 1) Custom configs/other-plugin.json (via symlink) protects an older engine across full sweep.
+    for idx, name in enumerate(("newest", "second", "borrowed_old")):
+        eng = config / "engines" / f"{name}.json"
+        _write(eng, "{}")
+        stamp = time.time() - (7200 + idx * 3600)
+        os.utime(eng, (stamp, stamp))
+    real_cfg = tmp_path / "external-other.json"
+    real_cfg.write_text(json.dumps({"engine": str(config / "engines" / "borrowed_old.json")}), encoding="utf-8")
+    (config / "configs" / "other-plugin.json").symlink_to(real_cfg)
+
+    ok_result = storage_lifecycle.sweep(stage="test", force=True)
+    assert ok_result["status"] == "completed", ok_result
+    assert (config / "engines" / "borrowed_old.json").is_file()
+
+    # 2) Lease acquisition failure skips sweep_legacy_installations completely.
+    rollback_gen = data / "update" / "generations" / "gen-rollback"
+    _write(rollback_gen / "package" / "package.json", "{}")
+    swept = []
+    monkeypatch.setattr("mindie_knowledge.storage.acquire_runtime_lease",
+                        lambda _p: (_ for _ in ()).throw(OSError("lease denied")))
+    monkeypatch.setattr("mindie_knowledge.storage.sweep_legacy_installations",
+                        lambda **kw: swept.append(kw) or {"status": "completed"})
+    lease_fail = storage_lifecycle.sweep(stage="test", force=True, keep_paths=[rollback_gen])
+    assert lease_fail["partial"] is True
+    assert swept == []
+
+    # 3) Profile directory enumeration PermissionError marks rollback_complete=False and skips sweeps.
+    profiles_dir = home / ".dsh" / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    real_iterdir = Path.iterdir
+    monkeypatch.setattr(
+        Path, "iterdir",
+        lambda self: (_ for _ in ()).throw(PermissionError("denied")) if self == profiles_dir else real_iterdir(self),
+    )
+    prof_fail = storage_lifecycle.sweep(stage="test", force=True)
+    assert prof_fail["partial"] is True
+    assert swept == []
