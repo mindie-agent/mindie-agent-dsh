@@ -7,8 +7,8 @@
 - Bound `update/launcher.log` and `update/host.log` at 2 MiB with one atomic `.1` sibling; resident knowledge/component MCP services and the warm sidecar now hold shared runtime leases; tests isolate `TMPDIR`/`TEMP`/`TMP` and `UV_CACHE_DIR`.
 - Protect every rollback target across a migrated `MINDIE_DSH_DATA_HOME`: all `current.json` `generation`/`previous_generation` pointers (explicit, default and `MINDIE_DATA_HOME` roots), every `DSH_HOME`/`~/.dsh` profile link and every `dsh.json`/sibling-harness pin now hold a shared runtime lease through both `sweep_legacy_installations` calls, so `updater.recover()` keeps working.
 - Scan all harness config homes (including sibling-plugin `cc.json`) before deleting any `engines/*.json`, re-raise config-read `TimeoutError`, defer deletion when a config is unreadable, and re-check Git/symlink/junction/forbidden-root boundaries per file.
-- Classify update subprocess and release failures from typed facts: resolver/validation/busy/deferred plus DNS, transport, rate-limit and certificate categories stay non-reportable local facts, while genuine internal failures keep their structured stage/substage/reason codes; a `TimeoutError` in the component MCP worker now returns a JSON-RPC timeout error, clears `in_flight`, and leaves the connection usable.
-- Pin `mindie-knowledge 0.13.22`, `mindie-coordinator 0.7.11`, `mindie-debugger 0.1.3`, `mindie-diagnostics 0.5.14`, `mindie-profiler 0.5.14`, `mindie-sim 0.9.15`, and `remote-dev 0.11.12` by exact commit SHA.
+- Classify update subprocess and release failures from typed facts: resolver/busy/deferred/prerequisite plus DNS, transport, rate-limit and certificate categories stay non-reportable local facts, while genuine internal failures keep their structured stage/substage/reason codes; a `TimeoutError` in the component MCP worker now returns a JSON-RPC timeout error, clears `in_flight`, and leaves the connection usable.
+- Pin `mindie-knowledge 0.13.22`, `mindie-coordinator 0.7.11`, `mindie-debugger 0.1.3`, `mindie-diagnostics 0.5.15`, `mindie-profiler 0.5.15`, `mindie-sim 0.9.15`, and `remote-dev 0.11.12` by exact commit SHA.
 
 ## 0.1.20 — 2026-11-15
 

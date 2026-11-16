@@ -92,7 +92,7 @@ If you are an AI Agent asked by the user to install this plugin, execute the fol
    - Otherwise, install and enable `git+https://github.com/mindie-agent/mindie-agent-dsh.git#v0.1.22` (or `#v0.0.2`) on the DSH Web **Plugins** page.
 
 4. **Verify plugin installation**:
-   - Confirm the final JSON from `setup.py` reports `"status": "ready"`, `"activation": { "status": "active" }`, `"components"` (`mindie-knowledge 0.13.22 / remote-dev 0.11.12 / mindie-diagnostics 0.5.14`), and `"knowledge": { "status": "inactive" }` (neither installation nor release checks start the knowledge loop before a session manually invokes `/mindie-agent`), and confirm `mindie-agent-dsh` is enabled on the **Plugins** page.
+   - Confirm the final JSON from `setup.py` reports `"status": "ready"`, `"activation": { "status": "active" }`, `"components"` (`mindie-knowledge 0.13.22 / remote-dev 0.11.12 / mindie-diagnostics 0.5.15`), and `"knowledge": { "status": "inactive" }` (neither installation nor release checks start the knowledge loop before a session manually invokes `/mindie-agent`), and confirm `mindie-agent-dsh` is enabled on the **Plugins** page.
    - Remind the user to open a **new session** and type `/mindie-agent` to activate Ascend domain knowledge & skills, while `remote-dev` triggers automatically in everyday conversation.
 
    Continue with step 5 after verification, then report the complete setup result.
@@ -180,7 +180,7 @@ flowchart TB
   end
   SKILL --> SK["skills/mindie-agent<br/>/mindie-agent"]
   GEN --> KS["mindie-knowledge 0.13.22<br/>mindie_entry / knowledge_* / Stop capture"]
-  GEN --> DIAG["mindie-diagnostics 0.5.14<br/>Bounded local diagnostics & unified consent reporter"]
+  GEN --> DIAG["mindie-diagnostics 0.5.15<br/>Bounded local diagnostics & unified consent reporter"]
   KS --> FEED[("knowledge-vllm-ascend<br/>public feed & PR loop")]
   GEN --> RD["remote-dev 0.11.12<br/>remote_dev.mcp.server"]
   GEN --> MT["mindie-tools MCP<br/>scripts/component_mcp.py"]
@@ -218,7 +218,7 @@ Timeout defaults to 120 seconds (`timeout_ms=120000`) up to 10 minutes (`600000`
 
 ## Scope and Known Limits
 
-- **Pinned Runtime Components**: Targets the formal releases of `mindie-knowledge 0.13.22` (`c991b64a1ead277b5ce91b7835337b01aed03998`), `remote-dev 0.11.12` (`c4d38f99c1ef5aace1c088af07647941adc2d394`), and `mindie-diagnostics 0.5.14` (`cd16baa406070bcd41bbe39a9e488cc8753c60c5`), along with contract pins `mindie-debugger 0.1.3` (`33052a2fc10c7475e4b819577870ca822efcebd0`), `mindie-profiler 0.5.14` (`889b6ef161862938cc07b1b4123c57e302965d48`), `mindie-sim 0.9.15` (`9dbab02f10843c7b829d6fda7e7b9ad89e4f92e5`), and `mindie-coordinator 0.7.11` (`33e2c6966d21d62969a2148145e74885dc826e3c`; exact commit SHAs are recorded in `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`).
+- **Pinned Runtime Components**: Targets the formal releases of `mindie-knowledge 0.13.22` (`c991b64a1ead277b5ce91b7835337b01aed03998`), `remote-dev 0.11.12` (`c4d38f99c1ef5aace1c088af07647941adc2d394`), and `mindie-diagnostics 0.5.15` (`96c40049e2fc8e53676f557cb8144421efcfe8ed`), along with contract pins `mindie-debugger 0.1.3` (`33052a2fc10c7475e4b819577870ca822efcebd0`), `mindie-profiler 0.5.15` (`609d555d84857309ac5cb8214da7309f1b783ef0`), `mindie-sim 0.9.15` (`9dbab02f10843c7b829d6fda7e7b9ad89e4f92e5`), and `mindie-coordinator 0.7.11` (`33e2c6966d21d62969a2148145e74885dc826e3c`; exact commit SHAs are recorded in `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`).
 - **Historical Same-Version Refresh**: `0.0.2` replaced the earlier `0.0.2` source (`828c375d1f546ed653250526465b8075c1691390`). Installations staying on `0.0.2` must follow [`docs/same-version-refresh.md`](docs/same-version-refresh.md) to refresh both the runtime and plugin bundle by exact SHA and restart the full DSH process.
 - **Session-Scoped `remote-dev` State**: Each agent session uses its own directory under `~/.local/share/mindie-agent/dsh/state/remote`.
 - **Background Auto-Update Scope**: The stable launcher `host.mjs` checks for formal plugin Releases and formal GitHub Releases of shared runtime components while the DSH Host process is running and no agent session is `running` (see [`docs/releases/mindie-agent-dsh-0.1.2.en.md`](docs/releases/mindie-agent-dsh-0.1.2.en.md)). In `host.mjs`, `entryFor()` prioritizes `package_dir` in `paths.configFile` (`config.json`) as the canonical adapter binding (`current.json` is consulted only as a legacy seed fallback when `package_dir` is absent), and both the `remote-dev` Python interpreter and `host3.mjs` are governed by that canonical adapter binding. Component-only updates stage a side-by-side `uv` runtime and update the canonical adapter binding without reinstalling native plugin definitions; plugin-level updates verify `peerDependencies` and run `dsh plugin add`/`list --json` readback with `needs_host_reload=True` (native profile definition changes require a host reload); no OS-level scheduler runs when DSH is stopped.
