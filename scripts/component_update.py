@@ -4,8 +4,8 @@ runtime. New plugin releases inherit all installed component version floors.
 A missing source manifest or configured interpreter fails with FileNotFoundError
 naming that artifact before catalog discovery or a build. Child failures carry
 only typed public facts and a diagnostic reference, never exception text;
-transport, resolver, validation, busy and deferred categories stay
-non-reportable local facts instead of becoming internal product bugs.
+transport, DNS resolver, busy and deferred categories stay non-reportable
+local/connectivity facts instead of becoming internal product bugs.
 [Timeouts & Locks] Metadata, catalog and build share one deadline; the builder
 has at most 420s and leaves five seconds for cleanup. The setup caller reserves
 180s shared across its remaining probe/configuration/handoff stages.
@@ -34,28 +34,25 @@ _CATEGORIES = {
 # and give each one a structured reason code instead of "internal".
 _NON_REPORTABLE = {
     "prerequisite": ("prerequisite", "update_prerequisite_unavailable"),
-    "resolver": ("prerequisite", "update_prerequisite_unavailable"),
-    "validation": ("prerequisite", "update_validation_failed"),
+    "resolver": ("connectivity", "update_transport_unavailable"),
     "busy": ("prerequisite", "update_deferred"),
     "deferred": ("prerequisite", "update_deferred"),
 }
 _OUTPUT_CATEGORIES = (
-    ("resolver", ("resolutionimpossible", "conflicting dependencies",
-                  "no solution found", "version solving failed",
-                  "the conflict is caused by", "resolver conflict")),
+    ("resolver", ("temporary failure in name resolution",
+                  "could not resolve host", "name or service not known",
+                  "getaddrinfo failed")),
     ("rate_limited", ("too many requests", "rate limit", "http 429")),
     ("certificate", ("certificate verify failed", "ssl certificate problem",
                      "unknown ca", "certificate has expired")),
-    ("temporary_network", ("temporary failure in name resolution",
-                           "could not resolve host", "name or service not known",
-                           "connection timed out", "read timed out",
+    ("temporary_network", ("connection timed out", "read timed out",
                            "connection reset by peer", "connection refused",
                            "network is unreachable", "failed to connect")),
     ("deferred", ("operation_busy", "installation_busy", "check_busy",
                   '"status": "deferred"', '"status":"deferred"')),
 )
 _OUTPUT_CODES = {
-    "resolver": "update_prerequisite_unavailable",
+    "resolver": "update_transport_unavailable",
     "rate_limited": "update_transport_unavailable",
     "certificate": "update_credentials_required",
     "temporary_network": "update_transport_unavailable",
@@ -139,7 +136,7 @@ def update_failure_classification(error):
             mapped, code = _NON_REPORTABLE[category]
             return mapped, False, code
         if isinstance(current, (socket.gaierror, socket.herror)):
-            return "prerequisite", False, "update_prerequisite_unavailable"
+            return "connectivity", False, "update_transport_unavailable"
         if isinstance(current, BlockingIOError):
             return "prerequisite", False, "update_deferred"
     return None

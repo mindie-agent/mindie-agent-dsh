@@ -107,8 +107,8 @@ def test_unclassified_update_runtimeerror_remains_internal():
 
 
 @pytest.mark.parametrize('category,expected', [
-    ('resolver', 'prerequisite'),
-    ('validation', 'prerequisite'),
+    ('resolver', 'connectivity'),
+    ('prerequisite', 'prerequisite'),
     ('busy', 'prerequisite'),
     ('deferred', 'prerequisite'),
     ('temporary_network', 'connectivity'),
@@ -124,15 +124,24 @@ def test_owned_update_category_never_becomes_an_internal_bug(category, expected)
     assert event['reportable'] is False
 
 
-@pytest.mark.parametrize('cause,reason_code', [
-    (socket.gaierror(-2, 'Name or service not known'), 'update_prerequisite_unavailable'),
-    (BlockingIOError(11, 'another update is running'), 'update_deferred'),
+def test_validation_failure_stays_reportable_internal_fault():
+    error = updater.UpdateError('validation mismatch')
+    error.category = 'validation'
+    receipt, event, _logs = _record(error)
+    assert receipt['state'] == 'failed'
+    assert event['attributes']['category'] == 'internal'
+    assert event['reportable'] is True
+
+
+@pytest.mark.parametrize('cause,expected_category,reason_code', [
+    (socket.gaierror(-2, 'Name or service not known'), 'connectivity', 'update_transport_unavailable'),
+    (BlockingIOError(11, 'another update is running'), 'prerequisite', 'update_deferred'),
 ])
-def test_typed_dns_and_lock_contention_stay_local_prerequisites(cause, reason_code):
+def test_typed_dns_and_lock_contention_stay_non_reportable(cause, expected_category, reason_code):
     error = updater.UpdateError('update failed')
     error.__cause__ = cause
     _receipt, event, _logs = _record(error)
-    assert event['attributes']['category'] == 'prerequisite'
+    assert event['attributes']['category'] == expected_category
     assert event['attributes']['reason_code'] == reason_code
     assert event['reportable'] is False
 
@@ -143,11 +152,11 @@ def test_recovered_child_resolver_fact_survives_the_failure_envelope():
     error = recover_failure(json.dumps({
         'schema': FAILURE_SCHEMA,
         'error': {'type': 'RuntimeError', 'category': 'resolver',
-                  'code': 'update_prerequisite_unavailable'},
+                  'code': 'update_transport_unavailable'},
     }), RuntimeError('candidate setup failed'))
     assert error.category == 'resolver'
     _receipt, event, _logs = _record(error)
-    assert event['attributes']['category'] == 'prerequisite'
+    assert event['attributes']['category'] == 'connectivity'
     assert event['reportable'] is False
 
 
