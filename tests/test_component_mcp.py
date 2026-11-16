@@ -418,9 +418,25 @@ def _send_request(client_in, request_id):
 
 
 def _read_reply(client_out, timeout=8.0):
-    ready, _, _ = select.select([client_out], [], [], timeout)
-    assert ready, "the MCP server did not publish a reply"
-    return json.loads(client_out.readline())
+    import queue
+
+    out: queue.Queue = queue.Queue()
+
+    def _pull():
+        try:
+            out.put(("ok", client_out.readline()))
+        except BaseException as exc:
+            out.put(("err", exc))
+
+    threading.Thread(target=_pull, daemon=True).start()
+    try:
+        kind, payload = out.get(timeout=timeout)
+    except queue.Empty:
+        raise AssertionError("the MCP server did not publish a reply") from None
+    if kind == "err":
+        raise payload
+    assert payload, "the MCP server closed without publishing a reply"
+    return json.loads(payload)
 
 
 def _stop_pipe_server(server, client_in, *streams):

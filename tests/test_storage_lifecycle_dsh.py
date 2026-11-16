@@ -247,6 +247,10 @@ def test_four_legacy_layouts_keep_current_previous_profile_and_live_lease(tmp_pa
     finally:
         _stop_child(child)
 
+    # Releasing a Windows `.inuse.*.lease` file refreshes the directory mtime;
+    # restore the historical age before testing post-release reclamation.
+    _age(live)
+
     # Once the lease is gone, the same old generation is reclaimable; the
     # current/previous/profile pins still win.
     released = storage_lifecycle.sweep(stage="test-post-release", force=True)

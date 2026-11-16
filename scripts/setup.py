@@ -672,7 +672,11 @@ def main(argv: list[str] | None = None) -> int:
             from mindie_knowledge.component_releases import runtime_identity as effective_identity
             from mindie_knowledge.runtime_inventory import verify, verify_lock
             manifest = json.loads(args.component_manifest.read_text(encoding="utf-8"))
-            effective_identity(source_baseline(mp.PACKAGE_DIR), manifest)
+            effective_identity(
+                source_baseline(mp.PACKAGE_DIR),
+                {k: v for k, v in manifest.items() if k != "generation_key"}
+                if isinstance(manifest, dict) else manifest,
+            )
             INSTALL_RUNTIME_DIR = args.component_manifest.parent / 'runtime/.venv'
             if not mp.same_path(sys.prefix, INSTALL_RUNTIME_DIR):
                 raise SetupError('component setup must run in its prepared interpreter')
