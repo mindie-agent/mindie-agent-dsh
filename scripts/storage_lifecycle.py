@@ -168,11 +168,21 @@ def _profile_targets() -> list[Path]:
         except FileNotFoundError: continue
         for profile in entries:
             link = profile / "node_modules" / "@mindie-agent" / "dsh"
-            try: is_link = link.is_symlink() or _is_junction(link)
+            try:
+                is_sym = link.is_symlink()
+                is_junc = False if is_sym else _is_junction(link)
             except TimeoutError: raise
             except FileNotFoundError: continue
-            if not is_link: continue
-            target = Path(_strip_win_prefix(os.path.realpath(link)))
+            if not (is_sym or is_junc): continue
+            if is_sym:
+                raw_link = os.readlink(link)
+                hop = Path(raw_link) if os.path.isabs(raw_link) else link.parent / raw_link
+                try: resolved = os.path.realpath(hop, strict=True)
+                except FileNotFoundError: resolved = os.path.abspath(hop)
+            else:
+                try: resolved = os.path.realpath(link, strict=True)
+                except FileNotFoundError: continue
+            target = Path(_strip_win_prefix(resolved))
             if target != link: targets.append(target)
     return _unique(targets)
 
@@ -383,9 +393,9 @@ def _engine_references(deadline: float) -> tuple[set[str], set[tuple[str, str]],
 
 
 def _protect_referenced_engines(references: set[str], tails: set[tuple[str, str]],
-                                deadline: float) -> tuple[list[Path], list[tuple[Path, Any]], list[str]]:
-    """Return runtime pins and mtime-shielded engine files for `sweep_legacy_installations`."""
-    runtime_pins, shielded, warnings = [], [], []
+                                deadline: float, shielded: list[tuple[Path, Any]]) -> tuple[list[Path], list[str]]:
+    """Return runtime pins and record mtime-shielded engine files for `sweep_legacy_installations`."""
+    runtime_pins, warnings = [], []
     stems = {name[:-5] for _, name in tails if name.endswith(".json")}
     for home in _dsh_data_homes():
         for stem in stems:
@@ -395,11 +405,12 @@ def _protect_referenced_engines(references: set[str], tails: set[tuple[str, str]
     for cfg in _dsh_config_homes():
         engines = cfg / "engines"
         if time.monotonic() >= deadline:
-            return runtime_pins, shielded, warnings + ["budget exhausted"]
+            return runtime_pins, warnings + ["budget exhausted"]
         try:
             with os.scandir(engines) as iterator:
                 files = [Path(engines) / e.name for e in iterator
-                         if e.is_file(follow_symlinks=False) and e.name.endswith(".json")]
+                         if (e.is_file(follow_symlinks=False) or e.is_symlink())
+                         and e.name.endswith(".json")]
         except TimeoutError: raise
         except FileNotFoundError: continue
         except OSError:
@@ -417,7 +428,7 @@ def _protect_referenced_engines(references: set[str], tails: set[tuple[str, str]
                 shielded.append((path, before))
             except TimeoutError: raise
             except OSError: warnings.append("shield " + path.name[:24])
-    return runtime_pins, shielded, warnings
+    return runtime_pins, warnings
 
 
 def _engine_referenced(path: Path, references: set[str],
@@ -700,10 +711,9 @@ def sweep(*, stage: str, home_roots: bool = True, force: bool = False,
     stack = ExitStack()
     leased_times: list[tuple[Path, Any]] = []
     try:
-        rt_pins, shielded, shield_warns = (
-            _protect_referenced_engines(eng_refs, eng_tails, deadline)
-            if eng_complete else ([], [], []))
-        leased_times.extend(shielded)
+        rt_pins, shield_warns = (
+            _protect_referenced_engines(eng_refs, eng_tails, deadline, leased_times)
+            if eng_complete else ([], []))
         merged = _unique([*merged, *rt_pins, *(Path(p) for p in eng_refs)])
         lease_warnings, pin_times = _lease_protected(stack, merged, deadline=deadline)
         leased_times.extend(pin_times)
