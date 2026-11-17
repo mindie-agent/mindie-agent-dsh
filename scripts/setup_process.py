@@ -30,6 +30,7 @@ except ImportError:
 CLEANUP_SECONDS = 5.0
 CREATE_NO_WINDOW = _HARNESS_NO_WINDOW if os.name == "nt" else 0
 _ORIG_POPEN = subprocess.Popen
+_ORIG_RUN = subprocess.run
 
 
 def _close_process_streams(process: subprocess.Popen, *, background_pipes: bool = False) -> None:
@@ -145,8 +146,8 @@ def run(command, *, timeout, cwd=None, env=None, input_text=None):
         run_owned is None
         or ProcessSpec is None
         or Deadline is None
-        or os.name == "nt"
         or subprocess.Popen is not _ORIG_POPEN
+        or subprocess.run is not _ORIG_RUN
         or _attach_windows_job is not _ORIG_ATTACH
         or _kill_tree is not _ORIG_KILL_TREE
         or any(item == "" for item in argv)
