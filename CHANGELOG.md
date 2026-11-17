@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.23 — 2026-11-17
+
+- Delegate shared runtime process, storage lifecycle, MCP gateway (`P2.7` zero session-binding gates on deterministic tools vs `P2.1` `knowledge_*` admission), and `rsi` substrate primitives to `mindie-harness 0.1.0`, while keeping `mindie-agent-dsh` focused on DSH Cordis host integration and preserving `v0.1.22` live upgrade compatibility.
+- Pin `mindie-harness 0.1.0` (`f05569947dbf0131061d8698bb779d024df0c43b`), `mindie-knowledge 0.13.23` (`8fe8455669e88ef6963314332422653841518900`), `remote-dev 0.11.13` (`64c5a8d0ca9fe344e7af05f89fc0de6249f2368a`), `mindie-diagnostics 0.5.16` (`54ac7c03c78f9e02f379051d1613a4427559e10d`), `mindie-debugger 0.1.4` (`e15c2ed38d8f928db67c5bb1a94269f62207227c`), `mindie-profiler 0.5.16` (`b702893129724b852c5abcb8971724b8b0a6e870`), `mindie-sim 0.9.18` (`83fb8288aa998e0a6ad345ca7a16269f0181545b`), and `mindie-coordinator 0.7.13` (`a3c7336faa0bc14ebdb8f2fd75606c82e96422e9`).
+
 ## 0.1.22 — 2026-11-16
 
 - Add best-effort storage lifecycle governance: the Pre-Build and Post-Switch paths reclaim the four legacy DSH layouts (`dsh/venv`, excess `runtimes/<key>` with orphaned `engines/*.json`, excess `update/generations` and historical `asset.tgz`, excess `update/component-runtimes`) plus the orphaned `~/.cache/mindie-agent-dsh/uv-cache`, while protecting the live `config.json` binding, `current.json` `generation`/`previous_generation`, DSH profile symlink targets, active leases/processes, and cross-plugin source roots.

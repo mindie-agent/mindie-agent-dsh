@@ -2,7 +2,7 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.22`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.23`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
@@ -26,19 +26,20 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.22` Runtime Components
+## Pinned `0.1.23` Runtime Components
 
 `scripts/setup.py` runs `uv sync --locked` against `uv.lock`, installs persistent worker scripts, and writes `engine.json` and `diagnostics.json` without starting the knowledge service or syncing feeds during installation (`knowledge.status: "inactive"` until `/mindie-agent` is invoked).
 
 Current runtime pins:
 
-- `mindie-knowledge` `0.13.22` (`c991b64a1ead277b5ce91b7835337b01aed03998`)
-- `remote-dev` `0.11.12` (`c4d38f99c1ef5aace1c088af07647941adc2d394`)
-- `mindie-diagnostics` `0.5.15` (`96c40049e2fc8e53676f557cb8144421efcfe8ed`)
-- `mindie-debugger` `0.1.3` (`33052a2fc10c7475e4b819577870ca822efcebd0`)
-- `mindie-profiler` `0.5.15` (`609d555d84857309ac5cb8214da7309f1b783ef0`)
-- `mindie-sim` `0.9.15` (`9dbab02f10843c7b829d6fda7e7b9ad89e4f92e5`)
-- `mindie-coordinator` `0.7.11` (`33e2c6966d21d62969a2148145e74885dc826e3c`)
+- `mindie-harness` `0.1.0` (`f05569947dbf0131061d8698bb779d024df0c43b`)
+- `mindie-knowledge` `0.13.23` (`8fe8455669e88ef6963314332422653841518900`)
+- `remote-dev` `0.11.13` (`64c5a8d0ca9fe344e7af05f89fc0de6249f2368a`)
+- `mindie-diagnostics` `0.5.16` (`54ac7c03c78f9e02f379051d1613a4427559e10d`)
+- `mindie-debugger` `0.1.4` (`e15c2ed38d8f928db67c5bb1a94269f62207227c`)
+- `mindie-profiler` `0.5.16` (`b702893129724b852c5abcb8971724b8b0a6e870`)
+- `mindie-sim` `0.9.18` (`83fb8288aa998e0a6ad345ca7a16269f0181545b`)
+- `mindie-coordinator` `0.7.13` (`a3c7336faa0bc14ebdb8f2fd75606c82e96422e9`)
 
 ## Unified Contribution Switch
 
