@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """[Role] Expose deterministic MindIE components through DSH's native MCP client.
-[Invariants] Discovery needs no task or knowledge state; the selected profile owns the runtime.
-[Timeouts & Locks] One in-flight call; cancellation/EOF stop its child within the five-second cleanup budget.
-[Side-Effect Policy] Only tools/call executes components; protocol writes are serialized.
-The resident process holds a shared runtime lease for its disposable generation.
+[Invariants] Discovery needs no task or knowledge state; concurrent `tools/call` requests run on a bounded resident thread pool (`AD-03` fixed: never rejects parallel status/read calls with `-32000`).
+[Timeouts & Locks] Per-request cancellation event map (`requestId -> Event`); EOF cancels in-flight calls and drains within 6.0s.
+[Side-Effect Policy] Only `tools/call` executes components; protocol stdout writes are serialized under `output_lock`; resident process holds a shared runtime lease.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -17,15 +18,20 @@ import component_tools
 import runtime_lease
 
 TIMEOUT_ERROR_CODE = -32001
+MAX_CONCURRENT_CALLS = 16
 
 
 def _timeout_error(identifier, stage: str, error: str = "TimeoutError") -> dict:
     """One honest JSON-RPC timeout reply; the connection stays usable."""
-    return {"jsonrpc": "2.0", "id": identifier,
-            "error": {"code": TIMEOUT_ERROR_CODE,
-                      "message": "component call timed out; not completed",
-                      "data": {"status": "timeout", "stage": stage,
-                               "error_type": error, "automatic_retry": False}}}
+    return {
+        "jsonrpc": "2.0",
+        "id": identifier,
+        "error": {
+            "code": TIMEOUT_ERROR_CODE,
+            "message": "component call timed out; not completed",
+            "data": {"status": "timeout", "stage": stage, "error_type": error, "automatic_retry": False},
+        },
+    }
 
 
 def handle(message, *, cancel=None):
@@ -34,13 +40,14 @@ def handle(message, *, cancel=None):
     identifier, method = message["id"], message.get("method")
     params = message.get("params") or {}
     if method == "initialize":
-        result = {"protocolVersion": params.get("protocolVersion", "2025-11-25"),
-                  "capabilities": {"tools": {}},
-                  "serverInfo": {
-                      "name": "mindie-agent-dsh-tools",
-                      "version": json.loads((component_tools.paths.PACKAGE_DIR / "package.json")
-                                            .read_text(encoding="utf-8"))["version"],
-                  }}
+        result = {
+            "protocolVersion": params.get("protocolVersion", "2025-11-25"),
+            "capabilities": {"tools": {"listChanged": True}},
+            "serverInfo": {
+                "name": "mindie-agent-dsh-tools",
+                "version": json.loads((component_tools.paths.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))["version"],
+            },
+        }
     elif method == "ping":
         result = {}
     elif method == "tools/list":
@@ -53,22 +60,22 @@ def handle(message, *, cancel=None):
             result = component_tools.execute(params.get("name"), arguments, cancel=cancel)
         except TimeoutError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             result = component_tools.response(
-                {"status": "failed", "error": f"{type(exc).__name__}: {exc}",
-                 "automatic_retry": False}, is_error=True)
+                {"status": "failed", "error": f"{type(exc).__name__}: {exc}", "automatic_retry": False},
+                is_error=True,
+            )
     else:
-        return {"jsonrpc": "2.0", "id": identifier,
-                "error": {"code": -32601, "message": "Method not found"}}
+        return {"jsonrpc": "2.0", "id": identifier, "error": {"code": -32601, "message": "Method not found"}}
     return {"jsonrpc": "2.0", "id": identifier, "result": result}
 
 
-def serve(reader=None, writer=None):
+def serve(reader=None, writer=None, *, on_after_call=None):
     reader, writer = reader or sys.stdin, writer or sys.stdout
     output_lock = threading.Lock()
     state_lock = threading.Lock()
-    worker, cancellation, request_id = None, None, None
-    in_flight = False
+    active_cancels: dict[object, threading.Event] = {}
+    futures = []
 
     def send(payload):
         if payload is not None:
@@ -77,23 +84,19 @@ def serve(reader=None, writer=None):
                 writer.flush()
 
     def dispatch_call(request, event):
-        nonlocal in_flight
+        req_id = request["id"]
         try:
             response = handle(request, cancel=event)
         except TimeoutError as exc:
-            # The helper boundary keeps `TimeoutError` distinct from a broad
-            # `OSError`; here it becomes a protocol reply so `in_flight` clears
-            # and the next request on this connection can run.
-            response = _timeout_error(request["id"], "execute", type(exc).__name__)
+            response = _timeout_error(req_id, "execute", type(exc).__name__)
         finally:
             with state_lock:
-                if request_id == request["id"]:
-                    in_flight = False
-        with output_lock:
-            if response is not None:
-                writer.write(json.dumps(response, ensure_ascii=False) + "\n")
-                writer.flush()
+                active_cancels.pop(req_id, None)
+        if on_after_call is not None:
+            on_after_call()
+        send(response)
 
+    pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_CALLS, thread_name_prefix="mindie-component-call")
     try:
         for line in reader:
             if not line.strip():
@@ -101,54 +104,41 @@ def serve(reader=None, writer=None):
             try:
                 message = json.loads(line)
             except json.JSONDecodeError as exc:
-                send({"jsonrpc": "2.0", "id": None,
-                      "error": {"code": -32700, "message": str(exc)}})
+                send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(exc)}})
                 continue
             if not isinstance(message, dict):
-                send({"jsonrpc": "2.0", "id": None,
-                      "error": {"code": -32600, "message": "request must be an object"}})
+                send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "request must be an object"}})
                 continue
             if message.get("method") == "notifications/cancelled":
+                target_id = (message.get("params") or {}).get("requestId")
                 with state_lock:
-                    target = (
-                        cancellation
-                        if in_flight and (message.get("params") or {}).get("requestId") == request_id
-                        else None
-                    )
+                    target = active_cancels.get(target_id)
                 if target is not None:
                     target.set()
                 continue
             if message.get("method") != "tools/call" or "id" not in message:
                 send(handle(message))
                 continue
+            req_id = message["id"]
+            event = threading.Event()
             with state_lock:
-                busy = in_flight
-            if busy:
-                send({"jsonrpc": "2.0", "id": message["id"],
-                      "error": {"code": -32000, "message": "component call already running; not executed"}})
-                continue
-            if worker is not None:
-                worker.join(timeout=1.0)
-                if worker.is_alive():
-                    send({"jsonrpc": "2.0", "id": message["id"],
-                          "error": {"code": -32000, "message": "component call already running; not executed"}})
-                    continue
-            with state_lock:
-                cancellation = threading.Event()
-                request_id = message["id"]
-                in_flight = True
-            worker = threading.Thread(
-                target=dispatch_call, args=(message, cancellation),
-                name="mindie-component-call", daemon=True,
-            )
-            worker.start()
+                active_cancels[req_id] = event
+            futures[:] = [f for f in futures if not f.done()]
+            futures.append(pool.submit(dispatch_call, message, event))
     finally:
-        if worker is not None:
-            if cancellation is not None:
-                cancellation.set()
-            worker.join(timeout=6.0)
-            if worker.is_alive():
-                raise TimeoutError("component call did not drain after cancellation")
+        with state_lock:
+            events = list(active_cancels.values())
+        for ev in events:
+            ev.set()
+        pool.shutdown(wait=False, cancel_futures=True)
+        deadline_threads = [f for f in futures if not f.done()]
+        for fut in deadline_threads:
+            try:
+                fut.result(timeout=6.0)
+            except TimeoutError as exc:
+                raise TimeoutError("component call did not drain after cancellation") from exc
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def serve_selected_serialized(select, *, reader=None, writer=None):
@@ -157,10 +147,8 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
     reader, writer = reader or sys.stdin, writer or sys.stdout
     output_lock = threading.Lock()
     state_lock = threading.Lock()
-    cancellation = threading.Event()
-    worker = None
-    request_id = None
-    in_flight = False
+    active_cancels: dict[object, threading.Event] = {}
+    futures = []
 
     def send(value):
         with output_lock:
@@ -174,41 +162,44 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
     refresh = CatalogRefresh(revision, send)
 
     def dispatch(message, cancel, *, is_tool_call=False):
-        nonlocal in_flight
+        req_id = message.get("id")
         stage = "select_runtime"
         try:
             argv, env = select()
             stage = "dispatch_helper"
             response = selected_rpc(
-                argv, message, env=env, cancel=cancel,
-                timeout=660 if message.get("method") == "tools/call" else 15,
+                argv, message, env=env, cancel=cancel, timeout=660 if message.get("method") == "tools/call" else 15,
             )
         except TimeoutError as exc:
-            # A helper-boundary timeout must not kill the worker before the
-            # reply and the `in_flight` reset, or every later call would see
-            # `-32000: component call already running`.
-            response = _timeout_error(message.get("id"), stage, type(exc).__name__)
-        except Exception as exc:
-            response = {"jsonrpc": "2.0", "id": message["id"], "result": {
-                "isError": True, "content": [{"type": "text", "text": str(exc)}],
-                "structuredContent": {
-                    "error_type": type(exc).__name__, "automatic_retry": False,
-                    "stage": stage,
-                    "status": "cancelled" if isinstance(exc, InterruptedError) else "helper_failed",
-                    "execution": ("outcome_unconfirmed" if stage == "dispatch_helper"
-                                  and message.get("method") == "tools/call" else "not_started"),
+            response = _timeout_error(req_id, stage, type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "isError": True,
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "structuredContent": {
+                        "error_type": type(exc).__name__,
+                        "automatic_retry": False,
+                        "stage": stage,
+                        "status": "cancelled" if isinstance(exc, InterruptedError) else "helper_failed",
+                        "execution": (
+                            "outcome_unconfirmed"
+                            if stage == "dispatch_helper" and message.get("method") == "tools/call"
+                            else "not_started"
+                        ),
+                    },
                 },
-            }}
+            }
         finally:
             if is_tool_call:
                 with state_lock:
-                    if request_id == message.get("id"):
-                        in_flight = False
+                    active_cancels.pop(req_id, None)
         refresh.check()
-        with output_lock:
-            writer.write(json.dumps(response, ensure_ascii=False) + "\n")
-            writer.flush()
+        send(response)
 
+    pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_CALLS, thread_name_prefix="mindie-selected-call")
     try:
         for line in reader:
             if not line.strip():
@@ -222,12 +213,9 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
                 continue
             method = message.get("method")
             if method == "notifications/cancelled":
+                target_id = (message.get("params") or {}).get("requestId")
                 with state_lock:
-                    target = (
-                        cancellation
-                        if in_flight and (message.get("params") or {}).get("requestId") == request_id
-                        else None
-                    )
+                    target = active_cancels.get(target_id)
                 if target is not None:
                     target.set()
                 continue
@@ -243,39 +231,59 @@ def serve_selected_serialized(select, *, reader=None, writer=None):
             elif method == "ping":
                 send({"jsonrpc": "2.0", "id": message["id"], "result": {}})
             elif method == "tools/call":
+                req_id = message["id"]
+                event = threading.Event()
                 with state_lock:
-                    busy = in_flight
-                if busy:
-                    send({"jsonrpc": "2.0", "id": message["id"],
-                          "error": {"code": -32000, "message": "component call already running; not executed"}})
-                    continue
-                if worker is not None:
-                    worker.join(timeout=1.0)
-                    if worker.is_alive():
-                        send({"jsonrpc": "2.0", "id": message["id"],
-                              "error": {"code": -32000, "message": "component call already running; not executed"}})
-                        continue
-                with state_lock:
-                    cancellation = threading.Event()
-                    request_id = message["id"]
-                    in_flight = True
-                worker = threading.Thread(
-                    target=dispatch, args=(message, cancellation),
-                    kwargs={"is_tool_call": True}, daemon=True,
-                )
-                worker.start()
+                    active_cancels[req_id] = event
+                futures[:] = [f for f in futures if not f.done()]
+                futures.append(pool.submit(dispatch, message, event, is_tool_call=True))
             else:
                 dispatch(message, None)
     finally:
         refresh.close()
         with state_lock:
-            active_cancel = cancellation
-        active_cancel.set()
-        if worker is not None:
-            worker.join(timeout=6)
-            if worker.is_alive():
-                raise TimeoutError("selected MCP call did not drain after cancellation")
+            events = list(active_cancels.values())
+        for ev in events:
+            ev.set()
+        pool.shutdown(wait=False, cancel_futures=True)
+        for fut in [f for f in futures if not f.done()]:
+            try:
+                fut.result(timeout=6.0)
+            except TimeoutError as exc:
+                raise TimeoutError("selected MCP call did not drain after cancellation") from exc
+            except Exception:  # noqa: BLE001
+                pass
     return 0
+
+
+def _serve_resident_or_selected() -> int:
+    config = component_tools.paths.config_file()
+    value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+    configured_py = value.get("python") or sys.executable
+    configured_pkg = Path(value.get("package_dir") or component_tools.paths.PACKAGE_DIR)
+    if component_tools.paths.same_path(configured_py, sys.executable) and component_tools.paths.same_path(
+        configured_pkg, component_tools.paths.PACKAGE_DIR
+    ):
+        os.environ["MINDIE_DSH_CONFIG"] = str(config)
+        serve()
+        return 0
+
+    def selection():
+        cur_val = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+        pkg = Path(cur_val.get("package_dir") or component_tools.paths.PACKAGE_DIR)
+        return [
+            cur_val.get("python") or sys.executable,
+            "-X",
+            "utf8",
+            str(pkg / "scripts/component_mcp.py"),
+            "--once",
+        ], {
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "MINDIE_DSH_CONFIG": str(config),
+        }
+
+    return serve_selected_serialized(selection)
 
 
 if __name__ == "__main__":
@@ -292,16 +300,4 @@ if __name__ == "__main__":
         if result is not None:
             print(json.dumps(result, ensure_ascii=False), flush=True)
     else:
-        def selection():
-            config = component_tools.paths.config_file()
-            value = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
-            package = Path(value.get("package_dir") or component_tools.paths.PACKAGE_DIR)
-            return [value.get("python") or sys.executable,
-                    "-X", "utf8",
-                    str(package / "scripts/component_mcp.py"), "--once"], {
-                        "PYTHONUTF8": "1",
-                        "PYTHONIOENCODING": "utf-8",
-                        "MINDIE_DSH_CONFIG": str(config),
-                    }
-
-        serve_selected_serialized(selection)
+        _serve_resident_or_selected()

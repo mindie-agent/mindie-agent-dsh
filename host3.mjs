@@ -27,9 +27,7 @@ import {
   entryParameters,
   entryView,
   hasMindieGesture,
-  knowledgeExplainParameters,
-  knowledgeQueryExtraProperties,
-  registerKnowledgeDistill,
+  registerSessionKnowledgeSuite,
 } from './scripts/knowledge_tools.mjs'
 
 export {
@@ -41,7 +39,7 @@ export {
 } from './scripts/knowledge_tools.mjs'
 
 const require = createRequire(import.meta.url)
-const { paths: runtimePaths, configHome } = require('./paths.cjs')
+const { paths: runtimePaths, configHome, backgroundSpawnOptions, buildChildEnv } = require('./paths.cjs')
 
 const VERSION = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
@@ -96,15 +94,12 @@ class Sidecar {
     }
     const child = spawn(p.venvPython, ['-X', 'utf8', path.join(p.packageDir, 'scripts', 'mindie_sidecar.py')], {
       cwd: p.packageDir,
-      env: {
-        ...process.env,
-        PYTHONUTF8: '1',
-        PYTHONIOENCODING: 'utf-8',
+      env: buildChildEnv(process.env, {
         MINDIE_DSH_CONFIG: p.configFile,
         MINDIE_DSH_ENGINE_CONFIG: p.engineConfig,
         MINDIE_DSH_STATE_DIR: p.stateDir,
         MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
-      },
+      }),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
@@ -357,13 +352,12 @@ export function apply(ctx) {
     if (!profile) return false
     hostLog(`update check started profile=${profile}`)
     try {
-      // Keep detached=true with windowsHide=true on all platforms: on Win32,
-      // non-detached children join libuv's KILL_ON_JOB_CLOSE job and die when
-      // DSH exits, while detached+windowsHide starts python.exe with no console.
+      // Never pass detached=true on win32 (which spawns a visible console window
+      // in Node); backgroundSpawnOptions sets windowsHide=true and detached=(platform !== 'win32').
       const child = spawn(
         p.venvPython,
         ['-X', 'utf8', updateScript, 'check', '--profile', profile, '--current-version', VERSION, '--silent'],
-        { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } },
+        { ...backgroundSpawnOptions(), windowsHide: true, stdio: 'ignore', env: buildChildEnv(process.env, {}) },
       )
       child.unref()
       return true
@@ -402,9 +396,35 @@ export function apply(ctx) {
     endpointUrl = `http://127.0.0.1:${summaryServer.address().port}/summary`
     writeEndpoint()
   }
+  const sessionToolDisposers = new Map()
+
+  const unmountSessionKnowledgeTools = (sessionId) => {
+    const dispose = sessionToolDisposers.get(sessionId)
+    if (!dispose) return
+    sessionToolDisposers.delete(sessionId)
+    try { dispose() } catch {}
+  }
+
+  const mountSessionKnowledgeTools = (agent, sessionId) => {
+    if (!sessionId || sessionToolDisposers.has(sessionId)) return
+    const registry = typeof agent?.ctx?.tools?.register === 'function' ? agent.ctx.tools : ctx.tools
+    const dispose = registerSessionKnowledgeSuite(registry, {
+      tool,
+      sidecar,
+      requireState,
+      text,
+      syncTimeoutMs: SYNC_TIMEOUT_MS,
+      timeoutMs: distillCallTimeoutMs,
+    })
+    sessionToolDisposers.set(sessionId, dispose)
+  }
+
   ctx.effect(() => () => {
     clearTimeout(updateTimer)
     clearInterval(updateInterval)
+    for (const id of [...sessionToolDisposers.keys()]) {
+      unmountSessionKnowledgeTools(id)
+    }
     sidecar.dispose()
     sessions.clear()
     try {
@@ -488,6 +508,7 @@ export function apply(ctx) {
       }
       if (op === 'init') {
         const { state } = await requireState(exec)
+        mountSessionKnowledgeTools(exec.agent, session.id)
         await setRoute(exec.agent)
         let activation
         if (args.domain !== undefined) {
@@ -555,6 +576,7 @@ export function apply(ctx) {
           throw error
         }
         sessions.delete(session.id)
+        unmountSessionKnowledgeTools(session.id)
         return text({
           deactivated: Boolean(result.deactivated),
           sharing: result.sharing,
@@ -569,121 +591,6 @@ export function apply(ctx) {
       }
       throw new Error(`unsupported mindie_entry op: ${String(op)}`)
     }),
-  )
-
-  ctx.tools.register(
-    tool(
-      'knowledge_query',
-      'Search graded L1-L4 rules and task material in the local MindIE Ascend knowledge corpus ' +
-        '(vLLM-Ascend, AscendC/Triton, testing, and tuning). Include canonical English technical ' +
-        'identifiers, APIs, or error codes in `query` alongside domain keywords. Pass observed task ' +
-        '`conditions` to filter graded rules (or `include_unknown: true` during initial discovery), ' +
-        '`domain` to search a configured domain, `continuation` for the next page of task blocks, or ' +
-        '`navigation_only: true` to return cards without inline bodies. Use `mode: "reuse"` (default) ' +
-        'for L1-L3 reuse, `mode: "diagnose"` for fault triage, or `mode: "explore"` (with `goal`, ' +
-        '`bottleneck_summary`, and `ledger_entries`) to strip L3 workflows and return L1/L2 foundations, ' +
-        'L4 mutators, and `exploration_context`. Requires an active `/mindie-agent` session.',
-      {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description:
-              'Concise bilingual search query combining canonical English technical identifiers/APIs/error codes and key Chinese/English domain terms.',
-          },
-          limit: { type: 'integer', minimum: 1, maximum: 20 },
-          conditions: { type: 'object' },
-          continuation: { type: 'string' },
-          ...knowledgeQueryExtraProperties,
-        },
-        additionalProperties: false,
-      },
-      async (args, exec) => {
-        const { session, state } = await requireState(exec)
-        const result = await sidecar.call(
-          'rpc',
-          { session: session.id, token: state.token, method: 'query', arguments: args },
-          exec.signal,
-        )
-        return text(result)
-      },
-    ),
-  )
-
-  ctx.tools.register(
-    tool(
-      'knowledge_explain',
-      'Read graded knowledge units (`refs`) or a legacy task/block reference (`ref`) with shared ' +
-        'prerequisite closure (`requires`) and deduplication (`known_refs`). Prefer `refs` with ' +
-        'observed `conditions`, `known_refs` (`id@revision` units already in context), and ' +
-        '`token_budget` (1-16000). Pass `mode: "explore"` when loading an L4 code-transformation ' +
-        'mutator. Requires an active `/mindie-agent` session.',
-      knowledgeExplainParameters,
-      async (args, exec) => {
-        const { session, state } = await requireState(exec)
-        const result = await sidecar.call(
-          'rpc',
-          { session: session.id, token: state.token, method: 'explain', arguments: args },
-          exec.signal,
-        )
-        return text(result)
-      },
-    ),
-  )
-
-  registerKnowledgeDistill(ctx, { tool, sidecar, requireState, text, timeoutMs: distillCallTimeoutMs })
-
-  ctx.tools.register(
-    tool(
-      'knowledge_feedback',
-      'Record an optional up/down rating or 4-stage usage event (`discovered`, `loaded`, `applied`, `evaluated`) ' +
-        'for an exact `feedback_ref` returned by query/explain. `evaluated` requires `run_id` and ' +
-        '`outcome` (`supported`, `refuted`, or `inconclusive`). Requires an active `/mindie-agent` session.',
-      {
-        type: 'object',
-        properties: {
-          ref: { type: 'string' },
-          rating: { type: 'string', enum: ['up', 'down'] },
-          reason: { type: 'string', maxLength: 1000 },
-          event_type: { type: 'string', enum: ['discovered', 'loaded', 'applied', 'evaluated'] },
-          run_id: { type: 'string', maxLength: 256 },
-          step_id: { type: 'string', maxLength: 256 },
-          outcome: { type: 'string', enum: ['supported', 'refuted', 'inconclusive'] },
-          evidence_source: {
-            type: 'string',
-            enum: ['agent_declared', 'run_manifest_verified', 'ablation_verified'],
-          },
-        },
-        required: ['ref'],
-        additionalProperties: false,
-      },
-      async (args, exec) => {
-        const { session, state } = await requireState(exec)
-        const result = await sidecar.call(
-          'rpc',
-          { session: session.id, token: state.token, method: 'feedback', arguments: args },
-          exec.signal,
-        )
-        return text(result)
-      },
-    ),
-  )
-
-  ctx.tools.register(
-    tool(
-      'knowledge_sync',
-      'Synchronize the configured public knowledge feed for the selected domain. ' +
-        'Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge. ' +
-        'Requires an active `/mindie-agent` session.',
-      { type: 'object', properties: { domain: { type: 'string' } }, additionalProperties: false },
-      async (args, exec) => {
-        const { session, state } = await requireState(exec)
-        const { _tool_error: isError, ...result } = await sidecar.call(
-          'sync', { session: session.id, token: state.token, domain: args.domain }, exec.signal, SYNC_TIMEOUT_MS)
-        if (isError) throw new Error(text(result))
-        return text(result)
-      },
-    ),
   )
 
   const findTranscript = (sessionId) => {
@@ -724,17 +631,14 @@ export function apply(ctx) {
     try {
       const child = spawn(p.venvPython, ['-X', 'utf8', path.join(p.packageDir, 'scripts', 'capture_stop.py')], {
         cwd: p.packageDir,
-        env: {
-          ...process.env,
-          PYTHONUTF8: '1',
-          PYTHONIOENCODING: 'utf-8',
+        env: buildChildEnv(process.env, {
           MINDIE_DSH_CONFIG: p.configFile,
           MINDIE_DSH_STATE_DIR: p.stateDir,
           MINDIE_DIAGNOSTICS_CONFIG: path.join(p.configHome, 'diagnostics.json'),
-        },
-        detached: true,
-        stdio: ['pipe', 'ignore', 'ignore'],
+        }),
+        ...backgroundSpawnOptions(),
         windowsHide: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
       })
       child.on('error', (error) => log(`capture spawn failed: ${error.message}`))
       child.stdin.on('error', () => {})
@@ -754,7 +658,9 @@ export function apply(ctx) {
         if (hasMindieGesture(messages) || hasMindieGesture(decision?.messages)) {
           await setRoute(agent)
           await activate(session, cwdOf(session))
+          mountSessionKnowledgeTools(agent, session.id)
         } else if (!sessions.get(session.id)?.token && await resume(session)) {
+          mountSessionKnowledgeTools(agent, session.id)
           await setRoute(agent)
         }
       }
@@ -762,6 +668,14 @@ export function apply(ctx) {
       log(`pre-step activation failed: ${error.message}`)
     }
     return decision
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => {
+    const sessionId = agent?.session?.id
+    if (typeof sessionId === 'string' && sessionId) {
+      sessions.delete(sessionId)
+      unmountSessionKnowledgeTools(sessionId)
+    }
   })
 
   ctx.on('agent/turn-stopping', ({ agent, turn }) => {

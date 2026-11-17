@@ -1,3 +1,8 @@
+> **ARCHIVED HISTORICAL ARTIFACT** — Preserved for provenance from commit `305da21b` (`docs/same-version-refresh.md`).
+> Superseded by [`docs/README.md`](../README.md) and [`AGENTS.md`](../../AGENTS.md).
+> Do not treat version numbers, component SHAs, or historical snapshots below as active normative contracts.
+---
+
 # Explicit Refresh of an Existing `0.0.2` Installation
 
 This `0.0.2` release is an authorized one-time replacement of the earlier `0.0.2` build (`828c375d1f546ed653250526465b8075c1691390`). Because the legacy updater compares version strings using strict greater-than (`>`), it will not automatically select a new commit that carries the same `0.0.2` version string. In addition, an active DSH process keeps the previously loaded Node Host plugin in memory until the process exits.

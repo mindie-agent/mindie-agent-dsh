@@ -129,4 +129,53 @@ function paths() {
   }
 }
 
-module.exports = { paths, dataHome, configHome }
+function seedPaths() {
+  return {
+    seedArchive: path.join(PACKAGE_DIR, 'assets', 'mindie-harness-seed.pyz'),
+    seedLock: path.join(PACKAGE_DIR, 'assets', 'seed-lock.json'),
+  }
+}
+
+function backgroundSpawnOptions(platform = process.platform) {
+  // Never pass detached: true on win32 — Node's libuv maps detached: true on
+  // Windows to CREATE_NEW_PROCESS_GROUP without CREATE_NO_WINDOW when combined
+  // with detached console creation, popping a visible console window.
+  return {
+    windowsHide: true,
+    detached: platform !== 'win32',
+  }
+}
+
+function buildChildEnv(baseEnv = process.env, overrides = {}, platform = process.platform) {
+  const merged = {}
+  const isWin = platform === 'win32'
+  let pathValue
+  if (baseEnv && typeof baseEnv === 'object') {
+    for (const [key, val] of Object.entries(baseEnv)) {
+      if (val === undefined || val === null) continue
+      if (isWin && key.toUpperCase() === 'PATH') {
+        if (pathValue === undefined || key === 'PATH') pathValue = String(val)
+      } else {
+        merged[key] = String(val)
+      }
+    }
+  }
+  if (overrides && typeof overrides === 'object') {
+    for (const [key, val] of Object.entries(overrides)) {
+      if (val === undefined || val === null) continue
+      if (isWin && key.toUpperCase() === 'PATH') {
+        pathValue = String(val)
+      } else {
+        merged[key] = String(val)
+      }
+    }
+  }
+  if (isWin && pathValue !== undefined) {
+    merged.PATH = pathValue
+  }
+  if (merged.PYTHONUTF8 === undefined) merged.PYTHONUTF8 = '1'
+  if (merged.PYTHONIOENCODING === undefined) merged.PYTHONIOENCODING = 'utf-8'
+  return merged
+}
+
+module.exports = { paths, seedPaths, dataHome, configHome, backgroundSpawnOptions, buildChildEnv }

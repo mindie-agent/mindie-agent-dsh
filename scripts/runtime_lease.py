@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """[Role] Hold one process-lifetime shared runtime lease for resident DSH
-services (knowledge MCP, component MCP, and the warm sidecar).
-[Invariants] Only a directory recognized by
-`mindie_knowledge.storage.owning_dir(sys.executable)` is leased; a development
-interpreter outside a disposable generation yields no lease. Acquisition is
-non-blocking and never retries. The OS releases the lock on process exit, so a
-resident service does not grow a release/cleanup path of its own.
-[Timeouts & Locks] One non-blocking shared lease probe; a busy or vanished
-generation is reported as unavailable instead of waiting.
-[Side-Effect Policy] Creates/removes only the shared `.inuse.lock` files inside
-an existing runtime generation; no config, state, network, or model I/O.
+services (`knowledge_mcp`, `component_mcp`, and `mindie_sidecar`).
+[Invariants] Acquires both `mindie_knowledge.storage.acquire_runtime_lease` and
+`mindie_harness.locks.acquire_generation_lease` on disposable runtime generations;
+development interpreters outside managed generations yield no lease.
+[Timeouts & Locks] Non-blocking shared lease probes; never retries or blocks startup.
+[Side-Effect Policy] Creates/retains only `.inuse.lock` / generation lease descriptors
+inside an existing runtime generation until OS process exit.
 """
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 _HELD: list = []
 
 
 def hold_runtime_lease(executable: str | None = None):
-    """Acquire and retain a shared generation lease until process exit."""
+    """Acquire and retain shared generation leases until process exit."""
     try:
         from mindie_knowledge.storage import acquire_runtime_lease, owning_dir
     except TimeoutError:
@@ -36,6 +34,16 @@ def hold_runtime_lease(executable: str | None = None):
     except (OSError, RuntimeError):
         return None
     _HELD.append(lease)
+    try:
+        from mindie_harness.locks import acquire_generation_lease
+
+        harness_lease = acquire_generation_lease(Path(directory))
+        harness_lease.__enter__()
+        _HELD.append(harness_lease)
+    except TimeoutError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
     return lease
 
 

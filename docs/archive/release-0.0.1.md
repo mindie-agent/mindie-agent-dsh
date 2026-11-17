@@ -1,3 +1,8 @@
+> **ARCHIVED HISTORICAL ARTIFACT** — Preserved for provenance from commit `305da21b` (`docs/release-0.0.1.md`).
+> Superseded by [`docs/README.md`](../README.md) and [`AGENTS.md`](../../AGENTS.md).
+> Do not treat version numbers, component SHAs, or historical snapshots below as active normative contracts.
+---
+
 # MindIE Agent for DeepSeek Harness `0.0.1`
 
 Released 2026-10-17. GitHub Release: `mindie-agent/mindie-agent-dsh@v0.0.1`

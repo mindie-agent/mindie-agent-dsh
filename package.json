@@ -10,6 +10,7 @@
     "paths.cjs",
     "host.mjs",
     "host3.mjs",
+    "assets/",
     "skills/",
     "scripts/",
     "docs/",
