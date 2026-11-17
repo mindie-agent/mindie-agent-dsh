@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -31,6 +34,7 @@ jobs:
           python -m pip install uv
           uv sync --locked --no-editable --no-dev --group component-contracts
           uv pip install -r requirements-dev.txt
+          uv pip install --no-deps "mindie-harness @ git+https://github.com/mindie-agent/harness.git@main"
           npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
       - name: Enforce Unix LF Line Endings
         run: python .github/scripts/check_lf_eol.py
