@@ -15,7 +15,6 @@ import time
 
 try:
     from mindie_harness.process import (
-        CREATE_NO_WINDOW as _HARNESS_NO_WINDOW,
         Deadline,
         OutputLimitError,
         ProcessCancelledError,
@@ -24,11 +23,10 @@ try:
         run_owned,
     )
 except ImportError:
-    _HARNESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
     Deadline = OutputLimitError = ProcessCancelledError = ProcessExecutionError = ProcessSpec = run_owned = None
 
 CLEANUP_SECONDS = 5.0
-CREATE_NO_WINDOW = _HARNESS_NO_WINDOW if os.name == "nt" else 0
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _ORIG_POPEN = subprocess.Popen
 _ORIG_RUN = subprocess.run
 
