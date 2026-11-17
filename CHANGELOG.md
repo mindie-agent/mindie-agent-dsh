@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.24 — 2026-11-18
+
+- Preserve DeepSeek Harness manual-only `/mindie-agent` session-gated knowledge invocation (`disable-model-invocation: true`) while separating install/consent guides (`docs/install/{user-notice,github-authentication,workspace-setup}.md`) from the runtime `skills/mindie-agent/` bundle and purging first-use onboarding prompts from `SKILL.md` and runtime reference docs.
+
 ## 0.1.23 — 2026-11-17
 
 - Delegate shared runtime process, storage lifecycle, MCP gateway (`P2.7` zero session-binding gates on deterministic tools vs `P2.1` `knowledge_*` admission), and `rsi` substrate primitives to `mindie-harness 0.1.0`, while keeping `mindie-agent-dsh` focused on DSH Cordis host integration and preserving `v0.1.22` live upgrade compatibility.

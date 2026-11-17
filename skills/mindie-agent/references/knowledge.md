@@ -19,7 +19,7 @@ and calls that omit these fields keep their previous shape.
 ## Entry (`mindie_entry`) & Multi-Domain Route Registration
 
 - **Manual `/mindie-agent` Session Gate**: The user must invoke `/mindie-agent` once in the current session before calling `mindie_entry(op="init"|"choose"|"sharing-enable"|"sharing-disable")`, any `knowledge_*` tool (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`), or triggering `agent/turn-stopping` background capture. Both the host sidecar (`mindie_sidecar.py`) and the stdio MCP bridge (`knowledge_mcp.py`, which also requires `MINDIE_DSH_SESSION_ID`) enforce `admission.knowledge_lease(session)` (`entry_enabled == 1`).
-- `op="init"` reuses the active manual-entry grant (`requireState`, which restores an existing persisted `knowledge_lease` via `resume` if `admission.sqlite3` exists, after `agent/pre-step` activated the session on the `/mindie-agent` gesture), lazily starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`) and any required setup step (`next`).
+- `op="init"` reuses the active manual-entry grant (`requireState`, which restores an existing persisted `knowledge_lease` via `resume` if `admission.sqlite3` exists, after `agent/pre-step` activated the session on the `/mindie-agent` gesture), lazily starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`).
   Passing `mindie_entry(op="init", domain="<domain>")` explicitly activates a
   registered target `domain` under its own existing `consent` and `project_root`
   scope (returning `domain_activation` without replacing the default session
@@ -33,7 +33,7 @@ and calls that omit these fields keep their previous shape.
 - `op="status"`, `op="sharing-status"`, and `op="reporting-status"` are factual
   read-only checks (`{kind: "status", activated: Boolean(result.lease?.enabled), ...result}`)
   available in any session without requiring `/mindie-agent`, starting the
-  summary server, or emitting onboarding views.
+  summary server, or mutating session state.
 - `op="deactivate"` revokes **only the current session's** capture lease across
   the default domain and all registered `domain_configs` without altering the
   saved profile consent choice or revoking other sessions. If any registered
@@ -41,7 +41,7 @@ and calls that omit these fields keep their previous shape.
   while preserving `changed` and per-domain outcomes (`domains[]`), keeping
   partial failure and already-revoked side effects distinct.
 
-Knowledge loading follows [When to Query Knowledge](../SKILL.md#when-to-query-knowledge). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
+Knowledge loading follows [Advisory Knowledge & Domain Tooling](../SKILL.md#2-advisory-knowledge--domain-tooling). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
 
 ## Query (`knowledge_query`)
 

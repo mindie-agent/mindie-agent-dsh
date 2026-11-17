@@ -6,9 +6,10 @@ This directory holds active verification contracts, microbenchmark notes, and fo
 
 ## Active Documentation
 
+- [`install/`](install/user-notice.md) — Installation and consent guides: [`user-notice.md`](install/user-notice.md) (contribution & fault-reporting notice), [`github-authentication.md`](install/github-authentication.md) (GitHub sign-in), and [`workspace-setup.md`](install/workspace-setup.md) (workspace setup).
 - [`verification.md`](verification.md) — DSH host protocol boundaries, cross-platform verification matrix, and SDK interface audit.
 - [`benchmark.md`](benchmark.md) — Release CPU microbenchmark (`benchmarks/release.py`) scope and execution guide.
-- [`releases/`](releases/) — Formal release notes by tag.
+- [`releases/`](releases/) — Formal release notes by tag (latest: [`0.1.24`](releases/mindie-agent-dsh-0.1.24.en.md)).
 
 ## Historical Archive
 
