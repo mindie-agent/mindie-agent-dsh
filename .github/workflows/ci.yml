@@ -68,7 +68,7 @@ jobs:
             if (!seeds.seedArchive.endsWith("mindie-harness-seed.pyz")) process.exit(1);
             if (mod.backgroundSpawnOptions("win32").detached !== false) process.exit(1);
           ' "$REPO_DIR"
-          uv run --directory "$REPO_DIR" --no-sync python -c "import importlib.util, pathlib; p = pathlib.Path(r'$REPO_DIR/scripts/mindie_launch.py'); s = importlib.util.spec_from_file_location('ml', p); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); m._verify_seed(p.parents[1]/'assets/mindie-harness-seed.pyz', p.parents[1]/'assets/seed-lock.json')"
+          uv run --directory "$REPO_DIR" --no-sync python -c "import importlib.util, pathlib, sys; p = pathlib.Path(sys.argv[1]) / 'scripts' / 'mindie_launch.py'; s = importlib.util.spec_from_file_location('ml', p); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); m._verify_seed(p.parents[1]/'assets/mindie-harness-seed.pyz', p.parents[1]/'assets/seed-lock.json')" "$REPO_DIR"
 
   release-ready:
     name: release-ready
