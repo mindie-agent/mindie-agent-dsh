@@ -137,13 +137,30 @@ def test_diagnostics_bounded_reads_accept_legitimate_symlinks(tmp_path: Path) ->
 
 
 def test_skills_and_references_contain_zero_benchmark_spillover() -> None:
-    banned = ("PROGRESS.md", "mindie-bench-ablation/1", "mindie_knowledge.graded.experiment_ledger")
-    skill_files = [ROOT / "skills" / "mindie-agent" / "SKILL.md", *sorted((ROOT / "skills" / "mindie-agent" / "references").glob("*.md"))]
+    banned = (
+        "PROGRESS.md",
+        "mindie-bench-ablation/1",
+        "mindie_knowledge.graded.experiment_ledger",
+        "workspace-setup.md",
+        "github-authentication.md",
+        "user-notice.md",
+        "needs_onboarding_prompt",
+        "vllm-ascend-workspace",
+        "gh auth login",
+        "GitHub Star",
+        "Non-Intrusive First-Use Onboarding",
+    )
+    skill_md = ROOT / "skills" / "mindie-agent" / "SKILL.md"
+    assert "disable-model-invocation: true" in skill_md.read_text(encoding="utf-8")
+    skill_files = [skill_md, *sorted((ROOT / "skills" / "mindie-agent" / "references").glob("*.md"))]
     assert len(skill_files) >= 5
     for doc in skill_files:
         text = doc.read_text(encoding="utf-8")
         for token in banned:
-            assert token not in text, f"{doc.name} still contains banned spillover token {token!r}"
+            assert token not in text, f"{doc.name} still contains banned spillover/install token {token!r}"
+    for name in ("workspace-setup.md", "github-authentication.md", "user-notice.md"):
+        assert (ROOT / "docs" / "install" / name).is_file()
+        assert not (ROOT / "skills" / "mindie-agent" / "references" / name).exists()
 
 
 def test_v0_1_22_config_and_pointer_upgrade_compatibility(tmp_path: Path, monkeypatch) -> None:
