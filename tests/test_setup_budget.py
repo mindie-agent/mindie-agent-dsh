@@ -38,9 +38,9 @@ class SetupBudgetTests(unittest.TestCase):
                     patch.object(setup.mp, 'venv_python', return_value=Path(sys.executable)):
                 adapter = setup.adapter_configuration()
                 engine = setup.engine_configuration(sys.executable)
-                self.assertEqual(adapter['components']['mindie-knowledge'], '0.13.22')
-                self.assertEqual(adapter['components']['remote-dev'], '0.11.12')
-                self.assertEqual(adapter['components']['mindie-coordinator'], '0.7.11')
+                self.assertEqual(adapter['components']['mindie-knowledge'], '0.13.23')
+                self.assertEqual(adapter['components']['remote-dev'], '0.11.13')
+                self.assertEqual(adapter['components']['mindie-coordinator'], '0.7.13')
                 self.assertEqual(engine['feeds'][0]['repository'],
                                  'mindie-agent/knowledge-vllm-ascend')
                 self.assertEqual(engine['feeds'][0]['ref'], 'main')

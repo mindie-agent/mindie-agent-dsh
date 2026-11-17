@@ -23,6 +23,7 @@ import mindie_knowledge  # noqa: F401  (presence check)
 import remote_dev  # noqa: F401  (presence check)
 
 _COMPONENTS = (
+    "mindie-harness",
     "mindie-knowledge",
     "remote-dev",
     "mindie-diagnostics",
