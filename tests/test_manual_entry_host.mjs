@@ -16,7 +16,12 @@ const listeners = new Map()
 const disposers = []
 let modelCalls = 0
 const ctx = {
-  tools: { register(tool) { tools.set(tool.name, tool) } },
+  tools: {
+    register(tool) {
+      tools.set(tool.name, tool)
+      return () => tools.delete(tool.name)
+    },
+  },
   agents: { list: () => [] },
   llm: { async *stream() { modelCalls++; throw new Error('unexpected model call') } },
   on(event, callback) { listeners.set(event, callback) },
@@ -25,27 +30,30 @@ const ctx = {
 const user = text => ({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
 const originalSpawn = ChildProcess.prototype.spawn
 const spawnedOptions = []
+const expectedDetached = process.platform !== 'win32'
 try {
   assert.equal(hasMindieGesture([user('/mindie-agent tune KDA')]), true)
   assert.equal(hasMindieGesture([user('What does /mindie-agent do?')]), false)
   assert.equal(hasMindieGesture([user('/mindie-agent'), user('Download a model')]), false)
   assert.equal(hasMindieGesture([{ source: { kind: 'assistant' }, content: [{ type: 'text', text: '/mindie-agent' }] }]), false)
   apply(ctx)
+  // AD-11 reversed: unactivated sessions expose only mindie_entry, never knowledge_*.
+  assert.deepEqual([...tools.keys()], ['mindie_entry'])
   const exec = { agent: { session: { id: 'ordinary-session', header: { cwd: root } } } }
   const nextDecision = { kind: 'enter', messages: [user('Download a model')] }
   const result = await listeners.get('agent/pre-step')(
     { agent: exec.agent, messages: nextDecision.messages }, async () => nextDecision,
   )
   assert.equal(result, nextDecision)
+  assert.deepEqual([...tools.keys()], ['mindie_entry'])
   for (const [name, args] of [
     ['mindie_entry', { op: 'init' }],
     ['mindie_entry', { op: 'choose', choice: 'contribute' }],
-    ['knowledge_query', { query: 'KDA' }],
-    ['knowledge_explain', { ref: 'mindie://vllm-ascend/units/kda@1' }],
-    ['knowledge_feedback', { ref: 'mindie://vllm-ascend/units/kda@1', rating: 'up' }],
-    ['knowledge_sync', {}],
   ]) {
     await assert.rejects(tools.get(name).execute(args, exec), /not activated/)
+  }
+  for (const hidden of ['knowledge_query', 'knowledge_explain', 'knowledge_distill', 'knowledge_feedback', 'knowledge_sync']) {
+    assert.equal(tools.has(hidden), false)
   }
   assert.equal(modelCalls, 0)
   assert.equal(existsSync(path.join(root, 'state', 'summary-endpoint.json')), false)
@@ -87,14 +95,17 @@ try {
     async () => ({ kind: 'enter', messages: gestureMessages }),
   )
   listeners.get('agent/turn-stopping')({ agent: activatedExec.agent, turn: 1 })
+  for (const mounted of ['knowledge_query', 'knowledge_explain', 'knowledge_distill', 'knowledge_feedback', 'knowledge_sync']) {
+    assert.equal(tools.has(mounted), true)
+  }
   assert.equal(spawnedOptions.length, 3)
   assert.ok(spawnedOptions[0].args.some(arg => String(arg).endsWith('updater.py')))
-  assert.equal(spawnedOptions[0].detached, true)
+  assert.equal(spawnedOptions[0].detached, expectedDetached)
   assert.equal(spawnedOptions[0].windowsHide, true)
   assert.ok(spawnedOptions[1].args.some(arg => String(arg).endsWith('mindie_sidecar.py')))
   assert.equal(spawnedOptions[1].windowsHide, true)
   assert.ok(spawnedOptions[2].args.some(arg => String(arg).endsWith('capture_stop.py')))
-  assert.equal(spawnedOptions[2].detached, true)
+  assert.equal(spawnedOptions[2].detached, expectedDetached)
   assert.equal(spawnedOptions[2].windowsHide, true)
 } finally {
   ChildProcess.prototype.spawn = originalSpawn

@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,12 +48,30 @@ jobs:
           node --test tests/test_remote_isolation.mjs
           node --test tests/test_log_rotation.mjs
           node --test tests/test_summary_host.mjs
+          node --test tests/test_win32_spawn_and_gating.mjs
+      - name: Outside-checkout package smoke check
+        shell: bash
+        run: |
+          SMOKE_DIR="$(mktemp -d)"
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
+          REPO_DIR="$PWD"
+          cd "$SMOKE_DIR"
+          MINDIE_DSH_DATA_HOME="$SMOKE_DIR/data" MINDIE_DSH_CONFIG_HOME="$SMOKE_DIR/config" node -e '
+            const path = require("node:path");
+            const mod = require(path.join(process.argv[1], "paths.cjs"));
+            mod.paths();
+            const seeds = mod.seedPaths();
+            if (!seeds.seedArchive.endsWith("mindie-harness-seed.pyz")) process.exit(1);
+            if (mod.backgroundSpawnOptions("win32").detached !== false) process.exit(1);
+          ' "$REPO_DIR"
+          uv run --directory "$REPO_DIR" --no-sync python -c "import importlib.util, pathlib; p = pathlib.Path(r'$REPO_DIR/scripts/mindie_launch.py'); s = importlib.util.spec_from_file_location('ml', p); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); m._verify_seed(p.parents[1]/'assets/mindie-harness-seed.pyz', p.parents[1]/'assets/seed-lock.json')"
 
   release-ready:
     name: release-ready
     needs: [contract]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}

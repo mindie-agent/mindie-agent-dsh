@@ -1,3 +1,8 @@
+> **ARCHIVED HISTORICAL ARTIFACT** — Preserved for provenance from commit `305da21b` (`docs/design-review.md`).
+> Superseded by [`docs/README.md`](../README.md) and [`AGENTS.md`](../../AGENTS.md).
+> Do not treat version numbers, component SHAs, or historical snapshots below as active normative contracts.
+---
+
 # Design-principles review (`0.0.1`)
 
 Reviewed commit: the `v0.0.1` tree. Principles revision:

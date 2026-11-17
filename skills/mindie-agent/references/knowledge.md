@@ -146,8 +146,8 @@ reference does not require a new `knowledge_query`.
   `unresolved` and the supplied `known_refs`; exact bodies already visible are
   not resent. A batch read returns `units[]`,
   `requires[]`, `unresolved[]`, and `usage` metadata. Record `id`
-  (`unit_id`) and integer `revision` when citing a unit in `PROGRESS.md` or
-  `experiment-ledger.jsonl`.
+  (`unit_id`) and integer `revision` when citing a unit in task notes or
+  run receipts.
 - **Legacy task or block ref**: a task ref returns the navigation outline and
   `first_block_ref`; a block ref returns that immutable block, its content hash,
   and `previous_block_ref` / `next_block_ref`.
@@ -191,7 +191,7 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
   `model_calls=0`, `model_execution="foreground_proposal"`, and never invokes
   the paid organizer. Omit `related_refs`/`proposal` when neither is available.
 - `inputs`: non-empty list of selected evidence items, each requiring `kind`
-  (`experiment_ledger` | `run_manifest` | `authorized_transcript` |
+  (`run_manifest` | `authorized_transcript` |
   `ecosystem_repo` | `hardware_spec` | `ablation_receipt`), `outcome`
   (`observed` | `verified` | `compile_failed` | `infra_failed` |
   `measurement_invalid` | `in_flight`), `source_locator`, `content`,
@@ -204,8 +204,8 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
   unverified fault/build evidence to `hardware_spec` or `reproduced_empirical`;
   `hardware_spec` specifically requires a `hardware_spec` source,
   `reproduced_empirical` specifically requires `outcome == "verified"` with
-  `repetitions >= 2`, and `L4` specifically requires a verified
-  `mindie-bench-ablation/1` receipt). Only `task_state="in_flight"` (or
+  `repetitions >= 2`, and `L4` specifically requires a verified leave-one-out
+  `ablation_receipt`). Only `task_state="in_flight"` (or
   all-`in_flight` / empty inputs) is a deterministic zero-call `noop`, and an
   ordinary host `Stop` event is **not** task completion. Local
   receipt/application failures preserve a completed native model result

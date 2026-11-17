@@ -23,7 +23,12 @@ const tools = new Map()
 const listeners = new Map()
 const disposers = []
 const ctx = {
-  tools: { register(tool) { tools.set(tool.name, tool) } },
+  tools: {
+    register(tool) {
+      tools.set(tool.name, tool)
+      return () => tools.delete(tool.name)
+    },
+  },
   agents: {},
   llm: {
     async *stream() {
@@ -75,7 +80,7 @@ const results = []
 for (const operation of operations) {
   const selected = tools.get(operation.tool)
   if (!selected) {
-    results.push({ ok: false, error: `tool not registered: ${operation.tool}` })
+    results.push({ ok: false, error: `this task is not activated; invoke /mindie-agent first (tool unmounted: ${operation.tool})` })
     continue
   }
   try {

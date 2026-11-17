@@ -51,7 +51,7 @@ This document summarizes the verification scope and acceptance evidence for `min
 
 ## 5. Known Operational Boundaries
 
-- **Same-Version Refresh**: Upgrading from the earlier `0.0.2` commit (`828c375d1f546ed653250526465b8075c1691390`) requires the explicit SHA refresh and full DSH process restart documented in [`docs/same-version-refresh.md`](same-version-refresh.md).
+- **Same-Version Refresh**: Upgrading from the earlier `0.0.2` commit (`828c375d1f546ed653250526465b8075c1691390`) requires the explicit SHA refresh and full DSH process restart documented in [`docs/archive/same-version-refresh.md`](archive/same-version-refresh.md).
 - **Host-Scoped Auto-Update**: Background update checks run while the DSH Host process is alive and swap child plugin generations (`host3.mjs`); skill files and the root `cordis.patch.yml` require a bundle update and DSH restart when changed.
 
 ## 6. DSH `0.2.1-rc.5` Interface Audit

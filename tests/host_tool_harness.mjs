@@ -27,7 +27,12 @@ const tools = new Map()
 const listeners = new Map()
 const disposers = []
 const ctx = {
-  tools: { register(tool) { tools.set(tool.name, tool) } },
+  tools: {
+    register(tool) {
+      tools.set(tool.name, tool)
+      return () => tools.delete(tool.name)
+    },
+  },
   agents: {},
   llm: {
     async *stream(options) {
@@ -58,8 +63,7 @@ const exec = {
   signal: undefined,
 }
 const entry = tools.get('mindie_entry')
-const distill = tools.get('knowledge_distill')
-if (!entry || !distill) throw new Error('required host tools are not registered')
+if (!entry) throw new Error('required host entry tool is not registered')
 let activated = { activated: false }
 if (process.env.DISTILL_PRE_STEP_GESTURE === '1' || process.env.DISTILL_SKIP_ACTIVATION !== '1') {
   const preStep = listeners.get('agent/pre-step')
@@ -76,16 +80,21 @@ if (process.env.DISTILL_PRE_STEP_GESTURE === '1' || process.env.DISTILL_SKIP_ACT
 if (process.env.DISTILL_SKIP_ACTIVATION !== '1') {
   activated = JSON.parse(await entry.execute({ op: 'init' }, exec))
 }
+const distill = tools.get('knowledge_distill')
 const arguments_ = { inputs, task_state: 'verified_milestone' }
 if (domain) arguments_.domain = domain
 if (relatedRefs) arguments_.related_refs = JSON.parse(relatedRefs)
 if (proposal) arguments_.proposal = JSON.parse(proposal)
 let result = null
 let error = null
-try {
-  result = JSON.parse(await distill.execute(arguments_, exec))
-} catch (caught) {
-  error = String(caught?.message || caught)
+if (!distill) {
+  error = 'this task is not activated; invoke /mindie-agent first'
+} else {
+  try {
+    result = JSON.parse(await distill.execute(arguments_, exec))
+  } catch (caught) {
+    error = String(caught?.message || caught)
+  }
 }
 const schemas = Object.fromEntries([...tools].map(([name, tool]) => [name, tool.parameters]))
 console.log(JSON.stringify({

@@ -72,13 +72,14 @@ export function componentMcpConfig(binding, entry, agent) {
 }
 
 function sessionStateDir(binding, sessionId) {
-  // One MCP process and one state root per agent session. A shared root would
-  // let session B read or stop session A's job by opaque job_id.
+  // Shared remote-dev state root (`AD-02` fixed) so delegated subagents can
+  // inspect or stop parent `job_id`s, while `REMOTE_DEV_SESSION_ID` isolates
+  // per-session read ledgers.
   const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
   if (!safe || safe === '.' || safe === '..') {
     throw new Error('MindIE remote MCP requires a filesystem-safe agent session id')
   }
-  return path.join(binding.stateDir, 'remote', safe)
+  return path.join(binding.stateDir, 'remote')
 }
 
 function pointerPath() {

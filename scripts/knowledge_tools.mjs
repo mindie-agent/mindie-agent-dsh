@@ -278,7 +278,7 @@ export const knowledgeDistillDescription =
 export function registerKnowledgeDistill(ctx, {
   tool, sidecar, requireState, text, timeoutMs = distillCallTimeoutMs,
 }) {
-  ctx.tools.register(tool(
+  return ctx.tools.register(tool(
     'knowledge_distill',
     knowledgeDistillDescription,
     knowledgeDistillParameters,
@@ -294,6 +294,126 @@ export function registerKnowledgeDistill(ctx, {
       return text(result)
     },
   ))
+}
+
+export function registerSessionKnowledgeSuite(registry, {
+  tool, sidecar, requireState, text, syncTimeoutMs, timeoutMs = distillCallTimeoutMs,
+}) {
+  const disposers = []
+  const add = (def) => {
+    const dispose = registry.register(def)
+    disposers.push(typeof dispose === 'function' ? dispose : () => registry.unregister?.(def.name))
+  }
+  add(tool(
+    'knowledge_query',
+    'Search graded L1-L4 rules and task material in the local MindIE Ascend knowledge corpus ' +
+      '(vLLM-Ascend, AscendC/Triton, testing, and tuning). Include canonical English technical ' +
+      'identifiers, APIs, or error codes in `query` alongside domain keywords. Pass observed task ' +
+      '`conditions` to filter graded rules (or `include_unknown: true` during initial discovery), ' +
+      '`domain` to search a configured domain, `continuation` for the next page of task blocks, or ' +
+      '`navigation_only: true` to return cards without inline bodies. Use `mode: "reuse"` (default) ' +
+      'for L1-L3 reuse, `mode: "diagnose"` for fault triage, or `mode: "explore"` (with `goal`, ' +
+      '`bottleneck_summary`, and `ledger_entries`) to strip L3 workflows and return L1/L2 foundations, ' +
+      'L4 mutators, and `exploration_context`. Requires an active `/mindie-agent` session.',
+    {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Concise bilingual search query combining canonical English technical identifiers/APIs/error codes and key Chinese/English domain terms.',
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 20 },
+        conditions: { type: 'object' },
+        continuation: { type: 'string' },
+        ...knowledgeQueryExtraProperties,
+      },
+      additionalProperties: false,
+    },
+    async (args, exec) => {
+      const { session, state } = await requireState(exec)
+      const result = await sidecar.call(
+        'rpc',
+        { session: session.id, token: state.token, method: 'query', arguments: args },
+        exec.signal,
+      )
+      return text(result)
+    },
+  ))
+  add(tool(
+    'knowledge_explain',
+    'Read graded knowledge units (`refs`) or a legacy task/block reference (`ref`) with shared ' +
+      'prerequisite closure (`requires`) and deduplication (`known_refs`). Prefer `refs` with ' +
+      'observed `conditions`, `known_refs` (`id@revision` units already in context), and ' +
+      '`token_budget` (1-64000). Pass `mode: "explore"` when loading an L4 code-transformation ' +
+      'mutator. Requires an active `/mindie-agent` session.',
+    knowledgeExplainParameters,
+    async (args, exec) => {
+      const { session, state } = await requireState(exec)
+      const result = await sidecar.call(
+        'rpc',
+        { session: session.id, token: state.token, method: 'explain', arguments: args },
+        exec.signal,
+      )
+      return text(result)
+    },
+  ))
+  const distillDispose = registerKnowledgeDistill({ tools: registry }, {
+    tool, sidecar, requireState, text, timeoutMs,
+  })
+  disposers.push(typeof distillDispose === 'function' ? distillDispose : () => registry.unregister?.('knowledge_distill'))
+  add(tool(
+    'knowledge_feedback',
+    'Record an optional up/down rating or 4-stage usage event (`discovered`, `loaded`, `applied`, `evaluated`) ' +
+      'for an exact `feedback_ref` returned by query/explain. `evaluated` requires `run_id` and ' +
+      '`outcome` (`supported`, `refuted`, or `inconclusive`). Requires an active `/mindie-agent` session.',
+    {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        rating: { type: 'string', enum: ['up', 'down'] },
+        reason: { type: 'string', maxLength: 1000 },
+        event_type: { type: 'string', enum: ['discovered', 'loaded', 'applied', 'evaluated'] },
+        run_id: { type: 'string', maxLength: 256 },
+        step_id: { type: 'string', maxLength: 256 },
+        outcome: { type: 'string', enum: ['supported', 'refuted', 'inconclusive'] },
+        evidence_source: {
+          type: 'string',
+          enum: ['agent_declared', 'run_manifest_verified', 'ablation_verified'],
+        },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+    async (args, exec) => {
+      const { session, state } = await requireState(exec)
+      const result = await sidecar.call(
+        'rpc',
+        { session: session.id, token: state.token, method: 'feedback', arguments: args },
+        exec.signal,
+      )
+      return text(result)
+    },
+  ))
+  add(tool(
+    'knowledge_sync',
+    'Synchronize the configured public knowledge feed for the selected domain. ' +
+      'Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge. ' +
+      'Requires an active `/mindie-agent` session.',
+    { type: 'object', properties: { domain: { type: 'string' } }, additionalProperties: false },
+    async (args, exec) => {
+      const { session, state } = await requireState(exec)
+      const { _tool_error: isError, ...result } = await sidecar.call(
+        'sync', { session: session.id, token: state.token, domain: args.domain }, exec.signal, syncTimeoutMs)
+      if (isError) throw new Error(text(result))
+      return text(result)
+    },
+  ))
+  return () => {
+    for (const dispose of disposers.splice(0).reverse()) {
+      try { dispose?.() } catch {}
+    }
+  }
 }
 
 export const entryDescription =

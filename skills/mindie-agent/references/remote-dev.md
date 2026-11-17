@@ -31,30 +31,19 @@ MCP connection; inspect its original record before starting another one.
   turn (`turn-stopping`) only triggers turn-level experience handoff; it never
   implies that an iterative remote NPU benchmark or multi-step optimization task
   has finished.
-- **Launch-Time `in_flight_runs` Registration & Recovery-First-Query**:
+- **Launch-Time `in_flight_runs` Tracking & Recovery-First-Query**:
   `coordinator` assigns `run_id` (`run_id == execution_id`, never replaced) at
-  submission (`client.run`). Immediately upon launching a run or job (before
-  waiting or ending the turn), atomically update `PROGRESS.md` (`os.replace`) to
-  record `{run_id, job_id, slot_id, host_endpoint, manifest_path, started_at}`
-  under `in_flight_runs` alongside the task goal, current workspace
-  `git_commit` / `git diff`, verified baseline `run_id`, best verified
-  candidate `run_id`, key historical `conditional_avoid` refs, and next minimal
-  experiment. On resume or after compaction, read `PROGRESS.md`
-  `in_flight_runs` first and query the original `run_id` / `job_id`
-  (`TaskClient.observe(run_id=...)` / `remote_job_status`) before taking any
+  submission (`client.run`), and `remote-dev` assigns an authoritative `job_id`.
+  Record `{run_id, job_id, slot_id, host_endpoint, manifest_path, started_at}`
+  in task-local state before waiting or ending the turn. On resume or after
+  compaction, query the original `run_id` / `job_id`
+  (`coordinator` `status` / `remote_job_status`) first before taking any
   action—**never** resubmit a command while its in-flight `run_id` is unresolved.
-- **Single-Writer `experiment-ledger.jsonl` & Sequential Pruning Retain Rule**:
-  Append one JSON record per experiment linking `task_id`, `exp_id`, `run_ids`,
-  `hypothesis`, `factors`, `factor_roles` (`performance` |
-  `correctness_required` | `dependency` | `inseparable_group`), `unit_refs`
-  (`unit_id` + integer `revision`), `receipt_refs`, `run_status`,
-  `judgment` (`supported`, `refuted`, `inconclusive`), `scope_conditions`, and
-  optional `conditional_avoid` / `supersedes_exp_id`. Local receipt/ledger
-  errors never overwrite a succeeded remote result. In Contract C4
-  (`AblationReceipt`), LOO `delta <= tolerance` only sets
-  `disposition: "candidate_for_sequential_pruning"`; consumers **must** treat
-  `disposition == "candidate_for_sequential_pruning"` with
-  `pruned_combination_verified == false` as **RETAIN**.
+- **Sequential Pruning Retain Rule**:
+  Local receipt/ledger errors never overwrite a succeeded remote result. When
+  verifying multi-factor changes with leave-one-out ablations, treat a factor
+  whose single-removal `delta <= tolerance` as a candidate for sequential
+  pruning only—retain it unless the pruned combination has itself been verified.
 
 ## Safety, Physical NPU Timing & Profiler Discipline
 

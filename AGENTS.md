@@ -1,51 +1,31 @@
-# mindie-agent-dsh (`v0.0.2` Agent-Native Guide)
+# `mindie-agent-dsh`
 
-Native DeepSeek Harness (DSH / Cordis) plugin adapter for MindIE Agent (`host.mjs`, `host3.mjs`, `cordis.patch.yml`, `paths.cjs`, `scripts/`).
-Provides the `/mindie-agent` entry command/skill, warm JSON-line sidecar (`mindie_sidecar.py`), detached Stop capture handoff (`capture_stop.py`), loopback summary worker (`dsh_organizer.py`), zstd session-log transcript adapter (`dsh_transcript.py`), and silent release updater (`updater.py`).
+Native MindIE Agent plugin for **DeepSeek Harness (`DSH` `>=0.2.0-rc.2 <1.0.0`)**.
+This repository owns the thin Cordis host launcher (`host.mjs`), generation fiber (`host3.mjs`), path/spawn boundary (`paths.cjs`), DSH v4 zstd transcript projection (`scripts/dsh_transcript.py`), loopback model summary adapter (`scripts/dsh_organizer.py`), warm JSON-line sidecar (`scripts/mindie_sidecar.py`), and deterministic/knowledge MCP bridges backed by `mindie-harness` (`assets/mindie-harness-seed.pyz`).
 
-## 1. Script Module Navigation & Responsibilities
+## 1. Core Operating Rules (Always Active)
 
-| Module | Role | Key Invariants & Side Effects |
-| :--- | :--- | :--- |
-| `scripts/mindie_paths.py` | Canonical path authority mirroring `paths.cjs` | Pure path resolution (`data_home`, `config_home`, `config_file`, `engine_config`, `state_dir`, `venv_dir`). Must stay byte-for-byte aligned with `paths.cjs`. |
-| `scripts/mindie_sidecar.py` | Warm JSON-line sidecar for DSH Host plugin | Dispatches `activate`, `resume` (restores host cache from existing `knowledge_lease` authority without granting entry), `status`, `deactivate`, `configure`, `reporting`, `rpc`, `sync`. `op_rpc` and `op_sync` verify `manual_lease(session, token)` (`admission().knowledge_lease(session)`) before executing; never retries failed RPCs. |
-| `scripts/knowledge_mcp.py` | Thin stdio MCP bridge (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`) | Re-executes into configured venv Python (`MINDIE_DSH_NO_REEXEC=1` disables re-exec); requires `MINDIE_DSH_SESSION_ID` and an active `knowledge_lease(session)` (`entry_enabled=1`) before connecting or syncing feeds. |
-| `scripts/component_mcp.py` & `scripts/component_tools.py` | Default per-session MCP surface for profiler, sim, coordinator, diagnostics and factual status | Static discovery without knowledge state; shell-free CLI arguments, bounded output, cancellation and explicit working directory. |
-| `scripts/capture_stop.py` | Detached Stop-hook capture handoff | Reads one Stop envelope (`<= 256 KiB`) from stdin, calls `capture_hook`, appends receipt to `capture.log` (`1 MiB` rotation), never emits to stdout. |
-| `scripts/dsh_organizer.py` | Loopback summary worker (`mindie-summary-outcome/1`) | Calls active DSH session's loopback summary endpoint (`summary-endpoint.json`); returns `returned`, `failed`, or `outcome_unknown` without retrying uncertain calls. |
-| `scripts/dsh_transcript.py` | DSH v4 `.jsonl.zstd` public-transcript reader | Streams concatenated zstd frames (`<= 32 MiB`), extracts only `user/message` (`source.kind == "user"`) and `assistant/message` `text` blocks, maintains monotonic byte-offset cursors. |
-| `scripts/setup.py` | One-step locked runtime provisioner | Runs `uv sync --frozen`, probes SQLite FTS5 + component imports, installs transcript redactor, writes `engine.json` / `config.json` via `os.replace`; never starts the knowledge loop or syncs knowledge feeds during installation (`knowledge={"status": "inactive"}`, `status="ready"`). |
-| `scripts/updater.py` | Background GitHub Release updater | Stages candidate under `update/generations/<tag>`, provisions candidate before switching `current.json`; never starts the knowledge loop or syncs feeds during release checks or candidate cutover. |
+- **Thin Host Plugin Boundary (`mindie_harness` Substrate)**:
+  - Keep DSH-specific code limited to Cordis lifecycle (`host.mjs`, `host3.mjs`), DSH v4 zstd transcript parsing, loopback summary routing, and MCP/sidecar wiring.
+  - Shared process supervision, generation leases, storage GC, and RSI helpers (`scripts/{rsi_loop.py, rsi_explore.py, experiment_ledger.py}`) delegate to `mindie_harness`.
+- **Zero Windows Console Popups (`Windows Zero-Popup Iron Rule`)**:
+  - Every Node `spawn` call MUST pass `windowsHide: true`, and background spawns (`startUpdateCheck`, `spawnCapture`) MUST use `backgroundSpawnOptions()` (`detached: process.platform !== 'win32'`) — **NEVER** pass `detached: true` on `win32` (which creates a visible console window in Node/libuv).
+  - Normalize case-insensitive `PATH`/`Path` environment keys via `buildChildEnv()` on Windows, and enforce `CREATE_NO_WINDOW` (`0x08000000`) on all Python child launches without unguarded `os.kill(pid, 0)`.
+- **Zero Pre-Call Gates on Deterministic Tools (`P2.7`) vs. Strict `/mindie-agent` Knowledge Admission (`P2.1`)**:
+  - Deterministic MCP servers (`remote-dev` and `mindie-tools` via `scripts/component_mcp.py`) work out-of-the-box in every session and subagent without `/mindie-agent`, `request_nonce`, or `context_file`.
+  - Parent and subagent sessions share `REMOTE_DEV_STATE_DIR` (`state/remote`) so subagents can poll or stop parent `job_id`s (`AD-02` fixed), while `REMOTE_DEV_SESSION_ID` isolates per-session read ledgers.
+  - Resident `component_mcp.py` dispatches concurrent `tools/call` requests without single-flight `-32000` blocking (`AD-03` fixed).
+  - Unactivated default sessions register ONLY `mindie_entry`; `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync` are mounted ONLY after `/mindie-agent` activates or resumes a session lease and are disposed on `deactivate` or `agent/disposed` (`AD-11` fixed).
+- **State & Receipt Honesty + Symlink Compatibility (`Principles 9, 10, 14` & `AD-07`)**:
+  - Distinguish `completed`, `failed`, and `unknown` external effects; precede broad `except OSError:` with `except TimeoutError: raise`; enforce `outer_timeout >= sum(inner_budgets) + cleanup_grace` (`660s >= 600s + 60s`).
+  - Keep `isError=False` with `receipt_warning` / `local_error` when a primary remote or model operation succeeds and only local receipt accounting fails.
+  - Allow valid symlinks on bounded diagnostic and metadata reads (zero `O_NOFOLLOW` hostility).
+- **Cohesive Modules & Zero Host Pollution (`Principles 16–18`)**:
+  - Every runtime `.py`, `.mjs`, and `.cjs` module MUST stay `< 800` lines and carry `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines.
+  - Isolate `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_*`, `DSH_HOME`, `MINDIE_*`, `REMOTE_DEV_AUTH_DIR`, `UV_CACHE_DIR`, and `TMPDIR` in all tests.
 
-## 2. Host Interaction Protocols & State Invariants
+## 2. Progressive Disclosure Map
 
-- **JS ↔ Python Path Parity**: `paths.cjs` and `scripts/mindie_paths.py` resolve identical paths across POSIX (`XDG_DATA_HOME` / `XDG_CONFIG_HOME`) and Windows (`LOCALAPPDATA` / `APPDATA`), verified by `tests/test_paths.py`.
-- **Warm Sidecar Protocol**: `host3.mjs` communicates with `scripts/mindie_sidecar.py` over line-delimited JSON (`{"id", "op", "args"}` → `{"id", "ok", "result"|"error"}`).
-- **Manual `/mindie-agent` Session Gate & Factual Status (`host3.mjs` + `knowledge_tools.mjs`)**: `hasMindieGesture(messages)` inspects only the latest user/skill-invocation message for `/mindie-agent` (`^\s*\/mindie-agent(?=\s|$)`). Once activated in a session (`agent/pre-step`), `ensureSummaryServer()` lazily starts the loopback summary server and writes `summary-endpoint.json`; `resume(session)` restores an already-granted lease from `admission.sqlite3` without spawning a sidecar when `admission.sqlite3` does not exist. `mindie_entry(op="init"|"choose"|"sharing-enable"|"sharing-disable")`, all `knowledge_*` tools, and `agent/turn-stopping` capture require an active manual-entry session state (`knowledge_lease` with `entry_enabled=1`), whereas `remote-dev` MCP tools and factual `mindie_entry(op="status"|"sharing-status"|"reporting-status")` (`{kind: "status", activated: Boolean(result.lease?.enabled), ...result}`) work in ordinary sessions without `/mindie-agent` or onboarding prompts.
-- **Explicit Consent & Community Authority**: `op_activate` reads the existing profile choice without creating consent. `op_configure` requires `choice in {"contribute", "disabled"}` and writes the shared authority; contribute enables both knowledge sharing and sanitized failure reporting. Missing or legacy consent returns `needs_choice` until an explicit choice. All producers and the reporter use `config_home()/diagnostics.json`.
-- **Loopback Summary Routing**: In activated sessions, `host3.mjs` lazily starts `summaryServer` via `ensureSummaryServer()` and writes `state_dir()/summary-endpoint.json` (`http://127.0.0.1:<port>`, bearer token, model, provider). `dsh_organizer.py` posts the batch once and maps HTTP/timeout failures after transmission to `status="outcome_unknown"` (`billing_status="unknown"`).
-
-## 3. Timeout Budgets & `v0.0.2` Anti-Over-Defensive Iron Rules
-
-- **Timeout Arithmetic**:
-  - Sidecar / MCP knowledge RPCs: `30.0s` (`query`, `explain`, `feedback`); feed sync: `120.0s`.
-  - Loopback organizer HTTP POST: `DEADLINE_SECONDS = 300s` (`MAX_REQUEST_BYTES = MAX_RESPONSE_BYTES = 256 KiB`).
-  - Transcript incremental scan: `max_seconds = 2.0s`, `max_text_bytes = 48 KiB`, `MAX_DECOMPRESSED_BYTES = 32 MiB`.
-  - Setup & Updater: standalone `uv sync` has a `900s` stage budget and redactor installation `300s`. Updater supplies one `600s` total candidate setup deadline and reserves `10s` for cleanup. GitHub API lookup `30s`, asset download `60s`. Explicit contribution configuration has a `600s` outer budget including community operations and the shared reporter's `75s` startup; ordinary sidecar calls use `120s`.
-- **Five Anti-Over-Defensive Iron Rules**:
-  1. Lightweight SQLite connections (WAL + busy timeout set once on open; no per-query schema reflection or `.owner` `lstat` ceremony).
-  2. Reserve `unknown` (`outcome_unknown`) strictly for irreversible external model/network writes; never brick local state on transient errors.
-  3. Use `os.replace()` for atomic file updates (`write_private`, `copy_private`, `atomic_json`); no Win32 `icacls`/`ctypes` ACL ceremonies or recursive symlink paranoia.
-  4. Every script carries a top-of-file `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, `[Side-Effect Policy]` contract docstring.
-  5. **Zero Pre-Call Session-Binding Gates on Deterministic Tools (`P2.7`)**: `scripts/component_mcp.py` and `remote-dev` execute directly over standard MCP `tools/call` without requiring session hooks, nonces, or `context_file`; strict `knowledge_lease` admission applies exclusively to `knowledge_mcp.py`, `mindie_sidecar.py` knowledge RPCs, and `capture_stop.py`.
-
-## 4. Verification Commands
-
-```bash
-# Install locked runtime and real component contracts
-uv sync --locked --no-editable --no-dev --group component-contracts
-uv pip install -r requirements-dev.txt
-npm install --no-save --package-lock=false @deepseek-ai/dsh@0.2.0-rc.2
-uv run --no-sync python -m pytest -q
-node --test tests/test_*.mjs
-```
+- **Active Documentation Index** → [`docs/README.md`](docs/README.md) & [`docs/README.en.md`](docs/README.en.md)
+- **Host Verification Matrix & DSH SDK Audit** → [`docs/verification.md`](docs/verification.md)
+- **Contributor Workflow & Pre-PR Gate (`host-plugin`)** → [`CONTRIBUTING.md`](CONTRIBUTING.md), [`.github/pull_request_template.md`](.github/pull_request_template.md), and `python3 .github/scripts/check_lf_eol.py`
