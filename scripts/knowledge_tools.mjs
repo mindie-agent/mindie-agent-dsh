@@ -501,29 +501,6 @@ export const entryParameters = {
   additionalProperties: false,
 }
 
-const MINDIE_SKILL_GESTURE = /^\s*\/mindie-agent(?=\s|$)/
-
-export function hasMindieGesture(messages) {
-  if (!Array.isArray(messages)) return false
-  // Only the latest user/skill origin can enable a fresh session. Earlier
-  // commands may be inherited history, and prose mentions are not gestures.
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message?.source?.kind === 'skill-invocation') {
-      return message.source.name === 'mindie-agent'
-    }
-    if (message?.source?.kind !== 'user') continue
-    if (!Array.isArray(message.content)) continue
-    for (const block of message.content) {
-      if (block?.type === 'text' && typeof block.text === 'string') {
-        if (MINDIE_SKILL_GESTURE.test(block.text)) return true
-      }
-    }
-    return false
-  }
-  return false
-}
-
 export function entryView(kind, sharing, state) {
   const base = {
     kind,

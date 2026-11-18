@@ -81,23 +81,19 @@ def distill_capability() -> bool:
     return all(callable(getattr(distill, name, None)) for name in DISTILL_API)
 
 
-def identity() -> dict:
+def _policy_identity_for(model: str, provider: str, *, available: bool) -> dict:
     from mindie_knowledge.materials import summarizer
 
     worker_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    available = True
-    try:
-        value = endpoint()
-        model = value["model"]
-        implementation = {
+    implementation = (
+        {
             "worker": worker_hash,
             "summarizer": hashlib.sha256(Path(summarizer.__file__).read_bytes()).hexdigest(),
-            "provider": value["provider"],
+            "provider": provider,
         }
-    except ConfigurationError:
-        available = False
-        model = "dsh/unavailable"
-        implementation = {"worker": worker_hash, "provider": "unavailable"}
+        if available
+        else {"worker": worker_hash, "provider": "unavailable"}
+    )
     value = summarizer.policy_identity(model=model, effort="off", implementation=implementation)
     capabilities = list(value.get("capabilities", []))
     if available and DISTILL_REQUEST_SCHEMA not in capabilities and distill_capability():
@@ -106,6 +102,14 @@ def identity() -> dict:
         value["capabilities"] = capabilities
         value["fingerprint"] = summarizer.digest(value)
     return value
+
+
+def identity() -> dict:
+    try:
+        value = endpoint()
+        return _policy_identity_for(value["model"], value["provider"], available=True)
+    except ConfigurationError:
+        return _policy_identity_for("dsh/unavailable", "unavailable", available=False)
 
 
 class _TrackedHTTPConnection(http.client.HTTPConnection):
@@ -244,7 +248,19 @@ def _distill_outcome(request: dict, started: float, summarizer) -> dict:
             elapsed_ms=elapsed_ms(), error="configuration",
             error_reason="configuration_invalid", billing_status="not_called",
         )
-    if request["policy_identity"] != identity():
+    active_identities = [identity()]
+    routes = route.get("routes")
+    if isinstance(routes, dict):
+        for item in routes.values():
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("model"), str)
+                and item["model"]
+                and isinstance(item.get("provider"), str)
+                and item["provider"]
+            ):
+                active_identities.append(_policy_identity_for(item["model"], item["provider"], available=True))
+    if request["policy_identity"] not in active_identities:
         return summarizer.outcome(
             request, status="failed", usage=None, usage_known=False, model_calls=0,
             elapsed_ms=elapsed_ms(), error="configuration",

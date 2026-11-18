@@ -26,7 +26,6 @@ import {
   entryDescription,
   entryParameters,
   entryView,
-  hasMindieGesture,
   registerSessionKnowledgeSuite,
 } from './scripts/knowledge_tools.mjs'
 
@@ -34,7 +33,6 @@ export {
   createSummaryHandler,
   createSummaryServer,
   dispatchSummaryPayload,
-  hasMindieGesture,
   summarizeWithLlm,
 } from './scripts/knowledge_tools.mjs'
 
@@ -232,6 +230,11 @@ function cwdOf(session) {
   return cwd
 }
 
+function optionalCwdOf(session) {
+  const cwd = session.header?.cwd
+  return typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : undefined
+}
+
 function tool(name, description, parameters, execute) {
   return { name, description, parameters, output: TOOL_OUTPUT, execute }
 }
@@ -242,10 +245,11 @@ export const inject = ['tools', 'agents', 'llm']
 export function apply(ctx) {
   const sidecar = new Sidecar()
   const sessions = new Map()
+  const sessionRoutes = new Map()
   const p = runtimePaths()
   const endpointFile = path.join(p.stateDir, 'summary-endpoint.json')
   const endpointToken = randomBytes(32).toString('hex')
-  let route
+  let latestRoute
   let endpointUrl
   let summaryServer
 
@@ -255,8 +259,9 @@ export function apply(ctx) {
       schema: 'mindie-dsh-summary-endpoint/1',
       url: endpointUrl,
       token: endpointToken,
-      provider: route?.provider || '',
-      model: route?.model || '',
+      provider: latestRoute?.provider || '',
+      model: latestRoute?.model || '',
+      routes: Object.fromEntries(sessionRoutes),
       pid: process.pid,
     }
     try {
@@ -270,13 +275,34 @@ export function apply(ctx) {
     const provider = agent?.options?.provider
     const model = agent?.options?.model
     if (typeof provider === 'string' && provider && typeof model === 'string' && model) {
-      route = { provider, model }
+      const nextRoute = { provider, model }
+      const sessionId = agent?.session?.id
+      if (typeof sessionId === 'string' && sessionId) {
+        sessionRoutes.set(sessionId, nextRoute)
+      }
+      latestRoute = nextRoute
       await ensureSummaryServer()
       writeEndpoint()
     }
   }
 
-  const summarize = (payload) => dispatchSummaryPayload(ctx.llm, route, payload)
+  const resolveSummaryRoute = (payload) => {
+    const sessionId = payload?.session_id
+    if (typeof sessionId === 'string' && sessionRoutes.has(sessionId)) {
+      return sessionRoutes.get(sessionId)
+    }
+    const policy = payload?.request?.policy_identity
+    if (policy && typeof policy.model === 'string' && typeof policy.implementation?.provider === 'string') {
+      for (const candidate of sessionRoutes.values()) {
+        if (candidate.model === policy.model && candidate.provider === policy.implementation.provider) {
+          return candidate
+        }
+      }
+    }
+    return latestRoute
+  }
+
+  const summarize = (payload) => dispatchSummaryPayload(ctx.llm, resolveSummaryRoute(payload), payload)
 
 
   const updateFile = path.join(p.configHome, 'update.json')
@@ -396,40 +422,16 @@ export function apply(ctx) {
     endpointUrl = `http://127.0.0.1:${summaryServer.address().port}/summary`
     writeEndpoint()
   }
-  const sessionToolDisposers = new Map()
   const deactivatedSessions = new Set()
   let disposeGlobalKnowledgeTools
-
-  const unmountSessionKnowledgeTools = (sessionId) => {
-    const dispose = sessionToolDisposers.get(sessionId)
-    if (!dispose) return
-    sessionToolDisposers.delete(sessionId)
-    try { dispose() } catch {}
-  }
-
-  const mountSessionKnowledgeTools = (agent, sessionId) => {
-    if (!sessionId || sessionToolDisposers.has(sessionId)) return
-    const registry = agent?.ctx?.tools
-    if (!registry || registry === ctx.tools || typeof registry.register !== 'function') return
-    const dispose = registerSessionKnowledgeSuite(registry, {
-      tool,
-      sidecar,
-      requireState,
-      text,
-      syncTimeoutMs: SYNC_TIMEOUT_MS,
-      timeoutMs: distillCallTimeoutMs,
-    })
-    sessionToolDisposers.set(sessionId, dispose)
-  }
 
   ctx.effect(() => () => {
     clearTimeout(updateTimer)
     clearInterval(updateInterval)
     try { disposeGlobalKnowledgeTools?.() } catch {}
-    for (const id of [...sessionToolDisposers.keys()]) {
-      unmountSessionKnowledgeTools(id)
-    }
     deactivatedSessions.clear()
+    sessionRoutes.clear()
+    latestRoute = undefined
     sidecar.dispose()
     sessions.clear()
     try {
@@ -446,15 +448,34 @@ export function apply(ctx) {
 
   const remember = (session, result) => {
     if (!result.token) return undefined
-    const state = { token: result.token, sharing: result.sharing, activatedAt: result.activated_at }
+    const state = {
+      token: result.token,
+      projectRoot: result.project_root,
+      sharing: result.sharing,
+      activatedAt: result.activated_at,
+    }
     sessions.set(session.id, state)
     return state
   }
 
+  const readJsonObject = (filePath) => {
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   const resume = async (session) => {
     if (sessions.get(session.id)?.token) return sessions.get(session.id)
+    const curPaths = runtimePaths()
+    const engDoc = readJsonObject(curPaths.engineConfig)
+    const admPath = typeof engDoc?.admission_path === 'string' && engDoc.admission_path
+      ? engDoc.admission_path
+      : path.join(curPaths.dataHome, 'admission.sqlite3')
     try {
-      statSync(path.join(runtimePaths().dataHome, 'admission.sqlite3'))
+      statSync(admPath)
     } catch (error) {
       if (error.code === 'ENOENT') return undefined
       throw error
@@ -465,11 +486,15 @@ export function apply(ctx) {
   function requireState(exec, options = {}) {
     return (async () => {
       const session = sessionOf(exec)
-      const cwd = cwdOf(session)
+      const cwd = options?.requireCwd ? cwdOf(session) : optionalCwdOf(session)
       if (deactivatedSessions.has(session.id)) {
         throw new Error('this task is not activated; session was explicitly deactivated')
       }
-      const state = await resume(session)
+      let state = await resume(session)
+      if (state?.token && cwd && state.projectRoot && state.projectRoot !== cwd) {
+        sessions.delete(session.id)
+        state = undefined
+      }
       if (options?.withRoute) {
         await setRoute(exec.agent)
       }
@@ -505,7 +530,6 @@ export function apply(ctx) {
   ctx.tools.register(
     tool('mindie_entry', entryDescription, entryParameters, async (args, exec) => {
       const session = sessionOf(exec)
-      const cwd = cwdOf(session)
       const op = args.op
       if (args.domain !== undefined) {
         if (op !== 'init') {
@@ -516,9 +540,9 @@ export function apply(ctx) {
         }
       }
       if (op === 'init') {
+        const cwd = cwdOf(session)
         deactivatedSessions.delete(session.id)
         const state = (await resume(session)) || (await activate(session, cwd))
-        mountSessionKnowledgeTools(exec.agent, session.id)
         await setRoute(exec.agent)
         let activation
         if (args.domain !== undefined) {
@@ -529,12 +553,14 @@ export function apply(ctx) {
         return text(view)
       }
       if (op === 'status' || op === 'sharing-status') {
-        const result = await sidecar.call('status', { session: session.id, cwd })
+        const cwd = optionalCwdOf(session)
+        const result = await sidecar.call('status', { session: session.id, ...(cwd ? { cwd } : {}) })
         const state = sessions.get(session.id)
         if (state) state.sharing = result.sharing
         return text({ kind: 'status', activated: Boolean(result.lease?.enabled), ...result })
       }
       if (op === 'choose' || op === 'sharing-enable' || op === 'sharing-disable') {
+        const cwd = cwdOf(session)
         if (deactivatedSessions.has(session.id)) {
           throw new Error('this task is not activated; session was explicitly deactivated')
         }
@@ -566,9 +592,10 @@ export function apply(ctx) {
         return text({ update: value })
       }
       if (op === 'deactivate') {
+        const cwd = optionalCwdOf(session)
         const result = await sidecar.call(
           'deactivate',
-          { session: session.id, cwd },
+          { session: session.id, ...(cwd ? { cwd } : {}) },
           exec.signal,
           DEACTIVATE_TIMEOUT_MS,
         )
@@ -589,7 +616,6 @@ export function apply(ctx) {
         }
         deactivatedSessions.add(session.id)
         sessions.delete(session.id)
-        unmountSessionKnowledgeTools(session.id)
         return text({
           deactivated: Boolean(result.deactivated),
           sharing: result.sharing,
@@ -630,15 +656,6 @@ export function apply(ctx) {
       }
     }
     return undefined
-  }
-
-  const readJsonObject = (filePath) => {
-    try {
-      const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined
-    } catch {
-      return undefined
-    }
   }
 
   const canonicalPath = (target) => {
@@ -714,29 +731,18 @@ export function apply(ctx) {
     }
   }
 
-  ctx.on('agent/pre-step', async ({ agent }, next) => {
-    const decision = await next()
-    if (decision?.kind === 'reject') return decision
-    try {
-      const session = agent?.session
-      if (session && typeof session.id === 'string' && !deactivatedSessions.has(session.id)) {
-        mountSessionKnowledgeTools(agent, session.id)
-        if (!sessions.get(session.id)?.token && await resume(session)) {
-          await setRoute(agent)
-        }
-      }
-    } catch (error) {
-      log(`pre-step setup failed: ${error.message}`)
-    }
-    return decision
-  })
+  ctx.on('agent/pre-step', (_event, next) => next())
 
   ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = agent?.session?.id
     if (typeof sessionId === 'string' && sessionId) {
       sessions.delete(sessionId)
       deactivatedSessions.delete(sessionId)
-      unmountSessionKnowledgeTools(sessionId)
+      if (sessionRoutes.delete(sessionId)) {
+        latestRoute = undefined
+        for (const remaining of sessionRoutes.values()) latestRoute = remaining
+        writeEndpoint()
+      }
     }
   })
 
@@ -746,8 +752,8 @@ export function apply(ctx) {
       if (!session || typeof session.id !== 'string') return
       if (Number(session.header?.delegationDepth || 0) > 0) return
       if (deactivatedSessions.has(session.id)) return
-      const cwd = cwdOf(session)
-      if (!isStopCaptureAuthorized(cwd)) return
+      const cwd = optionalCwdOf(session)
+      if (!cwd || !isStopCaptureAuthorized(cwd)) return
       setRoute(agent).catch((error) => log(`summary route setup failed: ${error.message}`))
       spawnCapture(session, turn, sessions.get(session.id))
     } catch (error) {

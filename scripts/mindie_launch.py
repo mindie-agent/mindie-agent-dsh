@@ -83,25 +83,106 @@ def _active_python(cfg_path: Path) -> Path | None:
     return None
 
 
-def _stop_sharing_enabled() -> bool:
+def _canonical_path(value: str) -> str:
+    resolved = os.path.realpath(value)
+    return os.path.normcase(resolved) if os.name == "nt" else resolved
+
+
+def _within_roots(candidate: str, roots: list[object]) -> bool:
+    if not candidate or not os.path.isabs(candidate):
+        return False
+    target = _canonical_path(candidate)
+    for root in roots:
+        if not isinstance(root, str) or not os.path.isabs(root):
+            continue
+        base = _canonical_path(root)
+        try:
+            if os.path.commonpath([base, target]) == base:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _stop_event_authorized(cfg_path: Path, raw: bytes) -> bool:
+    if not raw or len(raw) > 262144:
+        return False
     cfg_dir = _cfg_home()
-    consent = _read_json(cfg_dir / "mindie-consent.json")
+    cfg = _read_json(cfg_path)
+    eng_override = os.environ.get("MINDIE_DSH_ENGINE_CONFIG")
+    eng_path = (
+        Path(eng_override)
+        if eng_override
+        else (
+            Path(cfg["engine_config"])
+            if isinstance(cfg, dict) and isinstance(cfg.get("engine_config"), str) and cfg["engine_config"]
+            else cfg_dir / "engine.json"
+        )
+    )
+    eng_doc = _read_json(eng_path)
+    comm_path = (
+        Path(eng_doc["community_config"])
+        if isinstance(eng_doc, dict) and isinstance(eng_doc.get("community_config"), str) and eng_doc["community_config"]
+        else cfg_dir / "mindie-community.json"
+    )
+    comm = _read_json(comm_path)
+    if (
+        not isinstance(comm, dict)
+        or comm.get("enabled") is not True
+        or not isinstance(comm.get("project_roots"), list)
+        or not comm["project_roots"]
+    ):
+        return False
+    consent_path = (
+        Path(comm["consent_config"])
+        if isinstance(comm.get("consent_config"), str) and comm["consent_config"]
+        else cfg_dir / "mindie-consent.json"
+    )
+    consent = _read_json(consent_path)
     if not isinstance(consent, dict) or consent.get("choice") != "contribute":
         return False
-    comm = _read_json(cfg_dir / "mindie-community.json")
-    return bool(
-        isinstance(comm, dict)
-        and comm.get("enabled") is True
-        and isinstance(comm.get("project_roots"), list)
-        and comm["project_roots"]
-    )
+    try:
+        event = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if not isinstance(event, dict):
+        return False
+    workspace = event.get("cwd") or event.get("workspace_root")
+    return isinstance(workspace, str) and bool(workspace.strip()) and _within_roots(workspace, comm["project_roots"])
 
 
 def main() -> int:
     argv = sys.argv[1:]
     cfg_path = Path(os.environ.get("MINDIE_DSH_CONFIG") or (_cfg_home() / "config.json"))
     state_dir = Path(os.environ.get("MINDIE_DSH_STATE_DIR") or (_data_home() / "state"))
-    if len(argv) >= 2 and argv[0] == "hook" and argv[1] == "stop" and not _stop_sharing_enabled():
+    if len(argv) >= 2 and argv[0] == "hook" and argv[1] == "stop":
+        raw = sys.stdin.buffer.read(262145)
+        if _stop_event_authorized(cfg_path, raw):
+            runner = _active_python(cfg_path) or Path(sys.executable)
+            capture_script = PLUGIN_ROOT / "scripts" / "capture_stop.py"
+            if capture_script.is_file():
+                child_env = {
+                    **os.environ,
+                    "PYTHONUTF8": "1",
+                    "PYTHONIOENCODING": "utf-8",
+                    "MINDIE_DSH_CONFIG": str(cfg_path),
+                    "MINDIE_DSH_STATE_DIR": str(state_dir),
+                }
+                try:
+                    subprocess.run(
+                        [str(runner), "-X", "utf8", str(capture_script)],
+                        input=raw,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        env=child_env,
+                        timeout=15.0,
+                        check=False,
+                        creationflags=CREATE_NO_WINDOW,
+                    )
+                except TimeoutError:
+                    raise
+                except (OSError, subprocess.SubprocessError):
+                    pass
         sys.stdout.buffer.write(b"{}\n")
         sys.stdout.buffer.flush()
         return 0

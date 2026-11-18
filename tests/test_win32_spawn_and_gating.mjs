@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { apply } from '../host3.mjs'
@@ -106,28 +106,35 @@ test('host3 exposes knowledge_* tools by default and scopes deactivate/dispose p
     )
 
     const agentA = { session: { id: 'sess-A', header: { cwd: root } }, ctx: { tools: agentATools } }
-    const agentB = { session: { id: 'sess-B', header: { cwd: root } }, ctx: { tools: agentBTools } }
+    const agentB = { session: { id: 'sess-B', header: {} }, ctx: { tools: agentBTools } }
     const userMsg = (text) => ({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
 
-    // Ordinary turns mount knowledge_* tools on both sessions without any slash command
+    // Global ctx.tools provides default knowledge_* tools without duplicating onto agent.ctx.tools or running pre-step IPC
     await listeners.get('agent/pre-step')(
       { agent: agentA, messages: [userMsg('optimize operator')] },
       async () => ({ kind: 'enter', messages: [userMsg('optimize operator')] }),
     )
-    await listeners.get('agent/pre-step')(
-      { agent: agentB, messages: [userMsg('run pytest')] },
-      async () => ({ kind: 'enter', messages: [userMsg('run pytest')] }),
-    )
-    assert.equal(agentATools.map.size, 5)
-    assert.equal(agentBTools.map.size, 5)
+    assert.equal(agentATools.map.size, 0)
+    assert.equal(agentBTools.map.size, 0)
 
-    // Deactivating sess-A unmounts agentATools and blocks sess-A calls while keeping sess-B active
+    // Workspace-free session (missing header.cwd) can run knowledge_query and knowledge_explain cleanly
+    const okNoCwdQuery = JSON.parse(await globalTools.map.get('knowledge_query').execute(
+      { query: 'Ascend' },
+      { agent: agentB, signal: undefined },
+    ))
+    assert.deepEqual(okNoCwdQuery, { results: [] })
+    const okNoCwdExplain = JSON.parse(await globalTools.map.get('knowledge_explain').execute(
+      { refs: ['mindie://vllm-ascend/units/u1@1'] },
+      { agent: agentB, signal: undefined },
+    ))
+    assert.deepEqual(okNoCwdExplain, { results: [] })
+
+    // Deactivating sess-A blocks sess-A calls while keeping sess-B active
     const deact = JSON.parse(await globalTools.map.get('mindie_entry').execute(
       { op: 'deactivate' },
       { agent: agentA, signal: undefined },
     ))
     assert.equal(deact.deactivated, true)
-    assert.equal(agentATools.map.size, 0)
     await assert.rejects(
       globalTools.map.get('knowledge_query').execute({ query: 'Ascend' }, { agent: agentA, signal: undefined }),
       /not activated/,
@@ -139,7 +146,46 @@ test('host3 exposes knowledge_* tools by default and scopes deactivate/dispose p
     assert.deepEqual(okB, { results: [] })
 
     listeners.get('agent/disposed')({ agent: agentB })
-    assert.equal(agentBTools.map.size, 0)
+
+    // Concurrent sessions preserve distinct summary routes without overwriting each other's C6 policy_identity
+    const seenModels = []
+    const ctxRoutes = {
+      tools: makeRegistry(),
+      agents: { list: () => [] },
+      llm: {
+        async *stream(opts) {
+          seenModels.push(`${opts.provider}/${opts.model}`)
+          yield { type: 'text-delta', index: 0, text: '{"schema_version":"mindie-distill-decision/1"}' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        },
+      },
+      on() {},
+      effect(cb) { disposers.push(cb()) },
+    }
+    apply(ctxRoutes)
+    await ctxRoutes.tools.map.get('mindie_entry').execute(
+      { op: 'init' },
+      { agent: { session: { id: 'route-1', header: { cwd: root } }, options: { provider: 'p1', model: 'm1' } } },
+    )
+    await ctxRoutes.tools.map.get('mindie_entry').execute(
+      { op: 'init' },
+      { agent: { session: { id: 'route-2', header: { cwd: root } }, options: { provider: 'p2', model: 'm2' } } },
+    )
+    const ep = JSON.parse(readFileSync(path.join(root, 'state', 'summary-endpoint.json'), 'utf8'))
+    assert.deepEqual(ep.routes['route-1'], { provider: 'p1', model: 'm1' })
+    assert.deepEqual(ep.routes['route-2'], { provider: 'p2', model: 'm2' })
+    const resRoute1 = await fetch(ep.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${ep.token}` },
+      body: JSON.stringify({
+        schema: 'mindie-distill-request/1',
+        prompt: 'distill prompt',
+        output_schema: { type: 'object' },
+        request: { policy_identity: { model: 'm1', implementation: { provider: 'p1' } } },
+      }),
+    })
+    assert.equal(resRoute1.status, 200)
+    assert.deepEqual(seenModels, ['p1/m1'])
 
     for (const d of disposers.reverse()) d?.()
   } finally {

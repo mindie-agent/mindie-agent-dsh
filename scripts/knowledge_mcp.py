@@ -348,34 +348,57 @@ def session_identity() -> str:
     return _CONNECTION_SESSION_ID
 
 
-def _ensure_not_deactivated(session: str) -> None:
-    database = data_home() / "admission.sqlite3"
-    if not database.is_file():
-        return
+def _engine_admission_path(engine_cfg_path: str | Path | None = None) -> Path:
+    if engine_cfg_path is not None:
+        try:
+            doc = json.loads(Path(engine_cfg_path).read_bytes().decode("utf-8-sig"))
+            adm = doc.get("admission_path") if isinstance(doc, dict) else None
+            if isinstance(adm, str) and adm:
+                return Path(adm)
+        except TimeoutError:
+            raise
+        except (OSError, ValueError):
+            pass
+    return data_home() / "admission.sqlite3"
+
+
+def _ensure_not_deactivated(session: str, *, engine_cfg_path: str | Path | None = None) -> None:
     from mindie_knowledge.loop.activation import Admission
 
-    if Admission(str(database)).inspect(session).get("status") == "inactive":
-        raise RuntimeError("this task is not activated; session was explicitly deactivated")
+    seen: set[Path] = set()
+    for database in (_engine_admission_path(engine_cfg_path), data_home() / "admission.sqlite3"):
+        resolved = database.resolve(strict=False)
+        if resolved in seen or not database.is_file():
+            continue
+        seen.add(resolved)
+        if Admission(str(database)).inspect(session).get("status") == "inactive":
+            raise RuntimeError("this task is not activated; session was explicitly deactivated")
 
 
-def activation_token(session: str, *, project_root: str | None = None) -> str:
+def activation_token(
+    session: str, *, project_root: str | None = None, engine_cfg_path: str | Path | None = None
+) -> str:
     """Resolve or auto-provision the default session lease; never accept a token from tool args."""
     from mindie_knowledge.loop.activation import Admission
 
-    _ensure_not_deactivated(session)
-    database = data_home() / "admission.sqlite3"
-    resolved_root = (
-        str(Path(project_root).resolve())
-        if isinstance(project_root, str) and project_root
-        else str(Path.cwd().resolve())
-    )
+    _ensure_not_deactivated(session, engine_cfg_path=engine_cfg_path)
+    database = _engine_admission_path(engine_cfg_path)
+    explicit_root = project_root or os.environ.get("MINDIE_DSH_CWD")
+    has_explicit_root = isinstance(explicit_root, str) and bool(explicit_root) and Path(explicit_root).is_absolute()
+    resolved_root = str(Path(explicit_root).resolve()) if has_explicit_root else str(Path.cwd().resolve())
     adm = Admission(str(database))
     if database.is_file():
         lease = adm.knowledge_lease(session)
         token = lease.get("token") if isinstance(lease, dict) else None
         if isinstance(token, str) and token:
-            if project_root is None or lease.get("project_root") == resolved_root:
+            if not has_explicit_root or lease.get("project_root") == resolved_root:
                 return token
+            return adm.activate(
+                session,
+                project_root=resolved_root,
+                root_session=lease.get("root_session") or session,
+                not_before=0.0,
+            )["token"]
     database.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lease = adm.activate(session, project_root=resolved_root, root_session=session, not_before=0.0)
     return lease["token"]
@@ -454,7 +477,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     from mindie_knowledge.loop.transport import FeedUnavailableError, rpc
 
     session = session_identity()
-    _ensure_not_deactivated(session)
+    _ensure_not_deactivated(session, engine_cfg_path=config.get("engine_config"))
+    env_cwd = os.environ.get("MINDIE_DSH_CWD")
     if name == "knowledge_distill":
         _distill_arguments(args)
         try:
@@ -478,11 +502,19 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         if route.cross_domain:
             try:
                 lease = routing.target_lease(
-                    route.selected_path, session, domain=route.forward_domain, ensure=True,
+                    route.selected_path,
+                    session,
+                    domain=route.forward_domain,
+                    ensure=True,
+                    project_root=env_cwd,
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
-        token = lease["token"] if lease is not None else activation_token(session)
+        token = (
+            lease["token"]
+            if lease is not None
+            else activation_token(session, project_root=env_cwd, engine_cfg_path=route.selected_path)
+        )
         payload = _payload(args, route, {
             "_session_id": session, "_activation": token,
         })
@@ -497,6 +529,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         return sync_feeds(config["python"], route.selected_path)
     if name == "knowledge_feedback":
         route = _route(args, config)
@@ -504,12 +538,21 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         if route.cross_domain:
             try:
                 lease = routing.target_lease(
-                    route.selected_path, session, domain=route.forward_domain, ensure=True,
+                    route.selected_path,
+                    session,
+                    domain=route.forward_domain,
+                    ensure=True,
+                    project_root=env_cwd,
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
         payload = _payload(args, route, {
-            "_session_id": session, "_activation": lease["token"] if lease else activation_token(session),
+            "_session_id": session,
+            "_activation": (
+                lease["token"]
+                if lease
+                else activation_token(session, project_root=env_cwd, engine_cfg_path=route.selected_path)
+            ),
         })
         return rpc(knowledge_connection(config, str(route.selected_path)), "feedback", payload, timeout=30.0)
     if name == "knowledge_query":
@@ -524,6 +567,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })
@@ -545,6 +590,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })

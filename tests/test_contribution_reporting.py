@@ -39,17 +39,22 @@ class ContributionReportingTests(unittest.TestCase):
                     "consent_config": str(root / "mindie-consent.json"),
                 })
                 dsh_diagnostics.activate(ensure=False)
-                # The real shared handoff rejects a native Stop without turn identity.
-                envelope = json.dumps({"hook_event_name": "Stop", "session_id": "session"}).encode()
+                # Missing cwd/workspace_root returns inert before opening SQLite or capture_hook.
+                with patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps({"hook_event_name": "Stop", "session_id": "session"}).encode()))):
+                    self.assertEqual(capture_stop.main(), 0)
+                # The real shared handoff rejects an in-scope native Stop without turn identity.
+                envelope = json.dumps({"hook_event_name": "Stop", "session_id": "session", "cwd": str(root)}).encode()
                 for choice in ("contribute", "disabled"):
                     consent_store.record_choice(root / "mindie-consent.json", choice)
                     with patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(envelope))):
                         self.assertEqual(capture_stop.main(), 0)
                 rows = [json.loads(line) for line in capture_stop.log_path().read_text().splitlines()]
-                self.assertEqual(rows[0]["receipt"]["stage"], "rejected")
-                self.assertIn("incident_id", rows[0]["diagnostic"])
-                self.assertEqual(rows[1]["receipt"]["stage"], "inert")
-                self.assertNotIn("diagnostic", rows[1])
+                self.assertEqual(rows[0]["receipt"]["stage"], "inert")
+                self.assertNotIn("diagnostic", rows[0])
+                self.assertEqual(rows[1]["receipt"]["stage"], "rejected")
+                self.assertIn("incident_id", rows[1]["diagnostic"])
+                self.assertEqual(rows[2]["receipt"]["stage"], "inert")
+                self.assertNotIn("diagnostic", rows[2])
                 from mindie_diagnostics import logging
                 for (_component, location), recorder in list(logging._FAILURE_RECORDERS.items()):
                     if Path(location) == logs:
