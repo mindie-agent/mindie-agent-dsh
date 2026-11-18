@@ -18,8 +18,8 @@ and calls that omit these fields keep their previous shape.
 
 ## Entry (`mindie_entry`) & Multi-Domain Route Registration
 
-- **Manual `/mindie-agent` Session Gate**: The user must invoke `/mindie-agent` once in the current session before calling `mindie_entry(op="init"|"choose"|"sharing-enable"|"sharing-disable")`, any `knowledge_*` tool (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`), or triggering `agent/turn-stopping` background capture. Both the host sidecar (`mindie_sidecar.py`) and the stdio MCP bridge (`knowledge_mcp.py`, which also requires `MINDIE_DSH_SESSION_ID`) enforce `admission.knowledge_lease(session)` (`entry_enabled == 1`).
-- `op="init"` reuses the active manual-entry grant (`requireState`, which restores an existing persisted `knowledge_lease` via `resume` if `admission.sqlite3` exists, after `agent/pre-step` activated the session on the `/mindie-agent` gesture), lazily starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`).
+- **Default-Enabled Knowledge Surface**: `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`, and `mindie_entry` are registered by default on every DSH session without requiring prior session activation. Read-only operations (`knowledge_query`, `knowledge_explain`, `knowledge_sync`) run without creating an admission lease; mutating operations (`knowledge_feedback`, `knowledge_distill`) auto-provision a default session lease (`not_before=0.0`) on the selected domain's `admission_path` unless the session was explicitly deactivated. Both the host sidecar (`mindie_sidecar.py`) and the stdio MCP bridge (`knowledge_mcp.py`, which falls back to a deterministic per-connection session ID when `MINDIE_DSH_SESSION_ID` is absent) enforce explicit deactivation boundaries.
+- `op="init"` initializes or refreshes the session's default lease, starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`).
   Passing `mindie_entry(op="init", domain="<domain>")` explicitly activates a
   registered target `domain` under its own existing `consent` and `project_root`
   scope (returning `domain_activation` without replacing the default session
@@ -32,8 +32,8 @@ and calls that omit these fields keep their previous shape.
   or `choice="disabled"`) in `mindie-consent.json`.
 - `op="status"`, `op="sharing-status"`, and `op="reporting-status"` are factual
   read-only checks (`{kind: "status", activated: Boolean(result.lease?.enabled), ...result}`)
-  available in any session without requiring `/mindie-agent`, starting the
-  summary server, or mutating session state.
+  available in any session without starting the
+  summary server or mutating session state.
 - `op="deactivate"` revokes **only the current session's** capture lease across
   the default domain and all registered `domain_configs` without altering the
   saved profile consent choice or revoking other sessions. If any registered
@@ -178,8 +178,9 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
 
 - `knowledge_distill(inputs, task_state, domain=..., related_refs=...,
   proposal=...)` distills caller-selected, already-authorized evidence into
-  local C5 graded units for the default or explicitly activated target `domain`
-  using that domain's active `/mindie-agent` capture lease and configured native
+  local C5 graded units for the default or selected target `domain`
+  using that domain's session lease (auto-provisioned with `not_before=0.0` on
+  demand unless deactivated) and configured native
   organizer (`SummaryLedger`).
 - `related_refs` is an optional list of existing stable unit IDs or graded refs.
   The organizer receives their compact `related_units` (id, revision, tier,

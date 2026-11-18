@@ -2,12 +2,12 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.24`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.25`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
-| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes `/mindie-agent` (`disable-model-invocation: true`) to every preset |
-| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` plus per-session `remote-dev` and `mindie-tools` MCP servers) | Registers `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync`; handles `agent/turn-stopping` zstd v4 capture handoff, model summary bridge, and idle generation hot-reload |
+| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the semantic `mindie-agent` workflow skill to every preset |
+| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` plus per-session `remote-dev` and `mindie-tools` MCP servers) | Registers default-enabled `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync`; handles opt-in `agent/turn-stopping` zstd v4 capture handoff, model summary bridge, and idle generation hot-reload |
 
 ## Paths
 
@@ -26,9 +26,9 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | knowledge state | `<data>/vllm-ascend` |
 | remote-dev state | `<data>/state/remote` |
 
-## Pinned `0.1.24` Runtime Components
+## Pinned `0.1.25` Runtime Components
 
-The locked Python runtime keeps the knowledge service inactive until `/mindie-agent` is explicitly invoked in a session (`knowledge.status: "inactive"` by default).
+The locked Python runtime keeps the background knowledge service idle at setup time (`knowledge.status: "inactive"` until a knowledge tool or opted-in `Stop` capture runs).
 
 Current runtime pins:
 

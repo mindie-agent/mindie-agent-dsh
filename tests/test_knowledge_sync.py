@@ -129,22 +129,22 @@ def stored_ids(root):
 
 
 @pytest.mark.parametrize("channel", ["stdio", "native"])
-def test_sync_requires_existing_manual_and_target_leases(runtime, channel):
+def test_sync_works_by_default_and_respects_explicit_deactivation(runtime, channel):
     root, _default, _target = runtime
-    error, denied = invoke(channel, root, {"domain": DOMAIN})
-    assert error and "/mindie-agent" in denied["message"]
-    assert not (root / "operators").exists()
-    Admission(root / "admission.sqlite3").activate(SESSION, project_root=str(root))
-    error, denied = invoke(channel, root, {"domain": DOMAIN})
-    assert error and "no active admission lease" in denied["message"]
-    assert not (root / "operators").exists()
-    Admission(root / "operators-admission.sqlite3").activate(SESSION, project_root=str(root))
     error, result = invoke(channel, root, {"domain": DOMAIN})
     assert not error, result
     assert result["status"] == "ok"
     assert result["feeds"][0]["status"] == "synced"
     assert stored_ids(root) == [UNIT_ID]
     assert not (root / "knowledge").exists()
+    assert not (root / "admission.sqlite3").exists()
+    assert not (root / "operators-admission.sqlite3").exists()
+
+    target_adm = Admission(root / "operators-admission.sqlite3")
+    target_adm.activate(SESSION, project_root=str(root))
+    target_adm.deactivate(SESSION)
+    error, denied = invoke(channel, root, {"domain": DOMAIN})
+    assert error and "not activated" in denied["message"]
 
 
 @pytest.mark.parametrize("channel", ["stdio", "native"])

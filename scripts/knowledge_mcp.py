@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""[Role] Thin stdio MCP bridge exposing MindIE knowledge tools for DeepSeek Harness.
-[Invariants] Re-executes into the configured venv interpreter when available; never activates tasks, never accepts tool-supplied identity tokens, and never mutates corpus rows directly. Distillation requires the existing active native lease and an explicit task_state; a Stop does not imply completion.
+"""[Role] Thin stdio MCP bridge exposing default-enabled MindIE knowledge tools for DeepSeek Harness.
+[Invariants] Re-executes into the configured venv interpreter when available; never accepts tool-supplied identity tokens and never mutates corpus rows directly. Read-only calls run without a pre-existing lease; feedback and distillation auto-provision a default session lease (`not_before=0.0`) unless explicitly deactivated.
 [Timeouts & Locks] RPC calls bounded at 30.0s (query/explain/feedback); sync uses 120.0s CLI work plus 5s cleanup; distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup.
-[Side-Effect Policy] Read-only query/explain RPCs and explicit activated feedback, feed sync and distill; writes JSON-RPC responses to stdout and diagnostics to stderr; the resident bridge holds a shared runtime lease.
+[Side-Effect Policy] Read-only query/explain/sync and on-demand lease-provisioned feedback and distill; writes JSON-RPC responses to stdout and diagnostics to stderr; the resident bridge holds a shared runtime lease.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import traceback
+import uuid
 
 import dsh_diagnostics as diagnostics
 from pathlib import Path
@@ -39,8 +40,7 @@ SERVER_NAME = "mindie-agent-dsh-knowledge"
 SERVER_VERSION = json.loads((HERE.parent / "package.json").read_text(encoding="utf-8"))["version"]
 PROTOCOL_FALLBACK = "2025-11-25"
 MAX_ERROR_CHARS = 1200
-
-GATED = "Requires an active `/mindie-agent` session."
+_CONNECTION_SESSION_ID = f"dsh-mcp-{uuid.uuid4().hex}"
 
 DOMAIN_PROPERTY = {
     "type": "string",
@@ -60,7 +60,7 @@ TOOLS: list[dict[str, Any]] = [
             "`navigation_only: true` to return cards without inline bodies. Use `mode: 'reuse'` (default) "
             "for L1-L3 reuse, `mode: 'diagnose'` for fault triage, or `mode: 'explore'` (with `goal`, "
             "`bottleneck_summary`, and `ledger_entries`) to strip L3 workflows and return L1/L2 foundations, "
-            "L4 mutators, and `exploration_context`. " + GATED
+            "L4 mutators, and `exploration_context`."
         ),
         "inputSchema": {
             "type": "object",
@@ -95,7 +95,7 @@ TOOLS: list[dict[str, Any]] = [
             "prerequisite closure (`requires`) and deduplication (`known_refs`). Prefer `refs` with "
             "observed `conditions`, `known_refs` (`id@revision` units already in context), and "
             "`token_budget` (1-64000). Pass `mode: 'explore'` when loading an L4 code-transformation "
-            "mutator. " + GATED
+            "mutator."
         ),
         "inputSchema": {
             "type": "object",
@@ -118,7 +118,7 @@ TOOLS: list[dict[str, Any]] = [
             "Distill verified milestone (`task_state='verified_milestone'`) or completed "
             "(`task_state='completed'`) task evidence into local C5 graded L1-L4 units through the "
             "C6 decision pipeline. Pass `inputs`, `task_state`, optional `related_refs` for incremental "
-            "revisions, optional `proposal` (`mindie-distill-decision/1`), and optional `domain`. " + GATED
+            "revisions, optional `proposal` (`mindie-distill-decision/1`), and optional `domain`."
         ),
         "inputSchema": {
             "type": "object",
@@ -157,8 +157,7 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Record an optional up/down rating or 4-stage usage event (`discovered`, `loaded`, "
             "`applied`, `evaluated`) for an exact `feedback_ref` returned by query/explain. "
-            "`evaluated` requires `run_id` and `outcome` (`supported`, `refuted`, or `inconclusive`). "
-            + GATED
+            "`evaluated` requires `run_id` and `outcome` (`supported`, `refuted`, or `inconclusive`)."
         ),
         "inputSchema": {
             "type": "object",
@@ -182,8 +181,7 @@ TOOLS: list[dict[str, Any]] = [
         "name": "knowledge_sync",
         "description": (
             "Synchronize the configured public knowledge feed for the selected domain. "
-            "Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge. "
-            + GATED
+            "Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge."
         ),
         "inputSchema": {"type": "object", "properties": {"domain": DOMAIN_PROPERTY}, "additionalProperties": False},
     },
@@ -342,35 +340,73 @@ def _payload(args: dict[str, Any], route: routing.Route, identity: dict[str, Any
 
 def session_identity() -> str:
     value = os.environ.get("MINDIE_DSH_SESSION_ID")
-    if not isinstance(value, str) or not value.strip() or len(value) > 256:
-        raise RuntimeError(
-            "native DSH session identity is missing from the host transport; "
-            "repair the native session adapter. Knowledge activation does not "
-            "supply transport identity. Continue independent authorized shell work."
-        )
-    return value.strip()
+    if isinstance(value, str) and value.strip():
+        trimmed = value.strip()
+        if len(trimmed) > 256:
+            raise RuntimeError("MINDIE_DSH_SESSION_ID exceeds 256 characters")
+        return trimmed
+    return _CONNECTION_SESSION_ID
 
 
-def activation_token(session: str) -> str:
-    """Read the existing active native lease; never accept a token from tool args."""
+def _engine_admission_path(engine_cfg_path: str | Path | None = None) -> Path:
+    if engine_cfg_path is not None:
+        try:
+            doc = json.loads(Path(engine_cfg_path).read_bytes().decode("utf-8-sig"))
+            adm = doc.get("admission_path") if isinstance(doc, dict) else None
+            if isinstance(adm, str) and adm:
+                return Path(adm)
+        except TimeoutError:
+            raise
+        except (OSError, ValueError):
+            pass
+    return data_home() / "admission.sqlite3"
+
+
+def _ensure_not_deactivated(session: str, *, engine_cfg_path: str | Path | None = None) -> None:
     from mindie_knowledge.loop.activation import Admission
 
-    lease = Admission(str(data_home() / "admission.sqlite3")).knowledge_lease(session)
-    token = lease.get("token") if isinstance(lease, dict) else None
-    if not isinstance(token, str) or not token:
-        raise RuntimeError("this task is not activated; invoke /mindie-agent first")
-    return token
+    seen: set[Path] = set()
+    for database in (_engine_admission_path(engine_cfg_path), data_home() / "admission.sqlite3"):
+        resolved = database.resolve(strict=False)
+        if resolved in seen or not database.is_file():
+            continue
+        seen.add(resolved)
+        if Admission(str(database)).inspect(session).get("status") == "inactive":
+            raise RuntimeError("this task is not activated; session was explicitly deactivated")
+
+
+def activation_token(
+    session: str, *, project_root: str | None = None, engine_cfg_path: str | Path | None = None
+) -> str:
+    """Resolve or auto-provision the default session lease; never accept a token from tool args."""
+    from mindie_knowledge.loop.activation import Admission
+
+    _ensure_not_deactivated(session, engine_cfg_path=engine_cfg_path)
+    database = _engine_admission_path(engine_cfg_path)
+    explicit_root = project_root or os.environ.get("MINDIE_DSH_CWD")
+    has_explicit_root = isinstance(explicit_root, str) and bool(explicit_root) and Path(explicit_root).is_absolute()
+    resolved_root = str(Path(explicit_root).resolve()) if has_explicit_root else str(Path.cwd().resolve())
+    adm = Admission(str(database))
+    if database.is_file():
+        lease = adm.knowledge_lease(session)
+        token = lease.get("token") if isinstance(lease, dict) else None
+        if isinstance(token, str) and token:
+            if not has_explicit_root or lease.get("project_root") == resolved_root:
+                return token
+            return adm.activate(
+                session,
+                project_root=resolved_root,
+                root_session=lease.get("root_session") or session,
+                not_before=0.0,
+            )["token"]
+    database.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lease = adm.activate(session, project_root=resolved_root, root_session=session, not_before=0.0)
+    return lease["token"]
 
 
 def discoverable_tools() -> list[dict[str, Any]]:
-    """The optional stdio knowledge surface follows its native session lease."""
-    session = os.environ.get("MINDIE_DSH_SESSION_ID", "").strip()
-    database = data_home() / "admission.sqlite3"
-    if not session or not database.is_file():
-        return []
-    from mindie_knowledge.loop.activation import Admission
-
-    return TOOLS if Admission(str(database)).knowledge_lease(session) else []
+    """Expose all knowledge_* tools unconditionally without opening admission.sqlite3."""
+    return list(TOOLS)
 
 
 def _reference_text(value: Any, label: str) -> str | None:
@@ -441,8 +477,8 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     from mindie_knowledge.loop.transport import FeedUnavailableError, rpc
 
     session = session_identity()
-    # Every knowledge call requires manual entry before connection or feed work.
-    activation_token(session)
+    _ensure_not_deactivated(session, engine_cfg_path=config.get("engine_config"))
+    env_cwd = os.environ.get("MINDIE_DSH_CWD")
     if name == "knowledge_distill":
         _distill_arguments(args)
         try:
@@ -466,11 +502,19 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         if route.cross_domain:
             try:
                 lease = routing.target_lease(
-                    route.selected_path, session, domain=route.forward_domain,
+                    route.selected_path,
+                    session,
+                    domain=route.forward_domain,
+                    ensure=True,
+                    project_root=env_cwd,
                 )
             except routing.DomainRoutingError as exc:
                 raise RuntimeError(str(exc)) from exc
-        token = lease["token"] if lease is not None else activation_token(session)
+        token = (
+            lease["token"]
+            if lease is not None
+            else activation_token(session, project_root=env_cwd, engine_cfg_path=route.selected_path)
+        )
         payload = _payload(args, route, {
             "_session_id": session, "_activation": token,
         })
@@ -479,14 +523,36 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
     if name == "knowledge_sync":
         route = _route(args, config)
         if route.cross_domain:
-            routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+            try:
+                routing.ensure_target_not_deactivated(
+                    route.selected_path, session, domain=route.forward_domain
+                )
+            except routing.DomainRoutingError as exc:
+                raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         return sync_feeds(config["python"], route.selected_path)
     if name == "knowledge_feedback":
         route = _route(args, config)
-        lease = (routing.target_lease(route.selected_path, session, domain=route.forward_domain)
-                 if route.cross_domain else None)
+        lease = None
+        if route.cross_domain:
+            try:
+                lease = routing.target_lease(
+                    route.selected_path,
+                    session,
+                    domain=route.forward_domain,
+                    ensure=True,
+                    project_root=env_cwd,
+                )
+            except routing.DomainRoutingError as exc:
+                raise RuntimeError(str(exc)) from exc
         payload = _payload(args, route, {
-            "_session_id": session, "_activation": lease["token"] if lease else activation_token(session),
+            "_session_id": session,
+            "_activation": (
+                lease["token"]
+                if lease
+                else activation_token(session, project_root=env_cwd, engine_cfg_path=route.selected_path)
+            ),
         })
         return rpc(knowledge_connection(config, str(route.selected_path)), "feedback", payload, timeout=30.0)
     if name == "knowledge_query":
@@ -494,6 +560,15 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
             raise ValueError("knowledge_query requires `query` or `continuation`")
         body = rsi_explore.forwarded(args)
         route = _route(body, config)
+        if route.cross_domain:
+            try:
+                routing.ensure_target_not_deactivated(
+                    route.selected_path, session, domain=route.forward_domain
+                )
+            except routing.DomainRoutingError as exc:
+                raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })
@@ -508,6 +583,15 @@ def call_knowledge(name: str, args: dict[str, Any], config: dict[str, Any]) -> A
         body = rsi_explore.forwarded(args)
         route_ref = _explain_route_ref(body)
         route = _route({"ref": route_ref}, config)
+        if route.cross_domain:
+            try:
+                routing.ensure_target_not_deactivated(
+                    route.selected_path, session, domain=route.forward_domain
+                )
+            except routing.DomainRoutingError as exc:
+                raise RuntimeError(str(exc)) from exc
+        else:
+            _ensure_not_deactivated(session, engine_cfg_path=route.selected_path)
         payload = _payload(body, route, {
             "_session_id": session, "_session_verified": True,
         })
@@ -546,8 +630,9 @@ def success(payload: Any, *, distill=False) -> dict[str, Any]:
     if distill:
         from mindie_knowledge.graded.distill import result_view
         payload, is_error = result_view(payload)
+    structured = payload if isinstance(payload, dict) else {"feeds": payload}
     return {"content": [{"type": "text", "text": canonical(payload)}],
-            "structuredContent": payload, "isError": is_error}
+            "structuredContent": structured, "isError": is_error}
 
 
 def handle(message: dict[str, Any]) -> dict[str, Any] | None:

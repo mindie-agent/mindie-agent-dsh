@@ -5,13 +5,13 @@
 - A call without an explicit domain/reference keeps the installed default path and never imports the optional core selector, preserving installed-old-runtime behavior.
 - Explicit routing unavailable in an old runtime fails; a cross-domain request never silently falls back to the default engine.
 - Canonical domains, absolute existing configs, declared-domain agreement, reference authority and domain/reference conflicts are validated by the shared core selector, never reimplemented here.
-- A target engine's own ``admission_path`` is read only to find the current session's existing active lease; no lease, token or authority is copied, created or shared.
+- Target-domain reads stay lease-free; target-domain mutations (`feedback`, `distill`) resolve or auto-provision the session's default lease (`not_before=0.0`) inside the target engine's own `admission_path` unless explicitly deactivated, never forwarding another domain's token.
 
 [Timeouts & Locks]
-- One bounded local JSON read for the default config in the old-runtime same-domain fallback and for the target admission path; no locks, waits, timers, retries or network.
+- Bounded local JSON read for engine configuration plus SQLite WAL `busy_timeout=5000` when checking or provisioning target-domain admission leases; zero network I/O.
 
 [Side-Effect Policy]
-- Read-only routing: no configuration creation, writes, service start, lease, registry, RPC or authority grant.
+- Read-only routing on `query`/`explain`/`sync`; mutates only the selected target domain's `admission_path` on demand when `ensure=True` for `feedback`/`distill`.
 """
 from __future__ import annotations
 
@@ -117,13 +117,7 @@ def resolve_route(
     return Route(selected, default, forward, selected != default, True)
 
 
-def target_lease(
-    engine_config_path: str | Path,
-    session: str,
-    *,
-    domain: str | None,
-) -> dict[str, Any]:
-    """Return the current session's existing lease in the target engine's own admission."""
+def _read_admission_path(engine_config_path: str | Path, *, domain: str | None) -> str:
     path = Path(engine_config_path)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -135,21 +129,99 @@ def target_lease(
     if not isinstance(admission_path, str) or not admission_path:
         raise DomainRoutingError(
             f"selected engine configuration for {domain!r} has no admission_path; "
-            "feedback, distillation and feed sync require that domain's existing lease"
+            "feedback and distillation require that domain's admission store"
         )
+    return admission_path
+
+
+def ensure_target_not_deactivated(
+    engine_config_path: str | Path,
+    session: str,
+    *,
+    domain: str | None,
+) -> None:
+    """Reject calls when the target domain was explicitly deactivated for this session."""
+    path = Path(engine_config_path)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except TimeoutError:
+        raise
+    except (OSError, ValueError):
+        return
+    admission_path = data.get("admission_path") if isinstance(data, dict) else None
+    if not isinstance(admission_path, str) or not admission_path or not Path(admission_path).is_file():
+        return
     try:
         from mindie_knowledge.loop.activation import Admission
 
-        lease = Admission(admission_path).knowledge_lease(session)
+        status = Admission(admission_path).inspect(session).get("status")
+    except TimeoutError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise DomainRoutingError(
+            f"cannot read the selected domain lease: {type(exc).__name__}: {exc}"
+        ) from exc
+    if status == "inactive":
+        raise DomainRoutingError(
+            f"this task is not activated; domain {domain!r} was explicitly deactivated for this session"
+        )
+
+
+def target_lease(
+    engine_config_path: str | Path,
+    session: str,
+    *,
+    domain: str | None,
+    ensure: bool = False,
+    project_root: str | None = None,
+) -> dict[str, Any]:
+    """Return or on-demand provision the session's lease in the target engine's own admission."""
+    admission_path = _read_admission_path(engine_config_path, domain=domain)
+    adm_file = Path(admission_path)
+    try:
+        from mindie_knowledge.loop.activation import Admission
+
+        adm = Admission(admission_path)
+        if adm_file.is_file():
+            status = adm.inspect(session).get("status")
+            if status == "inactive":
+                raise DomainRoutingError(
+                    f"this task is not activated; domain {domain!r} was explicitly deactivated for this session"
+                )
+            lease = adm.knowledge_lease(session)
+            if isinstance(lease, dict) and isinstance(lease.get("token"), str) and lease["token"]:
+                if ensure and isinstance(project_root, str) and project_root:
+                    aligned = str(Path(project_root).resolve())
+                    if lease.get("project_root") != aligned:
+                        return adm.activate(
+                            session,
+                            project_root=aligned,
+                            root_session=lease.get("root_session") or session,
+                            not_before=0.0,
+                        )
+                return lease
+        if ensure:
+            adm_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            resolved_root = (
+                str(Path(project_root).resolve())
+                if isinstance(project_root, str) and project_root
+                else str(Path.cwd().resolve())
+            )
+            return adm.activate(
+                session,
+                project_root=resolved_root,
+                root_session=session,
+                not_before=0.0,
+            )
+    except DomainRoutingError:
+        raise
     except TimeoutError:
         raise
     except Exception as exc:  # noqa: BLE001 - report an unusable target lease store
         raise DomainRoutingError(
             f"cannot read the selected domain lease: {type(exc).__name__}: {exc}"
         ) from exc
-    if not isinstance(lease, dict) or not isinstance(lease.get("token"), str) or not lease["token"]:
-        raise DomainRoutingError(
-            f"domain {domain!r} has no active admission lease for this session; "
-            "activate that domain independently"
-        )
-    return lease
+    raise DomainRoutingError(
+        f"domain {domain!r} has no active admission lease for this session; "
+        "activate that domain independently"
+    )

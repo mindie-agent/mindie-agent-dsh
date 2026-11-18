@@ -137,6 +137,9 @@ def test_diagnostics_bounded_reads_accept_legitimate_symlinks(tmp_path: Path) ->
 
 
 def test_skills_and_references_contain_zero_benchmark_spillover() -> None:
+    import re
+    import yaml
+
     banned = (
         "PROGRESS.md",
         "mindie-bench-ablation/1",
@@ -149,18 +152,194 @@ def test_skills_and_references_contain_zero_benchmark_spillover() -> None:
         "gh auth login",
         "GitHub Star",
         "Non-Intrusive First-Use Onboarding",
+        "disable-model-invocation",
+        "disableModelInvocation",
     )
+    slash_re = re.compile(r"(?<![A-Za-z0-9_./:-])(?<!\})[/\$]mindie-agent(?::mindie-agent)?(?![A-Za-z0-9_./-])")
     skill_md = ROOT / "skills" / "mindie-agent" / "SKILL.md"
-    assert "disable-model-invocation: true" in skill_md.read_text(encoding="utf-8")
+    skill_raw = skill_md.read_text(encoding="utf-8")
+    assert len(skill_raw.splitlines()) <= 30
+    frontmatter = yaml.safe_load(skill_raw.split("---", 2)[1])
+    assert frontmatter["name"] == "mindie-agent"
+    assert isinstance(frontmatter["description"], str) and frontmatter["description"]
+    assert frontmatter.get("user-invocable") is False
+    assert "disable-model-invocation" not in frontmatter
     skill_files = [skill_md, *sorted((ROOT / "skills" / "mindie-agent" / "references").glob("*.md"))]
     assert len(skill_files) >= 5
     for doc in skill_files:
         text = doc.read_text(encoding="utf-8")
         for token in banned:
             assert token not in text, f"{doc.name} still contains banned spillover/install token {token!r}"
+        assert not slash_re.search(text), f"{doc.name} still mentions user command /mindie-agent"
+    active_docs = [
+        ROOT / "package.json",
+        ROOT / "cordis.patch.yml",
+        *sorted(ROOT.glob("README*.md")),
+        *sorted(ROOT.glob("AGENTS.md")),
+        *sorted(ROOT.glob("CONTRIBUTING*.md")),
+        *[
+            p
+            for p in sorted((ROOT / "docs").rglob("*.md"))
+            if not any(part in p.parts for part in ("releases", "archive"))
+        ],
+    ]
+    for user_doc in active_docs:
+        assert not slash_re.search(user_doc.read_text(encoding="utf-8")), f"{user_doc} mentions /mindie-agent"
     for name in ("workspace-setup.md", "github-authentication.md", "user-notice.md"):
         assert (ROOT / "docs" / "install" / name).is_file()
         assert not (ROOT / "skills" / "mindie-agent" / "references" / name).exists()
+
+
+def test_stop_fast_noop_under_100ms_and_opted_in_auto_lease_alignment(tmp_path: Path) -> None:
+    from mindie_knowledge import consent_store
+    from mindie_knowledge.loop import settings as settings_mod
+    from mindie_knowledge.loop.activation import Admission
+
+    cfg_dir = tmp_path / "config"
+    data_dir = tmp_path / "data"
+    state_dir = data_dir / "state"
+    proj_dir = tmp_path / "project"
+    outside_dir = tmp_path / "outside"
+    other_dir = tmp_path / "other"
+    for d in (cfg_dir, data_dir, state_dir, proj_dir, outside_dir, other_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    consent = cfg_dir / "mindie-consent.json"
+    comm = cfg_dir / "mindie-community.json"
+    adm_path = data_dir / "admission.sqlite3"
+    engine = cfg_dir / "engine.json"
+    engine.write_text(
+        json.dumps(
+            {
+                "root": str(data_dir / "knowledge"),
+                "domain": "vllm-ascend",
+                "community_config": str(comm),
+                "admission_path": str(adm_path),
+                "transcript_adapter": str(SCRIPTS / "dsh_transcript.py"),
+                "redactor_executable": sys.executable,
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = cfg_dir / "config.json"
+    adapter.write_text(
+        json.dumps(
+            {
+                "python": sys.executable,
+                "venv_dir": sys.prefix,
+                "engine_config": str(engine),
+                "state_dir": str(state_dir),
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "MINDIE_DSH_CONFIG": str(adapter),
+        "MINDIE_DSH_CONFIG_HOME": str(cfg_dir),
+        "MINDIE_DSH_DATA_HOME": str(data_dir),
+        "MINDIE_DSH_ENGINE_CONFIG": str(engine),
+        "MINDIE_DSH_STATE_DIR": str(state_dir),
+        "MINDIE_DIAGNOSTICS_ROOT": str(tmp_path / "diag"),
+    }
+
+    # 1. Sharing disabled: mindie_launch hook stop exits < 100ms (min of 5 warm samples) with zero SQLite
+    consent_store.record_choice(consent, "disabled")
+    settings_mod.write(comm, enabled=False, repository=None, project_roots=[], consent_config=str(consent))
+    subprocess.run([sys.executable, str(SCRIPTS / "mindie_launch.py"), "hook", "stop"], env=env, capture_output=True, check=True, timeout=10)
+    samples_launch = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        res = subprocess.run([sys.executable, str(SCRIPTS / "mindie_launch.py"), "hook", "stop"], env=env, capture_output=True, check=True, timeout=10)
+        samples_launch.append((time.perf_counter() - t0) * 1000.0)
+        assert res.stdout.strip() == b"{}"
+    assert min(samples_launch) < 100.0, samples_launch
+    assert not adm_path.exists()
+
+    # 2. Out-of-scope cwd: BOTH mindie_launch hook stop AND capture_stop.py exit < 100ms (min of 5 warm samples) with zero SQLite
+    consent_store.record_choice(consent, "contribute")
+    settings_mod.write(
+        comm,
+        enabled=True,
+        repository="mindie-agent/knowledge-vllm-ascend",
+        project_roots=[proj_dir],
+        consent_config=str(consent),
+    )
+    oos_event = json.dumps({"hook_event_name": "Stop", "session_id": "sess-oos", "cwd": str(outside_dir)}).encode()
+    subprocess.run([sys.executable, str(SCRIPTS / "mindie_launch.py"), "hook", "stop"], input=oos_event, env=env, capture_output=True, check=True, timeout=10)
+    samples_launch_oos = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        res_oos = subprocess.run([sys.executable, str(SCRIPTS / "mindie_launch.py"), "hook", "stop"], input=oos_event, env=env, capture_output=True, check=True, timeout=10)
+        samples_launch_oos.append((time.perf_counter() - t0) * 1000.0)
+        assert res_oos.stdout.strip() == b"{}"
+    assert min(samples_launch_oos) < 100.0, samples_launch_oos
+    assert not adm_path.exists()
+
+    subprocess.run([sys.executable, str(SCRIPTS / "capture_stop.py")], input=oos_event, env=env, capture_output=True, check=True, timeout=10)
+    samples_oos = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        subprocess.run([sys.executable, str(SCRIPTS / "capture_stop.py")], input=oos_event, env=env, capture_output=True, check=True, timeout=10)
+        samples_oos.append((time.perf_counter() - t0) * 1000.0)
+    assert min(samples_oos) < 100.0, samples_oos
+    assert not adm_path.exists()
+
+    # 3. Opted-in in-scope CLI mindie_launch hook stop routes to capture_stop.py, aligns project_root, and initializes state-v4.sqlite3
+    adm = Admission(adm_path)
+    adm.activate("sess-in-scope", project_root=str(other_dir), not_before=0.0)
+    transcript = tmp_path / "session.v4.jsonl.zstd"
+    transcript.write_bytes(b"")
+    in_event = json.dumps(
+        {
+            "hook_event_name": "Stop",
+            "stop_hook_active": False,
+            "session_id": "sess-in-scope",
+            "identity_kind": "turn",
+            "turn_id": "1",
+            "transcript_path": str(transcript),
+            "harness": "dsh",
+            "workspace_root": str(proj_dir),
+        }
+    ).encode()
+    completed = subprocess.run([sys.executable, str(SCRIPTS / "mindie_launch.py"), "hook", "stop"], input=in_event, env=env, capture_output=True, check=True, timeout=15)
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == b"{}"
+    from mindie_knowledge import state_layout
+
+    aligned = adm.knowledge_lease("sess-in-scope")
+    assert aligned is not None
+    assert Path(aligned["project_root"]).resolve() == proj_dir.resolve()
+    assert (state_layout.state_root(data_dir / "knowledge", "vllm-ascend") / state_layout.DATABASE).is_file()
+
+    # 4. Fresh-session op_deactivate persists inactive row in selected engine admission_path and blocks Stop + MCP
+    import knowledge_mcp
+    import mindie_sidecar
+
+    old_cfg_env = os.environ.get("MINDIE_DSH_CONFIG")
+    old_eng_env = os.environ.get("MINDIE_DSH_ENGINE_CONFIG")
+    old_sid_env = os.environ.get("MINDIE_DSH_SESSION_ID")
+    try:
+        os.environ["MINDIE_DSH_CONFIG"] = str(adapter)
+        os.environ["MINDIE_DSH_ENGINE_CONFIG"] = str(engine)
+        deact_res = mindie_sidecar.op_deactivate({"session": "sess-fresh-deact", "cwd": str(proj_dir)})
+        assert deact_res["deactivated"] is True
+        assert adm.inspect("sess-fresh-deact")["status"] == "inactive"
+        os.environ["MINDIE_DSH_SESSION_ID"] = "sess-fresh-deact"
+        with pytest.raises(RuntimeError, match="explicitly deactivated"):
+            knowledge_mcp.activation_token("sess-fresh-deact", engine_cfg_path=engine)
+    finally:
+        if old_cfg_env is None:
+            os.environ.pop("MINDIE_DSH_CONFIG", None)
+        else:
+            os.environ["MINDIE_DSH_CONFIG"] = old_cfg_env
+        if old_eng_env is None:
+            os.environ.pop("MINDIE_DSH_ENGINE_CONFIG", None)
+        else:
+            os.environ["MINDIE_DSH_ENGINE_CONFIG"] = old_eng_env
+        if old_sid_env is None:
+            os.environ.pop("MINDIE_DSH_SESSION_ID", None)
+        else:
+            os.environ["MINDIE_DSH_SESSION_ID"] = old_sid_env
 
 
 def test_v0_1_22_config_and_pointer_upgrade_compatibility(tmp_path: Path, monkeypatch) -> None:

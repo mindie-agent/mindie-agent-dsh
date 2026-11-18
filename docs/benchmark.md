@@ -28,5 +28,5 @@ The outer benchmark sandbox governs process isolation (`DSH_PERMISSION_MODE=dang
 
 - **G0**: `completed_pass` (11 turns, native bash/read/glob tools, verified by the task test suite).
 - **G1**: `completed_pass` (`remote-dev` MCP server started and passed preflight).
-- **G2**: `completed_pass` (`knowledge_query`, `knowledge_explain`, and `/mindie-agent` skill activation observed).
+- **G2**: `completed_pass` (`knowledge_query`, `knowledge_explain`, and `mindie-agent` skill guidance observed).
 - **G3**: Native capture evaluation in `mindie-bench` currently targets the Codex/Claude Stop transcript protocols and is not yet wired for DSH.

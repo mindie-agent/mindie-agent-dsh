@@ -17,9 +17,8 @@
 # resolves its own bundled skills.
 
 - insert:
-    # The `/mindie-agent` user entry. The skill has
-    # `disable-model-invocation: true`, so it never enters the model catalog
-    # and can only be injected by an explicit `/mindie-agent` user invocation.
+    # Semantic Ascend AI Infra workflow skill exposed to every agent preset
+    # alongside the default-enabled Host knowledge and MCP tool surfaces.
     - id: mindie-agent-skill
       name: '@deepseek-ai/dsh-skill-filesystem'
       config:

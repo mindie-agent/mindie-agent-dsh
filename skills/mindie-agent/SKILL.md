@@ -1,30 +1,24 @@
 ---
 name: mindie-agent
-description: Manually enable Ascend knowledge, domain workflows, feedback, distillation and background experience capture for the current DeepSeek Harness session. Configured deterministic tools remain available without this entry.
-whenToUse: Only when the user explicitly types /mindie-agent for an Ascend NPU, vLLM-Ascend, AscendC, Triton, NPU testing, tuning, or troubleshooting task.
-disable-model-invocation: true
+description: "Ascend NPU, vLLM-Ascend, xLLM, MindIE-SD, and AscendC/Triton engineering workflow with default-enabled L1-L4 graded knowledge, remote NPU development, profiling, Roofline simulation, CANN fault triage, and cluster lease coordination."
+user-invocable: false
 ---
 
-# MindIE Agent (DeepSeek Harness Unified Entry)
+# MindIE Agent (DeepSeek Harness Runtime Workflow)
 
-## 1. Core Operating Stance
+## 1. Default-Enabled Tooling & Task Continuity
 
-- **Keep the user's task moving**: Knowledge, diagnostics, and local ledgers are optional helpers. If any helper fails, report that specific error once and continue inside the user's native DSH session with deterministic MCP tools or authorized host-native tools. Reconcile any `unknown` remote write before repeating it.
-- **Zero-gate deterministic tools**: `remote-dev` (`mcp__remote-dev__remote_*`) and `mindie-tools` (`mindie_status`, `diagnostics_status`, `diagnostics_bundle`, `coordinator`, `debugger`, `profiler`, `sim`) work in every DSH session, subagent, and workspace-free run without `/mindie-agent`, session hooks, or `context_file`; `coordinator` runs are addressed directly by `execution_id`. Obtain a `coordinator` lease (or verify an existing reservation) before running workloads on physical NPUs, pausing only that device step if ownership cannot be confirmed.
-- **Explicit `/mindie-agent` knowledge gate**: Load this skill only when the user explicitly types `/mindie-agent`. Call `mindie_entry(op="init")` once (with optional `domain="<domain>"`) to initialize the current session's lease; new chats, forks, and subagents require their own manual entry.
+- **Ready out of the box**: `remote-dev` (`mcp__remote-dev__remote_*`), `mindie-tools` (`mindie_status`, `diagnostics_status`, `diagnostics_bundle`, `coordinator`, `debugger`, `profiler`, `sim`), and Host knowledge tools (`knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_distill`, `knowledge_sync`, `mindie_entry`) work by default in every DSH session, subagent, and workspace-free run without session activation or `context_file`.
+- **Keep the user's task moving**: Knowledge, diagnostics, and local ledgers are optional helpers. If any helper fails, report that specific error once and continue with deterministic MCP tools or authorized host-native tools; reconcile any `unknown` remote write before repeating it.
 
-## 2. Advisory Knowledge & Domain Tooling
+## 2. Advisory Knowledge & NPU Execution Discipline
 
-Treat knowledge strictly as reference material, never as rigid instructions:
-
-- **Inspect code first**: Read the relevant code and callers before calling `knowledge_query`. If the codebase already explains the bug or requirement, fix and verify it directly.
-- **Two-step retrieval (`L1–L4` graded units)**:
-  1. `knowledge_query`: pass a concise bilingual query (include canonical English APIs/identifiers alongside Chinese domain terms), optional `domain`, and observed `conditions` (`token_budget` default `8000`, up to `64000`). Units separate `tier` (`L1–L4`) from `evidence_strength`; treat `condition_unknown` as unproven and probe missing facts before applying a unit.
-  2. `knowledge_explain`: copy exact `mindie://<domain>/units/<id>@<revision>` URIs into `refs=[...]`, passing observed `conditions`, currently visible `known_refs=[...]`, and `token_budget` (default `16000`).
-- **Optional feedback, sync & distillation**: Record `knowledge_feedback` on `feedback_ref` when useful, run `knowledge_sync` once only if the local corpus is missing/stale or requested, and call `knowledge_distill` at `task_state="verified_milestone"` or `"completed"` (`reproduced_empirical` requires repeated verified runs; `L4` requires a verified ablation receipt).
-- **Long-horizon runs & de-biased exploration**:
-  - `coordinator` (`execution_id`) and `remote-dev` (`job_id`) own authoritative job/lease state—inspect existing handles before resubmitting after an interruption or compaction, and remember a single-turn `Stop` event never marks an ongoing multi-turn task complete. Pass explicit `--time-window`, `--step-window`, or `--full-range` and `--clock-domain` to `mindie_profiler`.
-  - For multi-round kernel/serving tuning, track hypotheses and verified receipts cleanly in task-local notes. When repeated `L3` repairs plateau on a structural bottleneck, query `L4` structural mutators (`mode="explore"`) and optionally delegate a clean subagent seeded with `exploration_context.subagent_fact_pack.prompt_brief`, verifying multi-factor changes with leave-one-out ablations on the operator's real interface.
+- **Inspect code first**: Read the relevant source files and callers before calling `knowledge_query`; fix and verify directly when the codebase already explains the issue.
+- **Two-step `L1–L4` retrieval**:
+  1. `knowledge_query`: pass concise bilingual terms (canonical English APIs/error codes alongside domain keywords), optional `domain`, and observed `conditions` (`token_budget` default `8000`, up to `64000`). Treat `condition_unknown` as unproven and probe missing facts before applying a unit.
+  2. `knowledge_explain`: copy exact `mindie://<domain>/units/<id>@<revision>` URIs into `refs=[...]` with observed `conditions`, visible `known_refs=[...]`, and `token_budget` (default `16000`).
+- **Feedback, distillation & NPU leases**: Record `knowledge_feedback` on `feedback_ref` when useful, run `knowledge_sync` once only if the corpus is missing/stale or requested, and call `knowledge_distill` at `task_state="verified_milestone"` or `"completed"` (`reproduced_empirical` requires repeated verified runs; `L4` requires a verified leave-one-out ablation receipt). Acquire or verify a `coordinator` lease before running workloads on physical NPUs, inspect live `coordinator` (`execution_id`) and `remote-dev` (`job_id`) handles before resubmitting, and pass explicit `--time-window`, `--step-window`, or `--full-range` plus `--clock-domain` to `profiler`.
+- **De-biased exploration**: When repeated `L3` repairs stall on a structural bottleneck, query `L4` structural mutators (`mode="explore"`) and optionally delegate a clean subagent seeded with `exploration_context.subagent_fact_pack.prompt_brief`.
 
 ## 3. Progressive References (Load Only When Needed)
 

@@ -15,7 +15,7 @@ This document summarizes the verification scope and acceptance evidence for `min
 
 - **Host Entry & Unified Consent (`mindie_entry`)**:
   - `mindie_entry` supports `init`, `status`, `choose`, `deactivate`, and `reporting-status`.
-  - Knowledge operations (`init`, `choose`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`), lazy loopback summary server startup (`ensureSummaryServer`), and `agent/turn-stopping` capture require an explicit `/mindie-agent` invocation in the current session (`knowledge_lease` with `entry_enabled = 1`), whereas `remote-dev` MCP tools and factual `mindie_entry(op="status" | "reporting-status")` work without `/mindie-agent`.
+  - Knowledge operations (`init`, `choose`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`) and `remote-dev` / `mindie-tools` MCP tools work out of the box in every session without manual activation, while lazy loopback summary server startup (`ensureSummaryServer`) and `agent/turn-stopping` capture run only when unified contribution consent and `project_roots` scope are authorized (and session `deactivate` was not requested).
   - Community knowledge sharing and automatic sanitized fault reporting share a single persistent switch in `mindie-consent.json`.
   - Explicitly selecting `contribute` configures public knowledge sharing (defaulting to `mindie-agent/knowledge-vllm-ascend` with on-demand personal fork creation/binding) and starts the native background fault-reporting worker; selecting `disabled` turns both off and withdraws unsent reports.
   - Legacy `disabled`, `later`, and `read-only` records remain off across upgrades. Legacy knowledge-only `contribute` records lacking the unified consent revision (`choice_revision` / `needs_choice`) stay inactive for fault uploads until explicitly re-confirmed once.
@@ -34,7 +34,7 @@ This document summarizes the verification scope and acceptance evidence for `min
 
 | Platform | Environment | Verified Scope |
 | --- | --- | --- |
-| **macOS arm64** | macOS 27.0.1, DSH `0.2.0-rc.2`, Node 22+, Python 3.11+ | Full `/mindie-agent` entry lifecycle, `knowledge_query` / `knowledge_explain` / `knowledge_feedback` / `knowledge_sync`, v4 zstd `Stop` capture & model summary indexing, auto-fork PR publication, unified consent fault reporting, and live launcher generation swap |
+| **macOS arm64** | macOS 27.0.1, DSH `0.2.0-rc.2`, Node 22+, Python 3.11+ | Full `mindie_entry` lifecycle, `knowledge_query` / `knowledge_explain` / `knowledge_feedback` / `knowledge_sync`, v4 zstd `Stop` capture & model summary indexing, auto-fork PR publication, unified consent fault reporting, and live launcher generation swap |
 | **Ubuntu 24.04 WSL** | Linux (WSL2), DSH `0.2.0-rc.2`, Node 22.22, Python 3.11, SQLite 3.50 | Runtime provisioning, knowledge feed sync, v4 zstd public extraction & redaction, live `mindie_entry(init)` & `Stop` summary indexing, `remote_dev.mcp.server` startup, and live launcher generation swap |
 | **Windows 11 Native** | Windows 11, DSH `0.2.0-rc.2`, Node 24.19, Python 3.11+, SQLite 3.53 | Non-elevated Task Scheduler knowledge service startup, ASCII-safe stdio bridge, v4 zstd `Stop` capture & summary indexing, same-version SHA refresh preservation, and live launcher generation swap |
 

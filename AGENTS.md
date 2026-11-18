@@ -11,11 +11,11 @@ This repository owns the thin Cordis host launcher (`host.mjs`), generation fibe
 - **Zero Windows Console Popups (`Windows Zero-Popup Iron Rule`)**:
   - Every Node `spawn` call MUST pass `windowsHide: true`, and background spawns (`startUpdateCheck`, `spawnCapture`) MUST use `backgroundSpawnOptions()` (`detached: process.platform !== 'win32'`) — **NEVER** pass `detached: true` on `win32` (which creates a visible console window in Node/libuv).
   - Normalize case-insensitive `PATH`/`Path` environment keys via `buildChildEnv()` on Windows, and enforce `CREATE_NO_WINDOW` (`0x08000000`) on all Python child launches without unguarded `os.kill(pid, 0)`.
-- **Zero Pre-Call Gates on Deterministic Tools (`P2.7`) vs. Strict `/mindie-agent` Knowledge Admission (`P2.1`)**:
-  - Deterministic MCP servers (`remote-dev` and `mindie-tools` via `scripts/component_mcp.py`) work out-of-the-box in every session and subagent without `/mindie-agent`, `request_nonce`, or `context_file`.
+- **Zero Pre-Call Gates Across Deterministic & Knowledge Tools + Consent-Gated `Stop` Capture**:
+  - Deterministic MCP servers (`remote-dev` and `mindie-tools` via `scripts/component_mcp.py`), Host knowledge tools (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`, `mindie_entry`), and `scripts/knowledge_mcp.py` work out-of-the-box in every session and subagent without slash-command activation, `request_nonce`, or `context_file`.
   - Parent and subagent sessions share `REMOTE_DEV_STATE_DIR` (`state/remote`) so subagents can poll or stop parent `job_id`s (`AD-02` fixed), while `REMOTE_DEV_SESSION_ID` isolates per-session read ledgers.
   - Resident `component_mcp.py` dispatches concurrent `tools/call` requests without single-flight `-32000` blocking (`AD-03` fixed).
-  - Unactivated default sessions register ONLY `mindie_entry`; `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync` are mounted ONLY after `/mindie-agent` activates or resumes a session lease and are disposed on `deactivate` or `agent/disposed` (`AD-11` fixed).
+  - Read-only knowledge operations (`query`, `explain`, `sync`) run without creating an admission lease; mutating operations (`feedback`, `distill`) auto-provision a default session lease (`not_before=0.0`) on demand unless explicitly deactivated, and `agent/turn-stopping` / `capture_stop.py` verify `mindie-consent.json` + `project_roots` before opening SQLite.
 - **State & Receipt Honesty + Symlink Compatibility (`Principles 9, 10, 14` & `AD-07`)**:
   - Distinguish `completed`, `failed`, and `unknown` external effects; precede broad `except OSError:` with `except TimeoutError: raise`; enforce `outer_timeout >= sum(inner_budgets) + cleanup_grace` (`660s >= 600s + 60s`).
   - Keep `isError=False` with `receipt_warning` / `local_error` when a primary remote or model operation succeeds and only local receipt accounting fails.

@@ -114,7 +114,7 @@ class GradedFeedbackEntryTests(unittest.TestCase):
 
 
 class MultiDomainRoutingTests(DomainHarnessTestCase):
-    def test_mcp_feedback_requires_target_lease_and_records_exact_ref(self):
+    def test_mcp_feedback_autoprovisions_target_lease_and_honors_deactivation(self):
         _default_unit, target_unit = self._install_both()
         observed = knowledge_mcp.handle({
             "id": 1, "method": "tools/call",
@@ -123,6 +123,7 @@ class MultiDomainRoutingTests(DomainHarnessTestCase):
                 "domain": self.target_domain,
             }},
         })["result"]["structuredContent"]["results"][0]
+        self.assertIsNone(self.target_admission.active_lease(SESSION))
         request = {
             "id": 1, "method": "tools/call",
             "params": {"name": "knowledge_feedback", "arguments": {
@@ -130,21 +131,24 @@ class MultiDomainRoutingTests(DomainHarnessTestCase):
                 "reason": "Confirmed through the standalone MCP bridge.",
             }},
         }
-        denied = knowledge_mcp.handle(request)["result"]
-        self.assertTrue(denied["isError"])
-        self.assertIn("no active admission lease", denied["content"][0]["text"])
-        self.assertEqual(self._votes(self.target_store), [])
-
-        self._ensure_target_lease()
         accepted = knowledge_mcp.handle(request)["result"]
         self.assertFalse(accepted["isError"], accepted)
         self.assertEqual(accepted["structuredContent"]["revision"], target_unit.revision)
+        target_lease = self.target_admission.active_lease(SESSION)
+        self.assertIsNotNone(target_lease)
+        self.assertEqual(target_lease["activated_at"], 0.0)
+        self.assertNotEqual(target_lease["token"], self.token)
         votes = self._votes(self.target_store)
         self.assertEqual(len(votes), 1)
         self.assertEqual(votes[0]["entry_id"], UNIT_ID)
         self.assertEqual(votes[0]["revision"], str(target_unit.revision))
         self.assertEqual(votes[0]["rating"], "up")
         self.assertEqual(self._votes(self.store), [])
+
+        self.target_admission.deactivate(SESSION)
+        denied = knowledge_mcp.handle(request)["result"]
+        self.assertTrue(denied["isError"])
+        self.assertIn("not activated", denied["content"][0]["text"])
 
     def test_explicit_domain_query_selects_independent_store_and_revision(self):
         default_unit, target_unit = self._install_both()
@@ -272,15 +276,16 @@ class MultiDomainRoutingTests(DomainHarnessTestCase):
         )
         self.assertEqual(lease["token"], self.token)
 
-    def test_missing_target_distill_lease_fails_before_model(self):
-        self.assertIsNone(self.target_admission.active_lease(SESSION))
+    def test_deactivated_target_distill_fails_before_model(self):
+        self.target_admission.activate(SESSION, project_root=str(self.project))
+        self.target_admission.deactivate(SESSION)
         with self.assertRaises(mindie_sidecar.SidecarError) as missing:
             self._call("distill", {
                 "inputs": self._inputs(),
                 "task_state": "verified_milestone",
                 "domain": self.target_domain,
             })
-        self.assertIn("no active admission lease", str(missing.exception))
+        self.assertIn("not activated", str(missing.exception))
         self.assertFalse(self.calls.exists())
 
     def test_mcp_schema_and_query_route_configured_domain(self):
@@ -357,13 +362,23 @@ class MultiDomainRoutingTests(DomainHarnessTestCase):
         self.assertIn("unit-fixture-dsh-distill", target_ids)
         self.assertNotIn("unit-fixture-dsh-distill", default_ids)
 
-    def test_native_host_distill_missing_target_lease_fails_before_model(self):
+    def test_native_host_distill_autoprovisions_target_lease_and_honors_deactivation(self):
         self.assertIsNone(self.target_admission.active_lease(SESSION))
         payload = self._run_tool_harness(domain=self.target_domain)
         self.assertTrue(payload["activated"])
-        self.assertIsNone(payload["result"])
-        self.assertIn("no active admission lease", payload["error"])
-        self.assertEqual(payload["llmCalls"], 0)
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["result"]["status"], "applied")
+        target_lease = self.target_admission.active_lease(SESSION)
+        self.assertIsNotNone(target_lease)
+        self.assertEqual(target_lease["activated_at"], 0.0)
+        self.assertNotEqual(target_lease["token"], self.token)
+
+        self.calls.unlink(missing_ok=True)
+        self.target_admission.deactivate(SESSION)
+        denied = self._run_tool_harness(domain=self.target_domain)
+        self.assertIsNone(denied["result"])
+        self.assertIn("not activated", denied["error"])
+        self.assertEqual(denied["llmCalls"], 0)
         self.assertFalse(self.calls.exists())
 
 

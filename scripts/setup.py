@@ -768,8 +768,8 @@ def main(argv: list[str] | None = None) -> int:
             "contribution_notice": "One contribution choice controls public knowledge sharing and sanitized fault reports. Existing choices are preserved; legacy choices require explicit confirmation before reporting.",
             "elapsed_seconds": round(time.time() - started, 2),
             "next": (
-                "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager), "
-                "open a new session, and type /mindie-agent <task>."
+                "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager) "
+                "and open a new session; Ascend knowledge and remote-dev tools are ready by default."
             ),
         }
         print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))

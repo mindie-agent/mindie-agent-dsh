@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """[Role] Long-lived JSON-line sidecar serving DSH Host-plugin entry, admission, and knowledge RPCs.
-[Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop and requires an active session token for knowledge RPCs. Optional target activation uses the shared domain helper and never replaces the default host token.
-[Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s plus 5s process cleanup, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; target activation reuses Admission's 5s write budget; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
-[Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on explicit activate/deactivate/configure/reporting operations; the resident process holds a shared runtime lease.
+[Invariants] Processes one JSON request line (< 256 KiB) per stdout response line; owns no retry loop. Read-only knowledge operations (`query`, `explain`, `sync`) run out of the box without a pre-existing lease unless explicitly deactivated; mutating operations (`feedback`, `distill`) auto-provision a default session lease (`not_before=0.0`) on the selected domain's `admission_path`.
+[Timeouts & Locks] Knowledge query/explain/feedback RPCs bounded at 30.0s, feed sync 120.0s plus 5s process cleanup, distill uses 2 redaction scans + identity + summary worker + 20s receipt/cleanup; gh CLI fork operations 90.0s, reporting worker ensure 75.0s; native configure outer 600s covers five 90s gh operations plus worker startup; registered-domain deactivation has a 6s total budget and the host allows 30s with cleanup.
+[Side-Effect Policy] Mutates admission.sqlite3, target-domain admission.sqlite3, mindie-consent.json, mindie-community.json, and diagnostics.json only on activate/deactivate/configure/reporting or on-demand write-lease provisioning; the resident process holds a shared runtime lease.
 """
 
 from __future__ import annotations
@@ -72,9 +72,24 @@ def consent_path() -> Path:
     return mp.config_home() / "mindie-consent.json"
 
 
-def admission():
+def admission_file(engine: str | Path | None = None) -> Path:
+    try:
+        candidate = Path(engine) if engine is not None else mp.engine_config()
+        if candidate.is_file():
+            doc = json.loads(candidate.read_text(encoding="utf-8"))
+            adm = doc.get("admission_path") if isinstance(doc, dict) else None
+            if isinstance(adm, str) and adm:
+                return Path(adm)
+    except TimeoutError:
+        raise
+    except (OSError, ValueError):
+        pass
+    return Path(mp.data_home()) / "admission.sqlite3"
+
+
+def admission(engine: str | Path | None = None):
     from mindie_knowledge.loop.activation import Admission
-    return Admission(str(Path(mp.data_home()) / "admission.sqlite3"))
+    return Admission(str(admission_file(engine)))
 
 
 def prepare() -> None:
@@ -100,17 +115,11 @@ def public_settings() -> dict[str, Any]:
     community = settings_mod.load(comm_cfg)
     consent = consent_store.read(str(consent_path()))
     return {
-        "configured": community.state in {"enabled", "disabled"},
-        "enabled": bool(community.enabled),
-        "repository": community.repository,
-        "fork": community.raw.get("fork"),
-        "account": community.raw.get("account"),
-        "project_roots": [str(item) for item in community.project_roots],
-        "consent": consent.get("state"),
-        "choice": consent.get("choice"),
-        "reporting": diagnostics.status(),
-        "choice_revision": consent.get("choice_revision"),
-        "capture_block": community.capture_block_kind(),
+        "configured": community.state in {"enabled", "disabled"}, "enabled": bool(community.enabled),
+        "repository": community.repository, "fork": community.raw.get("fork"),
+        "account": community.raw.get("account"), "project_roots": [str(item) for item in community.project_roots],
+        "consent": consent.get("state"), "choice": consent.get("choice"), "reporting": diagnostics.status(),
+        "choice_revision": consent.get("choice_revision"), "capture_block": community.capture_block_kind(),
     }
 
 
@@ -130,17 +139,10 @@ def ensure_default_sharing() -> None:
     if authority["state"] in {"corrupt", "unreadable"}:
         raise consent_store.ConsentError(authority["error"], state=authority["state"])
     if settings_mod.load(str(community_path())).state not in {"enabled", "disabled"}:
-        _configure_community(
-            {
-                "enabled": False,
-                "repository": None,
-                "project_roots": [],
-                "branch": "main",
-                "idle_seconds": 300,
-                "visibility": "public",
-                "consent_config": str(consent),
-            }
-        )
+        _configure_community({
+            "enabled": False, "repository": None, "project_roots": [], "branch": "main",
+            "idle_seconds": 300, "visibility": "public", "consent_config": str(consent),
+        })
 
 
 def lease_view(session: str) -> dict[str, Any]:
@@ -148,19 +150,69 @@ def lease_view(session: str) -> dict[str, Any]:
     return {"enabled": row is not None, "project_root": row.get("project_root") if row else None}
 
 
-def knowledge_lease(session: str) -> dict[str, Any] | None:
+def knowledge_lease(session: str, *, engine: str | Path | None = None) -> dict[str, Any] | None:
     from mindie_knowledge.loop.activation import AdmissionUnavailable
+    db = admission_file(engine)
+    if not db.is_file():
+        return None
     try:
-        return admission().knowledge_lease(session)
+        return admission(engine).knowledge_lease(session)
     except AdmissionUnavailable as exc:
         raise SidecarError(f"admission check failed: {type(exc).__name__}: {exc}") from exc
 
 
-def manual_lease(session: str, token: str) -> dict[str, Any]:
+def ensure_not_deactivated(session: str, *, engine: str | Path | None = None) -> None:
+    from mindie_knowledge.loop.activation import Admission, AdmissionUnavailable
+    seen: set[Path] = set()
+    for db in (admission_file(engine), Path(mp.data_home()) / "admission.sqlite3"):
+        resolved = db.resolve(strict=False)
+        if resolved in seen or not db.is_file():
+            continue
+        seen.add(resolved)
+        try:
+            status = Admission(str(db)).inspect(session).get("status")
+        except AdmissionUnavailable as exc:
+            raise SidecarError(f"admission check failed: {type(exc).__name__}: {exc}") from exc
+        if status == "inactive":
+            raise SidecarError("this task is not activated; session was explicitly deactivated")
+
+
+def verify_optional_token(session: str, token: Any) -> dict[str, Any] | None:
+    ensure_not_deactivated(session)
+    if token is None:
+        return knowledge_lease(session)
+    if not isinstance(token, str) or not token:
+        raise SidecarError("this task is not activated; invalid session token")
     lease = knowledge_lease(session)
-    if lease is None or lease["token"] != token:
-        raise SidecarError("this task is not activated; invoke /mindie-agent first")
+    if lease is None or lease.get("token") != token:
+        raise SidecarError("this task is not activated; invalid session token")
     return lease
+
+
+def ensure_default_lease(
+    session: str, *, project_root: str | None = None, engine: str | Path | None = None
+) -> dict[str, Any]:
+    ensure_not_deactivated(session, engine=engine)
+    resolved_root = (
+        str(Path(project_root).resolve())
+        if isinstance(project_root, str) and project_root
+        else str(Path.cwd().resolve())
+    )
+    existing = knowledge_lease(session, engine=engine)
+    if existing is not None:
+        if project_root is None or existing.get("project_root") == resolved_root:
+            return existing
+        return admission(engine).activate(
+            session,
+            project_root=resolved_root,
+            root_session=existing.get("root_session") or session,
+            not_before=0.0,
+        )
+    if engine is None or Path(engine).resolve() == Path(engine_path()).resolve():
+        prepare()
+    db = admission_file(engine)
+    db.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return admission(engine).activate(session, project_root=resolved_root, root_session=session, not_before=0.0)
 
 
 def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
@@ -169,18 +221,13 @@ def _domain_activation_view(selected: dict[str, Any]) -> dict[str, Any]:
     # its token before returning entry output. Routing resolves the target
     # lease from the target Admission; the default host token is untouched.
     view = {
-        "domain": selected.get("domain"),
-        "generation": selected.get("generation"),
-        "activated_at": lease.get("activated_at"),
-        "project_root": lease.get("project_root"),
+        "domain": selected.get("domain"), "generation": selected.get("generation"),
+        "activated_at": lease.get("activated_at"), "project_root": lease.get("project_root"),
         "root_session": lease.get("root_session"),
         "lease": {
-            "session": lease.get("session"),
-            "token": lease.get("token"),
-            "enabled": bool(lease.get("enabled")),
-            "activated_at": lease.get("activated_at"),
-            "project_root": lease.get("project_root"),
-            "root_session": lease.get("root_session"),
+            "session": lease.get("session"), "token": lease.get("token"),
+            "enabled": bool(lease.get("enabled")), "activated_at": lease.get("activated_at"),
+            "project_root": lease.get("project_root"), "root_session": lease.get("root_session"),
         },
     }
     if isinstance(selected.get("engine_config"), str):
@@ -278,8 +325,19 @@ def _registered_domain_deactivator():
     return deactivate_registered_domains
 
 
+def _seed_missing_for_deactivate(session: str, cwd: Any) -> None:
+    adm_db = admission_file()
+    if not adm_db.is_absolute():
+        return
+    adm = admission()
+    if not adm_db.is_file() or adm.inspect(session).get("status") == "missing":
+        adm_db.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root = str(Path(cwd).resolve()) if isinstance(cwd, str) and Path(cwd).is_absolute() else str(Path.cwd().resolve())
+        adm.associate(session, project_root=root, not_before=0.0)
+
+
 def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
-    session = args.get("session")
+    session, cwd = args.get("session"), args.get("cwd")
     if not isinstance(session, str) or not session:
         raise SidecarError("session is required")
     config = adapter_config()
@@ -288,10 +346,10 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
     except routing.DomainRoutingError as exc:
         raise SidecarError(str(exc)) from exc
     if not domain_configs:
-        # No registered domains: retain the installed-default behavior exactly,
-        # including compatibility with an old core that has no domain helper.
+        _seed_missing_for_deactivate(session, cwd)
         return {"deactivated": bool(admission().deactivate(session)), "sharing": public_settings()}
     deactivate = _registered_domain_deactivator()
+    _seed_missing_for_deactivate(session, cwd)
     try:
         result = deactivate(
             config["engine_config"],
@@ -324,11 +382,7 @@ def op_deactivate(args: dict[str, Any]) -> dict[str, Any]:
 
 def _gh(*arguments: str) -> str:
     return sidecar_github.run_gh(
-        *arguments,
-        error_cls=SidecarError,
-        os_mod=os,
-        shutil_mod=shutil,
-        subprocess_mod=subprocess,
+        *arguments, error_cls=SidecarError, os_mod=os, shutil_mod=shutil, subprocess_mod=subprocess
     )
 
 
@@ -342,12 +396,7 @@ def _existing_fork(repository: str, account: str, fork: str | None = None) -> st
 
 def _ensure_fork(repository: str, fork: str | None, account: str) -> str:
     return sidecar_github.ensure_fork(
-        repository,
-        fork,
-        account,
-        gh_fn=_gh,
-        existing_fork_fn=_existing_fork,
-        error_cls=SidecarError,
+        repository, fork, account, gh_fn=_gh, existing_fork_fn=_existing_fork, error_cls=SidecarError
     )
 
 
@@ -409,26 +458,17 @@ def op_configure(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def cmd_sharing_enable(
-    *,
-    project_root: str | Path | None = None,
-    repository: str | None = None,
-    account: str | None = None,
-    fork: str | None = None,
-    visibility: str = "public",
+    *, project_root: str | Path | None = None, repository: str | None = None,
+    account: str | None = None, fork: str | None = None, visibility: str = "public",
 ) -> dict[str, Any]:
     resolved_root = str(Path(project_root).expanduser().resolve() if project_root is not None else Path.cwd().resolve())
     if not Path(resolved_root).is_dir():
         raise SidecarError(f"project root does not exist: {resolved_root}")
-    return op_configure(
-        {
-            "choice": "contribute",
-            "cwd": resolved_root,
-            "repository": repository or COMMUNITY_REPOSITORY,
-            "account": account,
-            "fork": fork,
-            "visibility": visibility,
-        }
-    )
+    return op_configure({
+        "choice": "contribute", "cwd": resolved_root,
+        "repository": repository or COMMUNITY_REPOSITORY,
+        "account": account, "fork": fork, "visibility": visibility,
+    })
 
 
 def cmd_sharing_disable(*, project_root: str | Path | None = None) -> dict[str, Any]:
@@ -543,7 +583,7 @@ def _forwarded_arguments(
     route: routing.Route,
     method: str,
     session: str,
-    token: str,
+    token: str | None,
     lease: dict[str, Any] | None,
 ) -> dict[str, Any]:
     forwarded = {
@@ -555,12 +595,8 @@ def _forwarded_arguments(
         forwarded["domain"] = route.forward_domain
     forwarded["_session_id"] = session
     if method in {"feedback", "distill"}:
-        # A target domain must prove its own existing lease. The default
-        # domain keeps its historical activation token.
         forwarded["_activation"] = lease["token"] if lease is not None else token
-    elif route.cross_domain:
-        # Ordinary target reads are bound to the native host session; never
-        # forward another domain's activation token.
+    elif route.cross_domain or not token:
         forwarded["_session_verified"] = True
     else:
         forwarded["_activation"] = token
@@ -570,12 +606,11 @@ def _forwarded_arguments(
 def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
     from mindie_knowledge.loop.transport import rpc
 
-    session, token, method, payload = args.get("session"), args.get("token"), args.get("method"), args.get("arguments")
+    session, token, cwd = args.get("session"), args.get("token"), args.get("cwd")
+    method, payload = args.get("method"), args.get("arguments")
     if not isinstance(session, str) or not session:
         raise SidecarError("session is required")
-    if not isinstance(token, str) or not token:
-        raise SidecarError("this task is not activated; invoke /mindie-agent first")
-    manual_lease(session, token)
+    verified_lease = verify_optional_token(session, token)
     if not isinstance(method, str) or method not in {"query", "explain", "feedback", "distill"}:
         raise SidecarError("unknown knowledge operation")
     if not isinstance(payload, dict):
@@ -591,11 +626,13 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
             except ValueError as exc:
                 raise SidecarError(str(exc)) from exc
         timeout = 30.0
-    if payload.get("domain") is not None or payload.get("ref") is not None or payload.get("refs") is not None:
+    if isinstance(token, str) and token and (
+        payload.get("domain") is not None or payload.get("ref") is not None or payload.get("refs") is not None
+    ):
         try:
             admission().check(session, token)
         except ValueError as exc:
-            raise SidecarError("this task is not activated; invoke /mindie-agent first") from exc
+            raise SidecarError("this task is not activated; invalid session token") from exc
         except TimeoutError:
             raise
         except Exception as exc:
@@ -610,12 +647,32 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
             route_payload = {**payload, "ref": route_ref}
     route = _route(route_payload)
     lease = None
-    if route.cross_domain and method in {"feedback", "distill"}:
+    if route.cross_domain:
         try:
-            lease = routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+            if method in {"feedback", "distill"}:
+                lease = routing.target_lease(
+                    route.selected_path,
+                    session,
+                    domain=route.forward_domain,
+                    ensure=True,
+                    project_root=cwd if isinstance(cwd, str) else None,
+                )
+            else:
+                routing.ensure_target_not_deactivated(
+                    route.selected_path, session, domain=route.forward_domain
+                )
         except routing.DomainRoutingError as exc:
             raise SidecarError(str(exc)) from exc
-    arguments = _forwarded_arguments(payload, route, method, session, token, lease)
+    elif method in {"feedback", "distill"}:
+        lease = (
+            ensure_default_lease(session, project_root=cwd, engine=route.selected_path)
+            if isinstance(cwd, str) and cwd
+            else (verified_lease or ensure_default_lease(session, engine=route.selected_path))
+        )
+    else:
+        ensure_not_deactivated(session, engine=route.selected_path)
+    active_token = token if isinstance(token, str) and token else (lease["token"] if lease else None)
+    arguments = _forwarded_arguments(payload, route, method, session, active_token, lease)
     result = rpc(connection(str(route.selected_path)), method, arguments, timeout=timeout)
     if method == "distill":
         from mindie_knowledge.graded.distill import result_view
@@ -626,10 +683,17 @@ def op_rpc(args: dict[str, Any]) -> dict[str, Any]:
 
 def op_sync(args: dict[str, Any]) -> dict[str, Any]:
     session = args.get("session")
-    manual_lease(session, args.get("token"))
+    if not isinstance(session, str) or not session:
+        raise SidecarError("session is required")
+    verify_optional_token(session, args.get("token"))
     route = _route({"domain": args.get("domain")})
     if route.cross_domain:
-        routing.target_lease(route.selected_path, session, domain=route.forward_domain)
+        try:
+            routing.ensure_target_not_deactivated(
+                route.selected_path, session, domain=route.forward_domain
+            )
+        except routing.DomainRoutingError as exc:
+            raise SidecarError(str(exc)) from exc
     return sync_feeds(adapter_config()["python"], route.selected_path)
 
 
@@ -654,8 +718,7 @@ def response(identifier: Any, *, ok: bool, result: Any = None, error: Exception 
         return {"id": identifier, "ok": True, "result": result}
     code = getattr(error, "error_code", None)
     return {
-        "id": identifier,
-        "ok": False,
+        "id": identifier, "ok": False,
         "error": {
             "type": type(error).__name__ if error is not None else "Error",
             "message": str(error) if error is not None else "unknown error",
@@ -670,24 +733,15 @@ def _run_cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="mindie_sidecar.py")
     sub = parser.add_subparsers(dest="subcommand", required=True)
     enable_p = sub.add_parser("sharing-enable")
-    enable_p.add_argument("--project-root", default=None)
-    enable_p.add_argument("--fork", default=None)
-    enable_p.add_argument("--account", default=None)
-    enable_p.add_argument("--repository", default=COMMUNITY_REPOSITORY)
-    enable_p.add_argument("--visibility", default="public")
-    disable_p = sub.add_parser("sharing-disable")
-    disable_p.add_argument("--project-root", default=None)
+    for flag, default in (("--project-root", None), ("--fork", None), ("--account", None), ("--repository", COMMUNITY_REPOSITORY), ("--visibility", "public")):
+        enable_p.add_argument(flag, default=default)
+    sub.add_parser("sharing-disable").add_argument("--project-root", default=None)
     parsed = parser.parse_args(argv)
-    if parsed.subcommand == "sharing-enable":
-        result = cmd_sharing_enable(
-            project_root=parsed.project_root,
-            repository=parsed.repository,
-            account=parsed.account,
-            fork=parsed.fork,
-            visibility=parsed.visibility,
-        )
-    else:
-        result = cmd_sharing_disable(project_root=parsed.project_root)
+    result = (
+        cmd_sharing_enable(project_root=parsed.project_root, repository=parsed.repository, account=parsed.account, fork=parsed.fork, visibility=parsed.visibility)
+        if parsed.subcommand == "sharing-enable"
+        else cmd_sharing_disable(project_root=parsed.project_root)
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
