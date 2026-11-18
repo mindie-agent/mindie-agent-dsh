@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.27 — 2026-11-19
+
+- Restore seamless `v0.1.25 -> v0.1.27` native self-upgrade handoff (`--python`, `--total-timeout`, `--component-manifest`, `--prepare-only` in `scripts/setup.py`, bundled seed bootstrap when `mindie_harness.mcp.gateway` is absent, and legacy `dsh/config.json` migration).
+- Add `tests/test_legacy_self_upgrade.py` end-to-end two-phase `setup_candidate` contract tests.
+
 ## 0.1.26 — 2026-11-18
 
 - Great Subtraction: delete 26 legacy duplicate runtime modules so `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while `paths.cjs`, `host.mjs`, and `host3.mjs` form the thin Host boundary. The six production files total `<= 1,200` lines; MCP routing, runtime preparation, sharing/update, locking, storage GC, and host adaptation delegate to `mindie-harness` (`API_VERSION = 1`), and the bundled seed remains the deterministic cold-start path.

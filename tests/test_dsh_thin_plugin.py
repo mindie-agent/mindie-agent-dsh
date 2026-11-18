@@ -283,7 +283,7 @@ def test_setup_init_sharing_and_compatibility(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"; workspace.mkdir()
     initialized = _setup("init")
     assert initialized["status"] == "ready"
-    assert initialized["version"] == "0.1.26"
+    assert initialized["version"] == "0.1.27"
     engine = json.loads(Path(initialized["engine_config"]).read_text(encoding="utf-8"))
     assert engine["transcript_adapter"].endswith("dsh_transcript.py")
     assert engine["summary_command"][-1] == "summary"
@@ -296,7 +296,7 @@ def test_setup_init_sharing_and_compatibility(tmp_path: Path) -> None:
     release = _setup("release-metadata", "--source", str(ROOT), "--tests", str(ROOT / "tests"),
                      "--revision", "a" * 40)
     assert release["schema"] == "mindie-plugin-release/1"
-    assert release["version"] == "0.1.26"
+    assert release["version"] == "0.1.27"
     assert release["compatibility"]["harness"] == "dsh"
     compatibility = json.loads((ROOT / "harness-compatibility.json").read_text(encoding="utf-8"))
     assert compatibility["schema"] == "mindie-harness-compatibility/1"
