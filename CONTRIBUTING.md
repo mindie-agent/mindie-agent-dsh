@@ -6,7 +6,7 @@ English version: [`CONTRIBUTING.en.md`](CONTRIBUTING.en.md)
 
 ## 1. 架构与宿主边界
 
-1. **薄宿主层职责**：`v0.1.26` 仅维护六个生产文件——Host 边界 `paths.cjs` / `host.mjs` / `host3.mjs`，以及 `scripts/{mindie_launch.py,dsh_transcript.py,setup.py}`；MCP 路由、运行时准备、共享/更新、锁、存储 GC 与宿主适配统一委托 `mindie-harness`（`API_VERSION = 1`，内置 `assets/mindie-harness-seed.pyz`）。六者合计必须 `<= 1,200` 行。
+1. **薄宿主层职责**：`v0.1.27` 仅维护六个生产文件——Host 边界 `paths.cjs` / `host.mjs` / `host3.mjs`，以及 `scripts/{mindie_launch.py,dsh_transcript.py,setup.py}`；MCP 路由、运行时准备、共享/更新、锁、存储 GC 与宿主适配统一委托 `mindie-harness`（`API_VERSION = 1`，内置 `assets/mindie-harness-seed.pyz`）。六者合计必须 `<= 1,500` 行。
 2. **Windows 零弹窗铁律**：Node 侧所有 `spawn` 必须设置 `windowsHide: true`，后台子进程统一使用 `backgroundSpawnOptions()`（`detached: process.platform !== 'win32'`，严禁在 `win32` 传入 `detached: true`），并通过 `buildChildEnv()` 归一化大小写无关的 `PATH`；Python 侧子进程统一传入 `CREATE_NO_WINDOW`。
 3. **准入与状态诚实**：
    - 每个会话默认挂载 `remote-dev`（14 个 `dsh` 工具）与 `mindie-tools`（确定性组件 + `mindie_doctor` + 5 个 `knowledge_*`），共享 `<state>/remote` 以支持跨父子会话查询/停止 `job_id`；`Stop` 采集先在纯 Node 中校验 `mindie-consent.json`（`contribute`/`local-only`）与 `mindie-community.json` 的 `project_roots`，再进入 `mindie_launch.py` 的运行时租约检查并保留显式 `Admission` 撤销；

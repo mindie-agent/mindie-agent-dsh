@@ -2,7 +2,7 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.26`) is a thin DeepSeek Harness adapter. `cordis.patch.yml`
+`mindie-agent-dsh` (`0.1.27`) is a thin DeepSeek Harness adapter. `cordis.patch.yml`
 registers two Host rows using stable DSH packages and the local `host.mjs`:
 
 | Row ID | Package / Entry | Purpose |
@@ -33,7 +33,7 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 `MINDIE_AGENT_CONFIG` / `MINDIE_DSH_CONFIG` select an explicit config file;
 `MINDIE_DSH_CONFIG_HOME` keeps the legacy `<dir>/config.json` layout.
 
-## Pinned `0.1.26` Runtime Components
+## Pinned `0.1.27` Runtime Components
 
 The locked Python runtime keeps the background knowledge service idle at setup
 time (`knowledge.status` is not started until a `knowledge_*` call or an

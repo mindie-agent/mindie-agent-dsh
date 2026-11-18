@@ -1,4 +1,4 @@
-# Verification Architecture & Evidence (`0.1.26`)
+# Verification Architecture & Evidence (`0.1.27`)
 
 Host target: DeepSeek Harness `>=0.2.0-rc.2 <1.0.0`; certified on `0.2.0-rc.2`
 and `0.2.1-rc.5`. This document summarizes the thin-plugin contract evidence for
@@ -6,7 +6,7 @@ and `0.2.1-rc.5`. This document summarizes the thin-plugin contract evidence for
 
 ## 1. Thin-Plugin Baseline
 
-`0.1.26` keeps only six production files at the Host boundary:
+`0.1.27` keeps only six production files at the Host boundary:
 
 | File | Contract |
 | --- | --- |

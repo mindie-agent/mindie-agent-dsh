@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.26-0F766E.svg" alt="Release v0.1.26"></a>
+  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.27-0F766E.svg" alt="Release v0.1.27"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
@@ -27,9 +27,9 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.26` (paired with `mindie-agent 0.1.13`).
+**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.27` (paired with `mindie-agent 0.1.17`).
 
-`0.1.26` completes the **Great Subtraction**: `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while the Host boundary retains only `paths.cjs`, `host.mjs`, and `host3.mjs`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start still uses the bundled `assets/mindie-harness-seed.pyz`.
+`0.1.27` completes the **Great Subtraction**: `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while the Host boundary retains only `paths.cjs`, `host.mjs`, and `host3.mjs`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start still uses the bundled `assets/mindie-harness-seed.pyz`.
 
 - **Default-on Ascend capabilities** — `remote-dev` exposes 14 native `dsh` remote tools; `mindie-tools` exposes deterministic component tools, read-only `mindie_doctor`, and the 5 `knowledge_*` tools for L1–L4 graded retrieval, remote NPU development, profiling, Roofline simulation, and fault triage.
 - **One-command install** — `uv run https://github.com/mindie-agent/mindie-agent/releases/latest/download/install.py --host dsh` warms the runtime and configures the plugin. `gh` only gates the optional `contribute` tier; it never blocks `local-only` or `read-only`.
@@ -143,7 +143,7 @@ flowchart TB
 
 ## Scope and Known Limits
 
-- **Pinned runtime**: exact component SHAs live in `pyproject.toml`, `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`; `0.1.26` does not change component pins.
+- **Pinned runtime**: exact component SHAs live in `pyproject.toml`, `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`; `0.1.27` does not change component pins.
 - **State directory**: `remote-dev` state is fixed at `<data>/state/dsh/remote`; parent/subagent sessions share `job_id` visibility while `REMOTE_DEV_SESSION_ID` isolates read ledgers.
 - **Background update**: only `host3.mjs` triggers `mindie_launch.py update --background` while DSH is alive and no agent is `running`; no OS-level scheduler is registered.
 - **Benchmark scope**: `benchmarks/release.py` measures local public-transcript parsing latency only; it is not a productivity claim. G3 native capture in `mindie-bench` remains unwired for DSH.
@@ -165,7 +165,7 @@ python3 scripts/setup.py release-metadata --source . --tests tests --revision <4
 
 ### Release Benchmark
 
-Every formal `0.1.26` GitHub Release attaches `benchmark-results.json` and `benchmark-results.md`:
+Every formal `0.1.27` GitHub Release attaches `benchmark-results.json` and `benchmark-results.md`:
 
 - [`benchmarks/release.json`](benchmarks/release.json) (executed by `benchmarks/release.py`) measures deterministic per-operation latency (`us/op`) for extracting public messages and filtering hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`).
 - These CPU microbenchmarks measure local parser latency only; they are distinct from Ascend A2/A3 NPU live integration acceptance and end-to-end Agent productivity evaluation in `mindie-bench`. See [`docs/benchmark.md`](docs/benchmark.md) and [`docs/verification.md`](docs/verification.md).

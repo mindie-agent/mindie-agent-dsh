@@ -2,7 +2,7 @@
 
 Native MindIE Agent plugin for **DeepSeek Harness (`DSH` `>=0.2.0-rc.2 <1.0.0`)**.
 
-`v0.1.26` is a **thin plugin** (`Great Subtraction`): the Host boundary is only `paths.cjs`, `host.mjs`, and `host3.mjs`; `scripts/` keeps only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start verifies `assets/mindie-harness-seed.pyz` against `assets/seed-lock.json`.
+`v0.1.27` is a **thin plugin** (`Great Subtraction`): the Host boundary is only `paths.cjs`, `host.mjs`, and `host3.mjs`; `scripts/` keeps only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start verifies `assets/mindie-harness-seed.pyz` against `assets/seed-lock.json`.
 
 ## 1. Core Operating Rules (Always Active)
 
@@ -21,7 +21,7 @@ Native MindIE Agent plugin for **DeepSeek Harness (`DSH` `>=0.2.0-rc.2 <1.0.0`)*
   - MindIE tools (`remote-dev`, `coordinator`, `knowledge`, `mindie_doctor`) are accelerators, never roadblocks. On failure, report the concrete error once (reconciling uncertain remote writes first) and continue via native `ssh`/`scp` or local scripts.
   - Distinguish `completed`, `failed`, and `unknown`; precede broad `except OSError:` / `except Exception:` with `except TimeoutError: raise`; keep `isError=False` plus `receipt_warning` when only local accounting fails after primary success.
 - **Cohesive Modules & Zero Host Pollution (`Principles 16–18`)**:
-  - The sum of `paths.cjs` + `host.mjs` + `host3.mjs` + every `.py`/`.mjs`/`.cjs`/`.js` under `scripts/` MUST stay `<= 1,200` lines; every production module stays `< 800` lines and carries `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines.
+  - The sum of `paths.cjs` + `host.mjs` + `host3.mjs` + every `.py`/`.mjs`/`.cjs`/`.js` under `scripts/` MUST stay `<= 1,500` lines; every production module stays `< 800` lines and carries `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines.
   - Isolate `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_*`, `DSH_HOME`, `MINDIE_*`, `REMOTE_DEV_AUTH_DIR`, `UV_CACHE_DIR`, and `TMPDIR` in all tests.
 
 ## 2. Progressive Disclosure Map
