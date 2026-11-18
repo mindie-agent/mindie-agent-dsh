@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.26 — 2026-11-18
+
+- Great Subtraction: delete 26 legacy duplicate runtime modules so `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while `paths.cjs`, `host.mjs`, and `host3.mjs` form the thin Host boundary. The six production files total `<= 1,200` lines; MCP routing, runtime preparation, sharing/update, locking, storage GC, and host adaptation delegate to `mindie-harness` (`API_VERSION = 1`), and the bundled seed remains the deterministic cold-start path.
+- Mount exactly two default-on per-session stdio MCP servers: `remote-dev` (14 `dsh` tools) and `mindie-tools` (deterministic components + read-only `mindie_doctor` + 5 `knowledge_*`), both through `mindie_launch.py --config <dsh.json> mcp <surface>` and `ManagedMCPAdapter("dsh")` with zero `_meta`/`request_nonce` and clean rollback if the second attach fails.
+- Move all `Stop` authorization into `host3.mjs` before transcript lookup or child spawn, re-check the runtime tier and preserve explicit `Admission` revocation in `mindie_launch.py`, serve the loopback `/summary` bridge with Bearer auth and a 512 KiB cap, and trigger idle updates only when no agent is `running` with literal `windowsHide: true` spawns.
+- Replace the clone-based install flow with `uv run https://github.com/mindie-agent/mindie-agent/releases/latest/download/install.py --host dsh` plus three dynamic `gh`-aware onboarding questions, a read-only `mindie_doctor` readiness summary, and an optional single Star postscript. `gh` is never required for `local-only`/`read-only`, and `SKILL.md` now states the Non-Blocking Task Continuity Rule.
+- Rebuild `tests/` as a fast isolated contract suite and align `harness-compatibility.json`, `ci.yml`, `release.yml`, `AGENTS.md`, READMEs, install guides, and `0.1.26` release notes with the thin architecture. Component Git SHAs are unchanged.
+
 ## 0.1.25 — 2026-11-18
 
 - Enable `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_distill`, and `knowledge_sync` by default across every DeepSeek Harness session (`host3.mjs`, `scripts/knowledge_tools.mjs`, `scripts/mindie_sidecar.py`, and `scripts/knowledge_mcp.py`) without requiring prior session activation, auto-provisioning default (`not_before=0.0`) leases on demand for mutating calls while respecting explicit session deactivation.

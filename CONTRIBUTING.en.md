@@ -6,10 +6,10 @@ Thank you for contributing to `mindie-agent-dsh`, the native MindIE Agent plugin
 
 ## 1. Architecture & Host Boundaries
 
-1. **Thin Host Adapter Scope**: Keep this repository focused on DSH Cordis mounting (`host.mjs`, `host3.mjs`, `paths.cjs`), DSH v4 `zstd` transcript extraction (`scripts/dsh_transcript.py`), loopback model summary routing (`scripts/dsh_organizer.py`), warm JSON-line sidecar (`scripts/mindie_sidecar.py`), and MCP bridges. Shared process supervision, generation leases, and RSI helpers delegate to `mindie_harness` (`assets/mindie-harness-seed.pyz`).
+1. **Thin Host Adapter Scope**: `v0.1.26` keeps only six production files — the Host boundary (`paths.cjs`, `host.mjs`, `host3.mjs`) and `scripts/{mindie_launch.py,dsh_transcript.py,setup.py}`. MCP routing, runtime preparation, sharing/update, locks, storage GC, and host adaptation delegate to `mindie-harness` (`API_VERSION = 1`, bundled `assets/mindie-harness-seed.pyz`). The six files must total `<= 1,200` lines.
 2. **Windows Zero-Popup Iron Rule**: Every Node `spawn` call must pass `windowsHide: true`, and background spawns must use `backgroundSpawnOptions()` (`detached: process.platform !== 'win32'` — never `detached: true` on `win32`) plus `buildChildEnv()` to normalize case-insensitive `PATH` keys on Windows. Python child spawns must pass `CREATE_NO_WINDOW`.
 3. **Admission & Honesty Invariants**:
-   - Deterministic MCP servers (`remote-dev` and concurrent resident `component_mcp.py`) and `knowledge_*` tools (`host3.mjs` + `knowledge_mcp.py`) run by default without pre-call session activation, sharing `state/remote` across parent and subagent sessions while auto-provisioning `not_before=0.0` leases on demand for mutating calls and gating `Stop` capture on `mindie-consent.json` + `project_roots` before opening SQLite;
+   - Each session mounts `remote-dev` (14 `dsh` tools) and `mindie-tools` (deterministic components + `mindie_doctor` + the 5 `knowledge_*` tools) by default, sharing `<state>/remote` for parent/subagent `job_id` control. `Stop` capture checks `mindie-consent.json` (`contribute`/`local-only`) and `mindie-community.json` `project_roots` in pure Node before `mindie_launch.py` re-checks the runtime lease and preserves explicit `Admission` revocation;
    - Always precede `except OSError:` with `except TimeoutError: raise`, and allow valid symlinks on bounded reads (zero `O_NOFOLLOW` hostility).
 4. **Module Structure & Line Endings**: Keep every runtime `.py`, `.mjs`, and `.cjs` module `< 800` lines with `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines, using Unix `LF` (`\n`) line endings only.
 
@@ -21,11 +21,8 @@ Run all Python and Node checks in isolated environments without touching `$HOME`
 python3 .github/scripts/check_lf_eol.py
 pytest -q -ra -m "not live_npu"
 node --check paths.cjs && node --check host.mjs && node --check host3.mjs
-node tests/test_summary_endpoint.mjs
-node --test tests/test_manual_entry_host.mjs tests/test_update_host.mjs \
-  tests/test_generation_launcher.mjs tests/test_remote_isolation.mjs \
-  tests/test_log_rotation.mjs tests/test_summary_host.mjs \
-  tests/test_win32_spawn_and_gating.mjs
+node --test tests/test_dsh_host.mjs
+wc -l paths.cjs host.mjs host3.mjs scripts/*.py
 ```
 
 ## 3. Pre-PR Checklist (`host-plugin`)

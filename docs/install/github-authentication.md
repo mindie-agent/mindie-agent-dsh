@@ -1,8 +1,15 @@
 # GitHub sign-in during setup
 
-Use this flow for installation, first-use configuration or an authentication
-failure. Keep the user in the existing session conversation; ordinary
-tasks do not need another login check or choice.
+The deterministic bootstrap is
+`uv run https://github.com/mindie-agent/mindie-agent/releases/latest/download/install.py --host dsh`.
+`gh` is **recommended for the `contribute` tier only**; it is optional and must
+never block `local-only`, `read-only`, knowledge retrieval, or `remote-dev`.
+
+Use this flow for first-use configuration or an authentication failure. The three
+first-run questions (workspace, privacy tier, SSH NPU) and the `mindie_doctor`
+readiness summary are documented in [workspace setup](workspace-setup.md). Keep
+the user in the existing session conversation; ordinary tasks do not need another
+login check or choice.
 
 1. Install `gh` if missing. Run
    `gh api --hostname github.com user --jq .login` with a bounded wait.
@@ -66,6 +73,8 @@ Knowledge already forwards its one-use launch environment. The diagnostic
 service's generated network file excludes tokens; independent workers require
 saved `gh` login or their existing explicit private environment-file binding.
 A successful terminal request does not establish authentication after restart.
-Use the existing setup/status flow to verify the worker context; report the
-account and completed setup steps, never the token. Detailed transport ownership:
+After the tier is recorded, run the read-only `mindie_doctor` tool and report its
+concrete result once; a failed probe never blocks the requested task. Use the
+existing setup/status flow to verify the worker context; report the account and
+completed setup steps, never the token. Detailed transport ownership:
 [enterprise network design](https://github.com/mindie-agent/mindie-agent/blob/main/docs/enterprise-network.en.md).

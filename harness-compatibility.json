@@ -33,15 +33,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "cordis.patch.yml"
-      ],
-      "test_ids": [
-        "tests/test_contract.py"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["cordis.patch.yml"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_release_metadata_and_compatibility_registry"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "skill-filesystem": {
       "supported": [
@@ -52,16 +46,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "cordis.patch.yml"
-      ],
-      "test_ids": [
-        "tests/test_contract.py",
-        "tests/test_manual_entry_host.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["cordis.patch.yml", "paths.cjs"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_paths_canonical_and_legacy_precedence"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "mcp-stdio": {
       "supported": [
@@ -72,16 +59,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "cordis.patch.yml"
-      ],
-      "test_ids": [
-        "tests/test_component_mcp.py",
-        "tests/test_remote_isolation.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host.mjs", "scripts/mindie_launch.py"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_mcp_surfaces_are_separated_and_zero_meta"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "host-tools": {
       "supported": [
@@ -92,16 +72,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host3.mjs"
-      ],
-      "test_ids": [
-        "tests/test_manual_entry_host.mjs",
-        "tests/test_summary_host.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host3.mjs"],
+      "test_ids": ["tests/test_dsh_host.mjs"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "agent-turn-stopping": {
       "supported": [
@@ -112,15 +85,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host3.mjs"
-      ],
-      "test_ids": [
-        "tests/test_summary_host.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host3.mjs"],
+      "test_ids": ["tests/test_dsh_host.mjs"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "agent-route": {
       "supported": [
@@ -131,15 +98,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host3.mjs"
-      ],
-      "test_ids": [
-        "tests/test_summary_endpoint.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host3.mjs"],
+      "test_ids": ["tests/test_dsh_host.mjs"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "llm-stream": {
       "supported": [
@@ -150,15 +111,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host3.mjs"
-      ],
-      "test_ids": [
-        "tests/test_summary_endpoint.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host3.mjs"],
+      "test_ids": ["tests/test_dsh_host.mjs"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "session-v4-transcript": {
       "supported": [
@@ -169,15 +124,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "scripts/dsh_transcript.py"
-      ],
-      "test_ids": [
-        "tests/test_dsh_transcript.py"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["scripts/dsh_transcript.py"],
+      "test_ids": ["tests/test_dsh_transcript.py"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "cordis-child-plugin": {
       "supported": [
@@ -188,15 +137,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host.mjs"
-      ],
-      "test_ids": [
-        "tests/test_generation_launcher.mjs"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host.mjs"],
+      "test_ids": ["tests/test_dsh_host.mjs"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "generation-pointer": {
       "supported": [
@@ -207,17 +150,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "host.mjs",
-        "scripts/updater.py"
-      ],
-      "test_ids": [
-        "tests/test_generation_launcher.mjs",
-        "tests/test_native_update.py"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["host.mjs", "scripts/setup.py"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_setup_init_sharing_and_compatibility"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "github-release-api": {
       "supported": [
@@ -228,15 +163,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "scripts/updater.py"
-      ],
-      "test_ids": [
-        "tests/test_updater.py"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["scripts/setup.py"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_setup_init_sharing_and_compatibility"],
+      "evidence_refs": ["docs/verification.md"]
     },
     "uv-runtime": {
       "supported": [
@@ -247,16 +176,9 @@
           "include_prerelease": true
         }
       ],
-      "code_paths": [
-        "cordis.patch.yml",
-        "scripts/setup.py"
-      ],
-      "test_ids": [
-        "tests/test_setup_budget.py"
-      ],
-      "evidence_refs": [
-        "docs/verification.md"
-      ]
+      "code_paths": ["scripts/setup.py", "scripts/mindie_launch.py"],
+      "test_ids": ["tests/test_dsh_thin_plugin.py::test_seed_lock_verification"],
+      "evidence_refs": ["docs/verification.md"]
     }
   }
 }

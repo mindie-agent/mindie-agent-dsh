@@ -1,27 +1,27 @@
 # `mindie-agent-dsh`
 
 Native MindIE Agent plugin for **DeepSeek Harness (`DSH` `>=0.2.0-rc.2 <1.0.0`)**.
-This repository owns the thin Cordis host launcher (`host.mjs`), generation fiber (`host3.mjs`), path/spawn boundary (`paths.cjs`), DSH v4 zstd transcript projection (`scripts/dsh_transcript.py`), loopback model summary adapter (`scripts/dsh_organizer.py`), warm JSON-line sidecar (`scripts/mindie_sidecar.py`), and deterministic/knowledge MCP bridges backed by `mindie-harness` (`assets/mindie-harness-seed.pyz`).
+
+`v0.1.26` is a **thin plugin** (`Great Subtraction`): the Host boundary is only `paths.cjs`, `host.mjs`, and `host3.mjs`; `scripts/` keeps only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start verifies `assets/mindie-harness-seed.pyz` against `assets/seed-lock.json`.
 
 ## 1. Core Operating Rules (Always Active)
 
-- **Thin Host Plugin Boundary (`mindie_harness` Substrate)**:
-  - Keep DSH-specific code limited to Cordis lifecycle (`host.mjs`, `host3.mjs`), DSH v4 zstd transcript parsing, loopback summary routing, and MCP/sidecar wiring.
-  - Shared process supervision, generation leases, storage GC, and RSI helpers (`scripts/{rsi_loop.py, rsi_explore.py, experiment_ledger.py}`) delegate to `mindie_harness`.
+- **Thin Plugin Boundary (`mindie_harness` Substrate)**:
+  - Keep DSH-specific code to Cordis lifecycle (`host.mjs`, `host3.mjs`), DSH v4 zstd transcript parsing (`scripts/dsh_transcript.py`), loopback summary routing, and the `mindie_launch.py` MCP/hook/summary delegator.
+  - `paths.cjs` resolves the canonical `<config-base>/mindie-agent/dsh.json` first, then legacy `MINDIE_DSH_CONFIG_HOME/config.json` or `<config-base>/mindie-agent/dsh/config.json`; config overrides must be absolute.
+  - `setup.py init` writes `dsh.json`/`dsh.engine.json` (absolute `transcript_adapter`, `redactor_executable`, loopback `summary_command`) and delegates `sharing`, `doctor`, `update`, `release-metadata` to `mindie_harness`.
 - **Zero Windows Console Popups (`Windows Zero-Popup Iron Rule`)**:
-  - Every Node `spawn` call MUST pass `windowsHide: true`, and background spawns (`startUpdateCheck`, `spawnCapture`) MUST use `backgroundSpawnOptions()` (`detached: process.platform !== 'win32'`) — **NEVER** pass `detached: true` on `win32` (which creates a visible console window in Node/libuv).
-  - Normalize case-insensitive `PATH`/`Path` environment keys via `buildChildEnv()` on Windows, and enforce `CREATE_NO_WINDOW` (`0x08000000`) on all Python child launches without unguarded `os.kill(pid, 0)`.
-- **Zero Pre-Call Gates Across Deterministic & Knowledge Tools + Consent-Gated `Stop` Capture**:
-  - Deterministic MCP servers (`remote-dev` and `mindie-tools` via `scripts/component_mcp.py`), Host knowledge tools (`knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`, `mindie_entry`), and `scripts/knowledge_mcp.py` work out-of-the-box in every session and subagent without slash-command activation, `request_nonce`, or `context_file`.
-  - Parent and subagent sessions share `REMOTE_DEV_STATE_DIR` (`state/remote`) so subagents can poll or stop parent `job_id`s (`AD-02` fixed), while `REMOTE_DEV_SESSION_ID` isolates per-session read ledgers.
-  - Resident `component_mcp.py` dispatches concurrent `tools/call` requests without single-flight `-32000` blocking (`AD-03` fixed).
-  - Read-only knowledge operations (`query`, `explain`, `sync`) run without creating an admission lease; mutating operations (`feedback`, `distill`) auto-provision a default session lease (`not_before=0.0`) on demand unless explicitly deactivated, and `agent/turn-stopping` / `capture_stop.py` verify `mindie-consent.json` + `project_roots` before opening SQLite.
-- **State & Receipt Honesty + Symlink Compatibility (`Principles 9, 10, 14` & `AD-07`)**:
-  - Distinguish `completed`, `failed`, and `unknown` external effects; precede broad `except OSError:` with `except TimeoutError: raise`; enforce `outer_timeout >= sum(inner_budgets) + cleanup_grace` (`660s >= 600s + 60s`).
-  - Keep `isError=False` with `receipt_warning` / `local_error` when a primary remote or model operation succeeds and only local receipt accounting fails.
-  - Allow valid symlinks on bounded diagnostic and metadata reads (zero `O_NOFOLLOW` hostility).
+  - Every Node `spawn` call MUST include `windowsHide: true`, and background spawns MUST use `backgroundSpawnOptions()` (`detached: process.platform !== 'win32'`) — **NEVER** literal `detached: true`.
+  - Normalize case-insensitive `PATH`/`Path` via `buildChildEnv()` on Windows, and enforce `CREATE_NO_WINDOW` (`0x08000000`) on every Python child without unguarded `os.kill(pid, 0)`.
+- **Default-On MCP Tools + Consent-First `Stop` Capture**:
+  - Per agent session `host.mjs` attaches exactly two stdio servers: `remote-dev` (14 `dsh` tools via `mindie_launch.py --config <dsh.json> mcp remote`) and `mindie-tools` (deterministic tools + `mindie_doctor` + 5 `knowledge_*` via `mcp tools`), both backed by `ManagedMCPAdapter("dsh")` without `_meta`, `request_nonce`, or `context_file` gates.
+  - Parent and subagent sessions share `REMOTE_DEV_STATE_DIR` (`<state>/remote`) so subagents can poll/stop parent `job_id`s, while `REMOTE_DEV_SESSION_ID` isolates read ledgers.
+  - `host3.mjs` checks `mindie-community.json` (`enabled`, `project_roots`) and `mindie-consent.json` (`choice in {contribute, local-only}`) in pure Node before locating a transcript or spawning a child; `mindie_launch.py hook stop` re-checks the runtime tier and preserves explicit `Admission` revocation.
+- **Non-Blocking Task Continuity & Receipt Honesty**:
+  - MindIE tools (`remote-dev`, `coordinator`, `knowledge`, `mindie_doctor`) are accelerators, never roadblocks. On failure, report the concrete error once (reconciling uncertain remote writes first) and continue via native `ssh`/`scp` or local scripts.
+  - Distinguish `completed`, `failed`, and `unknown`; precede broad `except OSError:` / `except Exception:` with `except TimeoutError: raise`; keep `isError=False` plus `receipt_warning` when only local accounting fails after primary success.
 - **Cohesive Modules & Zero Host Pollution (`Principles 16–18`)**:
-  - Every runtime `.py`, `.mjs`, and `.cjs` module MUST stay `< 800` lines and carry `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines.
+  - The sum of `paths.cjs` + `host.mjs` + `host3.mjs` + every `.py`/`.mjs`/`.cjs`/`.js` under `scripts/` MUST stay `<= 1,200` lines; every production module stays `< 800` lines and carries `[Role]`, `[Invariants]`, `[Timeouts & Locks]`, and `[Side-Effect Policy]` in its top 30 lines.
   - Isolate `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_*`, `DSH_HOME`, `MINDIE_*`, `REMOTE_DEV_AUTH_DIR`, `UV_CACHE_DIR`, and `TMPDIR` in all tests.
 
 ## 2. Progressive Disclosure Map

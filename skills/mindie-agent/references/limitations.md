@@ -2,12 +2,17 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.25`) is a DeepSeek Harness adapter that registers Host rows in `cordis.patch.yml` using standard DSH packages and the local Host plugin launcher:
+`mindie-agent-dsh` (`0.1.26`) is a thin DeepSeek Harness adapter. `cordis.patch.yml`
+registers two Host rows using stable DSH packages and the local `host.mjs`:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
-| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the semantic `mindie-agent` workflow skill to every preset |
-| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` plus per-session `remote-dev` and `mindie-tools` MCP servers) | Registers default-enabled `mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, and `knowledge_sync`; handles opt-in `agent/turn-stopping` zstd v4 capture handoff, model summary bridge, and idle generation hot-reload |
+| `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the `mindie-agent` workflow skill to every preset (`user-invocable: false`, silently default-on) |
+| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` and two per-session stdio MCP servers) | Attaches `remote-dev` (14 `dsh` tools) and `mindie-tools` (deterministic tools + `mindie_doctor` + 5 `knowledge_*`), serves the loopback summary bridge, and runs consent-first `Stop` capture |
+
+`scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`;
+all shared runtime, MCP routing, sharing, update, lock, and GC behavior delegates
+to `mindie-harness` (`API_VERSION = 1`).
 
 ## Paths
 
@@ -15,22 +20,24 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 
 | Item | Default |
 | --- | --- |
-| data / runtime | `$XDG_DATA_HOME/mindie-agent/dsh` (`~/.local/share/mindie-agent/dsh`) |
-| config | `$XDG_CONFIG_HOME/mindie-agent/dsh` (`~/.config/mindie-agent/dsh`) |
-| runtime interpreter | the `python` binding in `<config>/config.json` (`<data>/runtimes/<key>/venv/bin/python` or `update/component-runtimes/<id>/runtime/.venv/bin/python`) |
-| persistent worker scripts | `<data>/state/bin/` |
-| engine config | the `engine_config` binding in `<config>/config.json` |
-| adapter config | `<config>/config.json` |
+| data | `mindie-agent` under `$XDG_DATA_HOME` (`MINDIE_DSH_DATA_HOME` / `MINDIE_DATA_HOME`) |
+| state | `<data>/state/dsh` (`MINDIE_DSH_STATE_DIR`) |
+| config | `mindie-agent/dsh.json` under `$XDG_CONFIG_HOME` (canonical; legacy `dsh/config.json` under the same base remains readable) |
+| engine config | the `engine_config` binding in `dsh.json` (default `<config>/dsh.engine.json`) |
+| runtime interpreter | the absolute `python` binding in `dsh.json` (fallback `<data>/venv/bin/python`) |
 | unified consent authority | `<config>/mindie-consent.json` |
 | diagnostics policy | `<config>/diagnostics.json` |
-| knowledge state | `<data>/vllm-ascend` |
-| remote-dev state | `<data>/state/remote` |
+| knowledge state | `<data>/vllm-ascend` (engine `root`/`domain`) |
+| remote-dev state | `<data>/state/dsh/remote` (shared across parent/subagent sessions) |
 
-## Pinned `0.1.25` Runtime Components
+`MINDIE_AGENT_CONFIG` / `MINDIE_DSH_CONFIG` select an explicit config file;
+`MINDIE_DSH_CONFIG_HOME` keeps the legacy `<dir>/config.json` layout.
 
-The locked Python runtime keeps the background knowledge service idle at setup time (`knowledge.status: "inactive"` until a knowledge tool or opted-in `Stop` capture runs).
+## Pinned `0.1.26` Runtime Components
 
-Current runtime pins:
+The locked Python runtime keeps the background knowledge service idle at setup
+time (`knowledge.status` is not started until a `knowledge_*` call or an
+authorized `Stop` capture). Component pins are unchanged from the prior release:
 
 - `mindie-harness` `0.1.0` (`f05569947dbf0131061d8698bb779d024df0c43b`)
 - `mindie-knowledge` `0.13.23` (`8fe8455669e88ef6963314332422653841518900`)
@@ -43,18 +50,31 @@ Current runtime pins:
 
 ## Unified Contribution Switch
 
-- Community knowledge sharing and automatic sanitized tool fault reporting share the persistent switch in `mindie-consent.json` (`contribute` enables both; `disabled` turns both off).
-- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades. Legacy knowledge-only `contribute` records lacking `choice_revision` require one explicit user confirmation before fault uploads begin.
-- Keep three states distinct: (1) local consent configuration written, (2) background organizer/reporter worker running, and (3) external GitHub Issue or knowledge PR created.
+- `mindie-consent.json` controls `contribute`, `local-only`, and `read-only` /
+  `disabled`; `setup.py sharing --status|--enable|--local-only|--disable` is the
+  only supported switch.
+- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades.
+  Legacy knowledge-only `contribute` records lacking `choice_revision` require
+  one explicit confirmation before fault uploads begin.
+- Keep three states distinct: (1) local consent configuration written,
+  (2) background worker running, and (3) external GitHub Issue or knowledge PR
+  created.
 
 ## Operational Notes
 
-- `remote-dev` job records under `<data>/state/remote` are isolated per session (`REMOTE_DEV_SESSION_ID`).
-- Background release and flexible component updates run while the DSH Host process is alive and swap generations when all agents are idle.
+- `remote-dev` job records under `<data>/state/dsh/remote` are shared so
+  subagents can inspect/stop parent jobs; `REMOTE_DEV_SESSION_ID` isolates
+  per-session read ledgers.
+- `host3.mjs` schedules `mindie_launch.py update --background` only while DSH is
+  alive and no agent is `running`; nothing runs as an OS-level scheduled task.
+- `mindie_doctor` is read-only and bounded; a failing check is reported once and
+  never blocks the task.
 
 ## Uninstall
 
 1. Disable `mindie-agent-dsh` in the DSH Plugins page (or via `plugin_manager`).
-2. Optionally stop the local knowledge service:
-   `<data>/venv/bin/python -m mindie_knowledge.loop.cli stop --config <config>/engine.json`
-3. Remove `mindie-agent/dsh` under both the data and config roots if you also want to delete local runtime files, knowledge snapshots, and saved settings.
+2. Optionally stop the local knowledge service with the configured `python` from
+   `dsh.json`: `<python> -m mindie_knowledge.loop.cli stop --config <config>/dsh.engine.json`.
+3. Remove the DSH-specific profile and state paths (`<config>/dsh.json`,
+   `<config>/dsh.engine.json`, `<data>/state/dsh`, and `<data>/runtimes/dsh`) so
+   shared `mindie-agent` profiles for other hosts remain intact.

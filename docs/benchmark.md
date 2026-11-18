@@ -1,4 +1,4 @@
-# DSH Benchmarks (`0.0.2`)
+# DSH Benchmarks (`0.1.26`)
 
 `mindie-agent-dsh` participates in two distinct benchmark layers with separate verification scopes:
 
