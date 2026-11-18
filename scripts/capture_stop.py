@@ -60,6 +60,16 @@ def failure_entry(started: float, error: Exception) -> dict:
     return entry
 
 
+def _inert_receipt(reason: str) -> dict:
+    return {
+        "stage": "inert",
+        "reason": reason,
+        "cause": None,
+        "capture_id": None,
+        "duplicate": False,
+    }
+
+
 def main() -> int:
     diagnostics.bind_environment()
     started = time.time()
@@ -73,6 +83,49 @@ def main() -> int:
         config = mp.engine_config()
         if not config.is_file():
             raise FileNotFoundError("runtime engine configuration is missing")
+        engine_doc = json.loads(config.read_text(encoding="utf-8"))
+        if not isinstance(engine_doc, dict):
+            raise ValueError("runtime engine configuration is not an object")
+        from mindie_knowledge.loop import settings as settings_mod
+
+        comm_cfg = engine_doc.get("community_config") or str(mp.config_home() / "mindie-community.json")
+        community = settings_mod.load(str(comm_cfg))
+        if community.error is None and community.schema_ok:
+            if not community.allows_capture():
+                append_log({"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": _inert_receipt("capture-disabled")})
+                return 0
+            cwd = event.get("cwd")
+            if isinstance(cwd, str) and cwd:
+                if not os.path.isabs(cwd) or not community.in_scope(cwd):
+                    append_log({"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": _inert_receipt("outside-project-roots")})
+                    return 0
+                session_id = event.get("session_id")
+                if isinstance(session_id, str) and session_id.strip():
+                    from mindie_knowledge.loop.activation import Admission
+
+                    adm_path = engine_doc.get("admission_path") or str(Path(mp.data_home()) / "admission.sqlite3")
+                    adm_file = Path(adm_path)
+                    adm = Admission(str(adm_file))
+                    if adm_file.is_file() and adm.inspect(session_id).get("status") == "inactive":
+                        append_log({"time": time.time(), "elapsed": round(time.time() - started, 3), "receipt": _inert_receipt("session-deactivated")})
+                        return 0
+                    adm_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    aligned_cwd = str(Path(cwd).resolve())
+                    lease = adm.activate(
+                        session_id,
+                        project_root=aligned_cwd,
+                        root_session=session_id,
+                        not_before=0.0,
+                    )
+                    event = {**event, "cwd": aligned_cwd, "mindie_activation": lease["token"]}
+                root_dir, domain = engine_doc.get("root"), engine_doc.get("domain")
+                if isinstance(root_dir, str) and root_dir and isinstance(domain, str) and domain:
+                    from mindie_knowledge import state_layout
+
+                    if not (state_layout.state_root(root_dir, domain) / state_layout.DATABASE).is_file():
+                        from mindie_knowledge.loop.handoff import prepare_schema
+
+                        prepare_schema(str(config))
         from mindie_knowledge.loop.cli import capture_hook
 
         receipt = capture_hook(str(config), event)

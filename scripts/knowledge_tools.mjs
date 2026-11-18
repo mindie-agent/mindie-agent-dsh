@@ -272,8 +272,7 @@ export const knowledgeDistillDescription =
   'Distill verified milestone (`task_state="verified_milestone"`) or completed (`task_state="completed"`) ' +
   'task evidence into local C5 graded L1-L4 units through the C6 decision pipeline. ' +
   'Pass `inputs`, `task_state`, optional `related_refs` for incremental revisions, ' +
-  'optional `proposal` (`mindie-distill-decision/1`), and optional `domain`. ' +
-  'Requires an active `/mindie-agent` session.'
+  'optional `proposal` (`mindie-distill-decision/1`), and optional `domain`.'
 
 export function registerKnowledgeDistill(ctx, {
   tool, sidecar, requireState, text, timeoutMs = distillCallTimeoutMs,
@@ -283,10 +282,16 @@ export function registerKnowledgeDistill(ctx, {
     knowledgeDistillDescription,
     knowledgeDistillParameters,
     async (args, exec) => {
-      const { session, state } = await requireState(exec)
+      const { session, cwd, state } = await requireState(exec, { withRoute: true })
       const { _tool_error: isError, ...result } = await sidecar.call(
         'rpc',
-        { session: session.id, token: state.token, method: 'distill', arguments: args },
+        {
+          session: session.id,
+          ...(cwd ? { cwd } : {}),
+          ...(state?.token ? { token: state.token } : {}),
+          method: 'distill',
+          arguments: args,
+        },
         exec.signal,
         timeoutMs(),
       )
@@ -314,7 +319,7 @@ export function registerSessionKnowledgeSuite(registry, {
       '`navigation_only: true` to return cards without inline bodies. Use `mode: "reuse"` (default) ' +
       'for L1-L3 reuse, `mode: "diagnose"` for fault triage, or `mode: "explore"` (with `goal`, ' +
       '`bottleneck_summary`, and `ledger_entries`) to strip L3 workflows and return L1/L2 foundations, ' +
-      'L4 mutators, and `exploration_context`. Requires an active `/mindie-agent` session.',
+      'L4 mutators, and `exploration_context`.',
     {
       type: 'object',
       properties: {
@@ -331,10 +336,16 @@ export function registerSessionKnowledgeSuite(registry, {
       additionalProperties: false,
     },
     async (args, exec) => {
-      const { session, state } = await requireState(exec)
+      const { session, cwd, state } = await requireState(exec)
       const result = await sidecar.call(
         'rpc',
-        { session: session.id, token: state.token, method: 'query', arguments: args },
+        {
+          session: session.id,
+          ...(cwd ? { cwd } : {}),
+          ...(state?.token ? { token: state.token } : {}),
+          method: 'query',
+          arguments: args,
+        },
         exec.signal,
       )
       return text(result)
@@ -346,13 +357,19 @@ export function registerSessionKnowledgeSuite(registry, {
       'prerequisite closure (`requires`) and deduplication (`known_refs`). Prefer `refs` with ' +
       'observed `conditions`, `known_refs` (`id@revision` units already in context), and ' +
       '`token_budget` (1-64000). Pass `mode: "explore"` when loading an L4 code-transformation ' +
-      'mutator. Requires an active `/mindie-agent` session.',
+      'mutator.',
     knowledgeExplainParameters,
     async (args, exec) => {
-      const { session, state } = await requireState(exec)
+      const { session, cwd, state } = await requireState(exec)
       const result = await sidecar.call(
         'rpc',
-        { session: session.id, token: state.token, method: 'explain', arguments: args },
+        {
+          session: session.id,
+          ...(cwd ? { cwd } : {}),
+          ...(state?.token ? { token: state.token } : {}),
+          method: 'explain',
+          arguments: args,
+        },
         exec.signal,
       )
       return text(result)
@@ -366,7 +383,7 @@ export function registerSessionKnowledgeSuite(registry, {
     'knowledge_feedback',
     'Record an optional up/down rating or 4-stage usage event (`discovered`, `loaded`, `applied`, `evaluated`) ' +
       'for an exact `feedback_ref` returned by query/explain. `evaluated` requires `run_id` and ' +
-      '`outcome` (`supported`, `refuted`, or `inconclusive`). Requires an active `/mindie-agent` session.',
+      '`outcome` (`supported`, `refuted`, or `inconclusive`).',
     {
       type: 'object',
       properties: {
@@ -386,10 +403,16 @@ export function registerSessionKnowledgeSuite(registry, {
       additionalProperties: false,
     },
     async (args, exec) => {
-      const { session, state } = await requireState(exec)
+      const { session, cwd, state } = await requireState(exec)
       const result = await sidecar.call(
         'rpc',
-        { session: session.id, token: state.token, method: 'feedback', arguments: args },
+        {
+          session: session.id,
+          ...(cwd ? { cwd } : {}),
+          ...(state?.token ? { token: state.token } : {}),
+          method: 'feedback',
+          arguments: args,
+        },
         exec.signal,
       )
       return text(result)
@@ -398,13 +421,21 @@ export function registerSessionKnowledgeSuite(registry, {
   add(tool(
     'knowledge_sync',
     'Synchronize the configured public knowledge feed for the selected domain. ' +
-      'Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge. ' +
-      'Requires an active `/mindie-agent` session.',
+      'Call when the corpus is unavailable or stale, or when the user asks to refresh knowledge.',
     { type: 'object', properties: { domain: { type: 'string' } }, additionalProperties: false },
     async (args, exec) => {
-      const { session, state } = await requireState(exec)
+      const { session, cwd, state } = await requireState(exec)
       const { _tool_error: isError, ...result } = await sidecar.call(
-        'sync', { session: session.id, token: state.token, domain: args.domain }, exec.signal, syncTimeoutMs)
+        'sync',
+        {
+          session: session.id,
+          ...(cwd ? { cwd } : {}),
+          ...(state?.token ? { token: state.token } : {}),
+          domain: args.domain,
+        },
+        exec.signal,
+        syncTimeoutMs,
+      )
       if (isError) throw new Error(text(result))
       return text(result)
     },
@@ -419,9 +450,9 @@ export function registerSessionKnowledgeSuite(registry, {
 export const entryDescription =
   'Manage the MindIE Agent session and configuration (`op="init"`, `status`, `choose`, `deactivate`, ' +
   '`sharing-enable`, `sharing-disable`, `sharing-status`, `reporting-status`, `update-status`, ' +
-  '`update-check`, `update-enable`, `update-disable`). Use `op="init"` after `/mindie-agent` ' +
-  '(with optional `domain` to activate an additional domain), `op="choose"` to save the contribution ' +
-  'preference (`contribute` or `disabled`), and `op="deactivate"` to end the session lease.'
+  '`update-check`, `update-enable`, `update-disable`). Use `op="init"` to initialize or activate an ' +
+  'additional `domain`, `op="choose"` to save the contribution preference (`contribute` or `disabled`), ' +
+  'and `op="deactivate"` to end the session lease.'
 
 export const entryParameters = {
   type: 'object',

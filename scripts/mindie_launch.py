@@ -10,7 +10,7 @@ dispatches to the validated `mindie_harness` runtime or cold-start seed archive.
 - Uses `CREATE_NO_WINDOW` (`0x08000000`) on Windows; never swallows `TimeoutError`.
 
 [Timeouts & Locks]
-- Fast passive hook path returns `{}` without spawning a child when no session lease exists.
+- Fast passive hook path returns `{}` without spawning a child or opening SQLite when community sharing is disabled.
 
 [Side-Effect Policy]
 - Executes `mindie_harness.cli` or `mindie-harness-seed.pyz` with `-I -X utf8`.
@@ -83,11 +83,25 @@ def _active_python(cfg_path: Path) -> Path | None:
     return None
 
 
+def _stop_sharing_enabled() -> bool:
+    cfg_dir = _cfg_home()
+    consent = _read_json(cfg_dir / "mindie-consent.json")
+    if not isinstance(consent, dict) or consent.get("choice") != "contribute":
+        return False
+    comm = _read_json(cfg_dir / "mindie-community.json")
+    return bool(
+        isinstance(comm, dict)
+        and comm.get("enabled") is True
+        and isinstance(comm.get("project_roots"), list)
+        and comm["project_roots"]
+    )
+
+
 def main() -> int:
     argv = sys.argv[1:]
     cfg_path = Path(os.environ.get("MINDIE_DSH_CONFIG") or (_cfg_home() / "config.json"))
     state_dir = Path(os.environ.get("MINDIE_DSH_STATE_DIR") or (_data_home() / "state"))
-    if len(argv) >= 2 and argv[0] == "hook" and argv[1] == "stop" and not (_data_home() / "admission.sqlite3").is_file():
+    if len(argv) >= 2 and argv[0] == "hook" and argv[1] == "stop" and not _stop_sharing_enabled():
         sys.stdout.buffer.write(b"{}\n")
         sys.stdout.buffer.flush()
         return 0

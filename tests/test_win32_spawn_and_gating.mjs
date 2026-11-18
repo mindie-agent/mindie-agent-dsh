@@ -1,5 +1,5 @@
 // Orthogonal behavioral tests for Windows zero-popup spawn options, Win32 PATH
-// case normalization, and per-session lazy `knowledge_*` tool mounting (`AD-11`).
+// case normalization, and default-enabled `knowledge_*` tool mounting with per-session deactivation.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -33,7 +33,7 @@ test('buildChildEnv normalizes mixed-case Path/PATH keys on win32 into a single 
   assert.equal(env.SystemRoot, 'C:\\Windows')
 })
 
-test('host3 mounts knowledge_* tools only on the activated agent session and disposes on deactivate/dispose', async () => {
+test('host3 exposes knowledge_* tools by default and scopes deactivate/dispose per session', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-gating-'))
   const oldData = process.env.MINDIE_DSH_DATA_HOME
   const oldConfig = process.env.MINDIE_DSH_CONFIG_HOME
@@ -64,6 +64,8 @@ test('host3 mounts knowledge_* tools only on the activated agent session and dis
               const msg = JSON.parse(String(line));
               const res = msg.op === "deactivate"
                 ? { deactivated: true, status: "inactive", sharing: { enabled: false }, domains: [] }
+                : msg.op === "rpc"
+                ? { results: [] }
                 : { session: msg.args?.session || "s", token: "tok-" + (msg.args?.session || "s"), activated_at: 1, project_root: process.cwd(), sharing: { enabled: false } };
               process.stdout.write(JSON.stringify({ id: msg.id, ok: true, result: res }) + "\\n");
             } catch {}
@@ -98,47 +100,44 @@ test('host3 mounts knowledge_* tools only on the activated agent session and dis
     }
 
     apply(ctx)
-    assert.deepEqual([...globalTools.map.keys()], ['mindie_entry'])
-    assert.equal(agentATools.map.size, 0)
-    assert.equal(agentBTools.map.size, 0)
+    assert.deepEqual(
+      [...globalTools.map.keys()].sort(),
+      ['knowledge_distill', 'knowledge_explain', 'knowledge_feedback', 'knowledge_query', 'knowledge_sync', 'mindie_entry'],
+    )
 
     const agentA = { session: { id: 'sess-A', header: { cwd: root } }, ctx: { tools: agentATools } }
     const agentB = { session: { id: 'sess-B', header: { cwd: root } }, ctx: { tools: agentBTools } }
     const userMsg = (text) => ({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
 
-    // Ordinary turn in sess-B mounts zero knowledge_* tools
+    // Ordinary turns mount knowledge_* tools on both sessions without any slash command
+    await listeners.get('agent/pre-step')(
+      { agent: agentA, messages: [userMsg('optimize operator')] },
+      async () => ({ kind: 'enter', messages: [userMsg('optimize operator')] }),
+    )
     await listeners.get('agent/pre-step')(
       { agent: agentB, messages: [userMsg('run pytest')] },
       async () => ({ kind: 'enter', messages: [userMsg('run pytest')] }),
     )
-    assert.equal(agentBTools.map.size, 0)
+    assert.equal(agentATools.map.size, 5)
+    assert.equal(agentBTools.map.size, 5)
 
-    // /mindie-agent gesture in sess-A mounts knowledge_* ONLY on agentA, leaving agentB and global untouched
-    await listeners.get('agent/pre-step')(
-      { agent: agentA, messages: [userMsg('/mindie-agent optimize operator')] },
-      async () => ({ kind: 'enter', messages: [userMsg('/mindie-agent optimize operator')] }),
-    )
-    assert.deepEqual(
-      [...agentATools.map.keys()].sort(),
-      ['knowledge_distill', 'knowledge_explain', 'knowledge_feedback', 'knowledge_query', 'knowledge_sync'],
-    )
-    assert.equal(agentBTools.map.size, 0)
-    assert.deepEqual([...globalTools.map.keys()], ['mindie_entry'])
-
-    // Deactivating sess-A unmounts knowledge_* tools from agentA immediately
+    // Deactivating sess-A unmounts agentATools and blocks sess-A calls while keeping sess-B active
     const deact = JSON.parse(await globalTools.map.get('mindie_entry').execute(
       { op: 'deactivate' },
       { agent: agentA, signal: undefined },
     ))
     assert.equal(deact.deactivated, true)
     assert.equal(agentATools.map.size, 0)
-
-    // Re-activating sess-B and disposing agentB also cleans up agentBTools
-    await listeners.get('agent/pre-step')(
-      { agent: agentB, messages: [userMsg('/mindie-agent inspect')] },
-      async () => ({ kind: 'enter', messages: [userMsg('/mindie-agent inspect')] }),
+    await assert.rejects(
+      globalTools.map.get('knowledge_query').execute({ query: 'Ascend' }, { agent: agentA, signal: undefined }),
+      /not activated/,
     )
-    assert.equal(agentBTools.map.size, 5)
+    const okB = JSON.parse(await globalTools.map.get('knowledge_query').execute(
+      { query: 'Ascend' },
+      { agent: agentB, signal: undefined },
+    ))
+    assert.deepEqual(okB, { results: [] })
+
     listeners.get('agent/disposed')({ agent: agentB })
     assert.equal(agentBTools.map.size, 0)
 

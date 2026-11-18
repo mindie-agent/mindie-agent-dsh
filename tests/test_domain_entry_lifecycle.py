@@ -39,7 +39,7 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
         self.assertEqual(admission.knowledge_lease(SESSION)["token"], token)
         fresh = self._run_domain_harness(operations, activate=False, session="new-session")
         self.assertFalse(fresh["results"][0]["value"]["activated"])
-        self.assertFalse(fresh["results"][1]["ok"], fresh)
+        self.assertTrue(fresh["results"][1]["ok"], fresh)
         self.assertEqual(fresh["llmCalls"], 0)
         self.assertIsNone(admission.knowledge_lease("new-session"))
 
@@ -405,7 +405,7 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
         self.assertNotIsInstance(failure.exception, mindie_sidecar.SidecarError)
         self.assertEqual(failure.exception.name, "some_internal_dependency")
 
-    def test_target_reads_and_feedback_never_implicitly_activate(self):
+    def test_target_reads_stay_lease_free_and_feedback_autoprovisions_target_lease(self):
         _default_unit, target_unit = self._install_both()
         hit = self._query(self.target_domain)
         self.assertEqual(hit["revision"], 2)
@@ -413,13 +413,23 @@ class DomainEntryLifecycleTests(DomainHarnessTestCase):
                          self._ref(self.target_domain, target_unit))
         self.assertIsNone(self.target_admission.active_lease(SESSION))
 
-        with self.assertRaises(mindie_sidecar.SidecarError) as missing:
+        voted = self._call("feedback", {
+            "ref": hit["feedback_ref"], "rating": "up",
+            "reason": "On-demand target lease provisioning.",
+        })
+        self.assertEqual(voted["revision"], 2)
+        target_lease = self.target_admission.active_lease(SESSION)
+        self.assertIsNotNone(target_lease)
+        self.assertEqual(target_lease["activated_at"], 0.0)
+        self.assertNotEqual(target_lease["token"], self.token)
+
+        self.target_admission.deactivate(SESSION)
+        with self.assertRaises(mindie_sidecar.SidecarError) as deactivated:
             self._call("feedback", {
-                "ref": hit["feedback_ref"], "rating": "up",
-                "reason": "No implicit target activation.",
+                "ref": hit["feedback_ref"], "rating": "down",
+                "reason": "Explicitly deactivated target.",
             })
-        self.assertIn("no active admission lease", str(missing.exception))
-        self.assertIsNone(self.target_admission.active_lease(SESSION))
+        self.assertIn("not activated", str(deactivated.exception))
 
     def test_native_host_entry_routes_query_explain_feedback_and_unknown(self):
         _default_unit, target_unit = self._install_both()

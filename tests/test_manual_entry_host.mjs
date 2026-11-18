@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { apply } from '../host3.mjs'
-import { hasMindieGesture } from '../scripts/knowledge_tools.mjs'
 
-const root = mkdtempSync(path.join(tmpdir(), 'mindie-passive-session-'))
+const root = mkdtempSync(path.join(tmpdir(), 'mindie-default-session-'))
+const outside = mkdtempSync(path.join(tmpdir(), 'mindie-outside-session-'))
 process.env.MINDIE_DSH_DATA_HOME = path.join(root, 'data')
 process.env.MINDIE_DSH_CONFIG_HOME = path.join(root, 'config')
 process.env.MINDIE_DSH_STATE_DIR = path.join(root, 'state')
@@ -32,42 +32,48 @@ const originalSpawn = ChildProcess.prototype.spawn
 const spawnedOptions = []
 const expectedDetached = process.platform !== 'win32'
 try {
-  assert.equal(hasMindieGesture([user('/mindie-agent tune KDA')]), true)
-  assert.equal(hasMindieGesture([user('What does /mindie-agent do?')]), false)
-  assert.equal(hasMindieGesture([user('/mindie-agent'), user('Download a model')]), false)
-  assert.equal(hasMindieGesture([{ source: { kind: 'assistant' }, content: [{ type: 'text', text: '/mindie-agent' }] }]), false)
   apply(ctx)
-  // AD-11 reversed: unactivated sessions expose only mindie_entry, never knowledge_*.
-  assert.deepEqual([...tools.keys()], ['mindie_entry'])
+  // Default-enabled: mindie_entry and all 5 knowledge_* tools are registered immediately on startup.
+  assert.deepEqual(
+    [...tools.keys()].sort(),
+    ['knowledge_distill', 'knowledge_explain', 'knowledge_feedback', 'knowledge_query', 'knowledge_sync', 'mindie_entry'],
+  )
+  for (const [, def] of tools) {
+    assert.equal(String(def.description || '').includes('/mindie-agent'), false)
+  }
+
+  // Ordinary session with sharing unconfigured: zero sidecar spawn, zero SQLite, zero Stop spawn.
   const exec = { agent: { session: { id: 'ordinary-session', header: { cwd: root } } } }
   const nextDecision = { kind: 'enter', messages: [user('Download a model')] }
   const result = await listeners.get('agent/pre-step')(
     { agent: exec.agent, messages: nextDecision.messages }, async () => nextDecision,
   )
   assert.equal(result, nextDecision)
-  assert.deepEqual([...tools.keys()], ['mindie_entry'])
-  for (const [name, args] of [
-    ['mindie_entry', { op: 'init' }],
-    ['mindie_entry', { op: 'choose', choice: 'contribute' }],
-  ]) {
-    await assert.rejects(tools.get(name).execute(args, exec), /not activated/)
-  }
-  for (const hidden of ['knowledge_query', 'knowledge_explain', 'knowledge_distill', 'knowledge_feedback', 'knowledge_sync']) {
-    assert.equal(tools.has(hidden), false)
-  }
+  listeners.get('agent/turn-stopping')({ agent: exec.agent, turn: 1 })
   assert.equal(modelCalls, 0)
+  assert.equal(spawnedOptions.length, 0)
   assert.equal(existsSync(path.join(root, 'state', 'summary-endpoint.json')), false)
   assert.equal(existsSync(path.join(root, 'data', 'admission.sqlite3')), false)
 
   mkdirSync(path.join(root, 'config'), { recursive: true })
   mkdirSync(path.join(root, 'data', 'update'), { recursive: true })
-  const transcriptDir = path.join(root, 'dsh-home', 'sessions', 'proj', 'activated-session')
+  const transcriptDir = path.join(root, 'dsh-home', 'sessions', 'proj', 'opted-in-session')
   mkdirSync(transcriptDir, { recursive: true })
   writeFileSync(path.join(transcriptDir, 'session.v4.jsonl.zstd'), '')
   writeFileSync(path.join(root, 'data', 'update', 'updater.py'), '# stub\n')
   writeFileSync(path.join(root, 'config', 'config.json'), JSON.stringify({
     python: process.execPath,
     venv_dir: path.join(root, 'venv'),
+  }))
+  writeFileSync(path.join(root, 'config', 'mindie-consent.json'), JSON.stringify({
+    schema: 'mindie-consent/1',
+    choice: 'contribute',
+    choice_revision: 2,
+  }))
+  writeFileSync(path.join(root, 'config', 'mindie-community.json'), JSON.stringify({
+    enabled: true,
+    project_roots: [root],
+    consent_config: path.join(root, 'config', 'mindie-consent.json'),
   }))
   ChildProcess.prototype.spawn = function (options) {
     spawnedOptions.push({
@@ -82,22 +88,26 @@ try {
       args: [
         process.execPath,
         '-e',
-        'process.stdin.on("data", line => { try { const msg = JSON.parse(String(line)); process.stdout.write(JSON.stringify({ id: msg.id, ok: true, result: { session: "activated-session", token: "tok-1", activated_at: 1, project_root: process.cwd(), sharing: { enabled: true } } }) + "\\n"); } catch {} }); setTimeout(() => {}, 50);',
+        'process.stdin.on("data", line => { try { const msg = JSON.parse(String(line)); process.stdout.write(JSON.stringify({ id: msg.id, ok: true, result: { results: [] } }) + "\\n"); } catch {} }); setTimeout(() => {}, 50);',
       ],
     })
   }
   const updateReply = JSON.parse(await tools.get('mindie_entry').execute({ op: 'update-check' }, exec))
   assert.equal(updateReply.started, true)
-  const activatedExec = { agent: { session: { id: 'activated-session', header: { cwd: root } } } }
-  const gestureMessages = [user('/mindie-agent check windowsHide')]
-  await listeners.get('agent/pre-step')(
-    { agent: activatedExec.agent, messages: gestureMessages },
-    async () => ({ kind: 'enter', messages: gestureMessages }),
-  )
-  listeners.get('agent/turn-stopping')({ agent: activatedExec.agent, turn: 1 })
-  for (const mounted of ['knowledge_query', 'knowledge_explain', 'knowledge_distill', 'knowledge_feedback', 'knowledge_sync']) {
-    assert.equal(tools.has(mounted), true)
-  }
+
+  // Out-of-scope session does NOT spawn capture_stop.py
+  listeners.get('agent/turn-stopping')({
+    agent: { session: { id: 'opted-in-session', header: { cwd: outside } } },
+    turn: 1,
+  })
+  assert.equal(spawnedOptions.length, 1)
+
+  // Default-enabled knowledge_query and opted-in in-scope Stop both work without prior activation
+  const optedInExec = { agent: { session: { id: 'opted-in-session', header: { cwd: root } } } }
+  const queryReply = JSON.parse(await tools.get('knowledge_query').execute({ query: 'Ascend' }, optedInExec))
+  assert.deepEqual(queryReply, { results: [] })
+  listeners.get('agent/turn-stopping')({ agent: optedInExec.agent, turn: 2 })
+
   assert.equal(spawnedOptions.length, 3)
   assert.ok(spawnedOptions[0].args.some(arg => String(arg).endsWith('updater.py')))
   assert.equal(spawnedOptions[0].detached, expectedDetached)
@@ -111,4 +121,5 @@ try {
   ChildProcess.prototype.spawn = originalSpawn
   for (const dispose of disposers.reverse()) if (dispose) dispose()
   rmSync(root, { recursive: true, force: true })
+  rmSync(outside, { recursive: true, force: true })
 }

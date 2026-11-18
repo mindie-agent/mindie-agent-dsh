@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.25 — 2026-11-18
+
+- Enable `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_distill`, and `knowledge_sync` by default across every DeepSeek Harness session (`host3.mjs`, `scripts/knowledge_tools.mjs`, `scripts/mindie_sidecar.py`, and `scripts/knowledge_mcp.py`) without requiring prior session activation, auto-provisioning default (`not_before=0.0`) leases on demand for mutating calls while respecting explicit session deactivation.
+- Gate `agent/turn-stopping`, `scripts/capture_stop.py`, and `scripts/mindie_launch.py` on `mindie-consent.json` (`choice="contribute"`) and `mindie-community.json` `project_roots` before opening SQLite (`< 100ms` zero-SQLite fast skip when off or out of scope; automatic lease alignment and `prepare_schema` initialization on opted-in turns), and convert `skills/mindie-agent/SKILL.md` into a compact (`<= 30` lines) semantic workflow skill.
+
 ## 0.1.24 — 2026-11-18
 
 - Preserve DeepSeek Harness manual-only `/mindie-agent` session-gated knowledge invocation (`disable-model-invocation: true`) while separating install/consent guides (`docs/install/{user-notice,github-authentication,workspace-setup}.md`) from the runtime `skills/mindie-agent/` bundle and purging first-use onboarding prompts from `SKILL.md` and runtime reference docs.

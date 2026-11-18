@@ -9,7 +9,7 @@ English version: [`docs/README.en.md`](README.en.md)
 - [`install/`](install/user-notice.md) — 安装与授权文档：[`user-notice.md`](install/user-notice.md)（用户与贡献须知）、[`github-authentication.md`](install/github-authentication.md)（GitHub 登录引导）与 [`workspace-setup.md`](install/workspace-setup.md)（工作区配置指南）。
 - [`verification.md`](verification.md) — DSH 宿主协议边界、跨平台集成矩阵与接口契约验证说明。
 - [`benchmark.md`](benchmark.md) — 发布微基准 (`benchmarks/release.py`) 指标与运行方式。
-- [`releases/`](releases/) — 正式版本发布说明与变更记录（最新：[`0.1.24`](releases/mindie-agent-dsh-0.1.24.md)）。
+- [`releases/`](releases/) — 正式版本发布说明与变更记录（最新：[`0.1.25`](releases/mindie-agent-dsh-0.1.25.md)）。
 
 ## 历史归档
 

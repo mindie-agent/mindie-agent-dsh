@@ -1,0 +1,7 @@
+# mindie-agent-dsh 0.1.25: Default-On Knowledge Tools, Silent Semantic Skill & Consent-Gated `Stop` Capture
+
+[中文](mindie-agent-dsh-0.1.25.md)
+
+- **Default-Enabled `knowledge_*` Tools Across Every Session**: `host3.mjs`, `scripts/knowledge_tools.mjs`, `scripts/mindie_sidecar.py`, and `scripts/knowledge_mcp.py` expose `knowledge_query`, `knowledge_explain`, `knowledge_feedback`, `knowledge_distill`, `knowledge_sync`, and `mindie_entry` out of the box without prior session activation. Read-only calls run without creating an admission lease, while `knowledge_feedback` and `knowledge_distill` auto-provision a default (`not_before=0.0`) lease on the selected domain's `admission_path` and respect explicit session `deactivate`.
+- **Fast Pre-SQLite Consent & Scope Gate on `Stop` Capture**: `host3.mjs` (`agent/turn-stopping`), `scripts/capture_stop.py`, and `scripts/mindie_launch.py` check `mindie-consent.json` (`choice == "contribute"`) and `mindie-community.json` `project_roots` before opening SQLite (`< 100ms` zero-SQLite fast skip when disabled or out of scope; automatic `project_root` lease alignment and `prepare_schema` initialization when opted in and in scope).
+- **Silent Semantic `mindie-agent` Skill**: Removes `disable-model-invocation: true` from `skills/mindie-agent/SKILL.md`, condenses `SKILL.md` (`<= 30` lines) and `skills/mindie-agent/references/*.md` into pure semantic workflow guidance, and removes user-facing slash-command activation instructions across docs.
