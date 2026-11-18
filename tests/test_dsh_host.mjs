@@ -81,7 +81,7 @@ test('windowless spawn options and Windows PATH normalization', () => {
 })
 
 test('canonical dsh.json wins over legacy and explicit configuration', () => {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mindie-dsh-paths-')))
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'mindie-dsh-paths-')))
   const restore = isolate(root)
   try {
     delete process.env.MINDIE_DSH_CONFIG
@@ -89,19 +89,19 @@ test('canonical dsh.json wins over legacy and explicit configuration', () => {
     const legacy = path.join(root, 'config-base', 'dsh', 'config.json')
     mkdirSync(path.dirname(canonical), { recursive: true })
     writeFileSync(canonical, '{}')
-    assert.equal(paths().configFile, realpathSync(canonical))
-    assert.equal(paths().configHome, path.dirname(realpathSync(canonical)))
+    assert.equal(paths().configFile, realpathSync.native(canonical))
+    assert.equal(paths().configHome, path.dirname(realpathSync.native(canonical)))
     rmSync(canonical)
     delete process.env.MINDIE_DSH_CONFIG_HOME
     mkdirSync(path.dirname(legacy), { recursive: true })
     writeFileSync(legacy, '{}')
-    assert.equal(paths().configFile, realpathSync(legacy))
+    assert.equal(paths().configFile, realpathSync.native(legacy))
     rmSync(legacy)
     const explicitHome = path.join(root, 'legacy-home')
     mkdirSync(explicitHome)
     writeFileSync(path.join(explicitHome, 'config.json'), '{}')
     process.env.MINDIE_DSH_CONFIG_HOME = explicitHome
-    assert.equal(paths().configFile, realpathSync(path.join(explicitHome, 'config.json')))
+    assert.equal(paths().configFile, realpathSync.native(path.join(explicitHome, 'config.json')))
     mkdirSync(path.dirname(canonical), { recursive: true })
     writeFileSync(canonical, '{broken')
     assert.throws(() => paths(), /JSON/)
