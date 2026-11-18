@@ -74,6 +74,7 @@ _ISOLATED_PATHS = {
     "MINDIE_DSH_DATA_HOME": ("data",),
     "MINDIE_DSH_CONFIG_HOME": ("config",),
     "MINDIE_DSH_STATE_DIR": ("state",),
+    "MINDIE_DSH_CONFIG": ("config", "dsh.json"),
     "DSH_HOME": ("dsh-home",),
     "MINDIE_DIAGNOSTICS_ROOT": ("diagnostics", "logs"),
     "MINDIE_DIAGNOSTICS_CONFIG": ("diagnostics", "diagnostics.json"),

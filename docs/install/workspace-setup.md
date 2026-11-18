@@ -1,58 +1,57 @@
 # Development workspace setup
 
-Run this flow during normal installation and first-use setup, immediately after
-presenting the existing MindIE Agent [user notice](user-notice.md). The offer is part of setup even
-when contribution is disabled. Reuse the user's creation, initialization and
-registration decisions; ordinary tasks and updates do not repeat onboarding.
+Run this flow during the first DSH session after the deterministic bootstrap:
 
-1. Check `uv run --no-project --python 3.11 python scripts/setup.py sharing --status` first.
-   When `"needs_onboarding_prompt": true` (or no workspace choice has been recorded yet),
-   invoke the native question tool in the current DSH session (or present a
-   structured 3-item numbered `[1]/[2]` choice card if no question tool is
-   exposed in the current session mode) to ask all 3 onboarding questions at
-   once: (1) Local Workspace (`vllm-ascend-workspace`, reusing an existing
-   directory, or keeping the current directory), (2) Community Sharing & Fault
-   Reporting, and (3) `顺手给 MindIE Agent 点个 GitHub Star 吗？ ⭐` /
-   `Would you like to give mindie-agent a Star on GitHub ⭐?` (`好，点个 Star ⭐ (Recommended)` /
-   `Sure, star it ⭐ (Recommended)` vs `先不用` / `Maybe later`). Resolve
-   `WORKSPACE_ROOT` first so `setup.py sharing --enable --project-root "$WORKSPACE_ROOT"`
-   records the exact workspace root. Obtain the destination when needed and explain that
-   the selected workspace will also be added to the current client's native
-   project/workspace entry. An installation choice includes this registration;
-   do not ask again whether to register it. If the user keeps the current
-   directory without scaffold setup, finish the offer and retain that directory.
+```bash
+uv run https://github.com/mindie-agent/mindie-agent/releases/latest/download/install.py --host dsh
+```
+
+The installer warms the locked runtime and writes `dsh.json` / `dsh.engine.json`.
+Reuse the user's creation, initialization and registration decisions; ordinary
+tasks and updates do not repeat onboarding.
+
+1. Check the current tier with
+   `python scripts/setup.py sharing --status` (read-only). When
+   `"needs_onboarding_prompt": true` (or no workspace choice exists), invoke the
+   native question tool in the current DSH session — or present a structured
+   numbered `[1]/[2]` card when no question tool is available — and ask all three
+   questions once:
+   1. **Q1 Local workspace**: create/initialize `vllm-ascend-workspace`
+      (recommended), reuse the current directory, or use an existing absolute
+      path. Resolve `WORKSPACE_ROOT` first.
+   2. **Q2 Experience and privacy tier** (`gh`-aware): when
+      `gh api user --jq .login` succeeds, recommend `contribute`; otherwise
+      recommend `local-only`; `read-only` is always available.
+   3. **Q3 One-step SSH NPU connection** (optional now, repeatable later).
 2. Before downloads or fork setup, follow [GitHub Sign-In](github-authentication.md).
-   Reuse authentication already verified during plugin installation. Otherwise
-   offer browser login or token creation/input, preferring tokens on enterprise
-   networks. A GitHub username alone does not establish authentication.
+   Reuse authentication already verified during installation. A GitHub username
+   alone does not establish authentication; `gh` is never required for
+   `local-only` or `read-only`.
 3. For a new directory, run
    `git clone https://github.com/mindie-agent/vllm-ascend-workspace.git "<destination>"`.
-   For reuse, inspect the selected checkout first. Preserve existing files and
-   configuration. Report clone failures with the actual path and result; inspect
-   an interrupted clone before retrying it. Keeping the current directory needs
-   no scaffold installation or unrelated configuration changes.
-4. Once the selected workspace exists, register/open its absolute root through
-   the current harness's native project controls. Follow the checkout's
-   `.agents/harness-workspace.md` when available and the native entry below.
-   Reuse an existing record for the same path. Do this even when the user defers
-   source initialization. Confirm the native path before reporting completion;
-   a child-shell `cd` or filesystem access grant is not project registration.
-5. If initialization was not already decided, offer it now for a new or reused
-   scaffold that needs it. On approval, read its `AGENTS.md`, `README.md` and
-   `.agents/scripts/README.md`. Use the checked-out initializer via `uv` so
-   Windows hosts do not hit the Microsoft Store `python3` alias:
-   `uv run --no-project --python 3.11 python .agents/scripts/repo_init.py --no-input`
-   reuses saved `workspace.json` fork selections. For first setup using the verified
-   account's existing forks, use
-   `uv run --no-project --python 3.11 python .agents/scripts/repo_init.py --github-user <account> --no-input`.
-   The initializer configures forks; it does not create GitHub forks. Resolve
-   missing forks within the requested setup and keep existing personal remotes.
-   Do not replace this flow with manual submodule commands or copying the sample
-   configuration over the user's file.
-6. Report the path, native registration/open status and initialization status
-   separately. Resume a failed initialization in the same workspace. Contribution
-   settings retain their approved scope; workspace installation does not enable
-   sharing or expand that scope.
+   For reuse, inspect the selected checkout first and preserve existing files.
+   Report clone failures with the actual path and result; inspect an interrupted
+   clone before retrying.
+4. Record the tier with exactly one of:
+   ```bash
+   python scripts/setup.py sharing --enable --project-root "$WORKSPACE_ROOT"
+   python scripts/setup.py sharing --local-only --project-root "$WORKSPACE_ROOT"
+   python scripts/setup.py sharing --disable
+   ```
+5. Register/open the absolute workspace root through DSH's native workspace
+   control (below). Reuse an existing record for the same path; a child-shell
+   `cd` is not project registration.
+6. If initialization was approved, read the checkout's `AGENTS.md`, `README.md`,
+   and `.agents/scripts/README.md`, then use the checked-out initializer via
+   `uv` (avoids the Windows Store `python3` alias):
+   `uv run --no-project --python 3.11 python .agents/scripts/repo_init.py --no-input`.
+   For first setup with the verified account's existing forks, pass
+   `--github-user <account>`. The initializer configures forks; it does not
+   create them.
+7. Finish with the read-only `mindie_doctor` readiness summary and report the
+   path, native registration/open status, initialization status, tier, and NPU
+   connection separately. Resume a failed initialization in the same workspace;
+   workspace setup never widens the approved contribution scope.
 
 ## Native entry
 
@@ -61,14 +60,26 @@ operation `workspace/create`. In DSH `0.2.0-rc.2`,
 `ctx.remote.workspace.create({path: "<absolute-path>"})` registers an existing
 directory and reuses the same path. Check the successful native result and the
 workspace list. The path must exist on the running DSH host in its current
-profile. Local/read-only plugin use still does not require `gh`; choosing this
-source/fork initialization runs the GitHub sign-in step above.
+profile.
 
-Use available native tools or UI automation to complete the action. If the agent
-cannot operate the required folder picker, give the selected path and that one
-remaining action, and report registration as pending. Never edit private harness
-project databases or create a second client profile to simulate registration.
+Use available native tools or UI automation. If the agent cannot operate the
+required folder picker, give the selected path and that one remaining action and
+report registration as pending. Never edit private harness project databases or
+create a second client profile to simulate registration.
 
-Suggested combined offer (use the user's language):
+## One-step NPU connection
 
-“是否创建并初始化 vllm-ascend-workspace，同时添加到当前客户端工作区？也可以使用已有目录，或继续当前目录。”
+Prefer the tool call
+`remote_auth(action="setup", host="<REAL_IP>", port=22, user="<REAL_USER>", save_default=True, discover=True)`.
+Terminal mode may use (leading space and `--password` last):
+
+```text
+ /abs/path/to/python -m remote_dev auth setup --host <REAL_IP> --port 22 --user <REAL_USER> --save-default --discover --password
+```
+
+After the three questions, run `mindie_doctor`. If `gh` is logged in and the user
+agreed, append one polite Star line:
+
+```sh
+gh api --hostname github.com --silent -X PUT /user/starred/mindie-agent/mindie-agent
+```

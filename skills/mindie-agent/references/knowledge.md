@@ -1,8 +1,8 @@
 # Knowledge surface details
 
-The `mindie-agent-host` / knowledge MCP surface exposes:
-`mindie_entry`, `knowledge_query`, `knowledge_explain`, `knowledge_distill`,
-`knowledge_feedback`, and `knowledge_sync`.
+The `mindie-tools` MCP surface exposes the five default-on knowledge tools:
+`knowledge_query`, `knowledge_explain`, `knowledge_distill`,
+`knowledge_feedback`, and `knowledge_sync`. There is no activation entry tool.
 
 ## Progressive context and experience flywheel (P0–P3)
 
@@ -16,32 +16,33 @@ The `mindie-agent-host` / knowledge MCP surface exposes:
 All new fields are optional. Existing single-`ref` explain, `up`/`down` votes,
 and calls that omit these fields keep their previous shape.
 
-## Entry (`mindie_entry`) & Multi-Domain Route Registration
+## Default-On Surface, Privacy Tiers & Domain Routes
 
-- **Default-Enabled Knowledge Surface**: `knowledge_query`, `knowledge_explain`, `knowledge_distill`, `knowledge_feedback`, `knowledge_sync`, and `mindie_entry` are registered by default on every DSH session without requiring prior session activation. Read-only operations (`knowledge_query`, `knowledge_explain`, `knowledge_sync`) run without creating an admission lease; mutating operations (`knowledge_feedback`, `knowledge_distill`) auto-provision a default session lease (`not_before=0.0`) on the selected domain's `admission_path` unless the session was explicitly deactivated. Both the host sidecar (`mindie_sidecar.py`) and the stdio MCP bridge (`knowledge_mcp.py`, which falls back to a deterministic per-connection session ID when `MINDIE_DSH_SESSION_ID` is absent) enforce explicit deactivation boundaries.
-- `op="init"` initializes or refreshes the session's default lease, starts the loopback summary server (`ensureSummaryServer`), and returns the saved unified contribution state (`sharing`).
-  Passing `mindie_entry(op="init", domain="<domain>")` explicitly activates a
-  registered target `domain` under its own existing `consent` and `project_root`
-  scope (returning `domain_activation` without replacing the default session
-  binding).
-- Registering an additional domain Engine/Feed in an existing adapter config
-  uses `python -m mindie_knowledge.loop.domain_routes register --adapter-config <path> --domain <domain> --engine-config <path>`,
-  which updates `domain_configs` (preserving `default_domain`) and **never**
-  creates or widens `consent`. Ordinary reads do not widen authorization.
-- `op="choose"` records the unified contribution switch (`choice="contribute"`
-  or `choice="disabled"`) in `mindie-consent.json`.
-- `op="status"`, `op="sharing-status"`, and `op="reporting-status"` are factual
-  read-only checks (`{kind: "status", activated: Boolean(result.lease?.enabled), ...result}`)
-  available in any session without starting the
-  summary server or mutating session state.
-- `op="deactivate"` revokes **only the current session's** capture lease across
-  the default domain and all registered `domain_configs` without altering the
-  saved profile consent choice or revoking other sessions. If any registered
-  domain fails or times out during revocation, `status="partial"` is returned
-  while preserving `changed` and per-domain outcomes (`domains[]`), keeping
-  partial failure and already-revoked side effects distinct.
+- **Default-on**: all five `knowledge_*` tools are registered by every DSH session
+  and subagent without activation, `request_nonce`, or `context_file`.
+  Read-only operations (`knowledge_query`, `knowledge_explain`, `knowledge_sync`)
+  do not create an admission lease; `knowledge_feedback` and `knowledge_distill`
+  auto-provision a default session lease (`not_before=0.0`) on the selected
+  domain's `admission_path` unless the session was explicitly deactivated.
+  `scripts/mindie_launch.py` implements `DSHManagedAdapter`: it first delegates to
+  `ManagedMCPAdapter("dsh")` and, when the installed `mindie_knowledge` lacks the
+  top-level RPC façade, dispatches through `ensure_service` + `transport.rpc`
+  while preserving Receipt Honesty.
+- **Runtime privacy tiers**: `contribute` enables sanitized public experience and
+  fault reporting; `local-only` captures locally; `read-only`/`disabled` disables
+  capture and outgoing sends. Switch with
+  `python scripts/setup.py sharing --enable | --local-only | --disable
+  [--project-root <abs>]`; inspect with `--status`. Change tiers only on the
+  user's explicit choice. `mindie_doctor` is the read-only readiness check.
+- **Explicit revocation**: a session `Admission` with `status="inactive"` is never
+  silently reactivated by an ordinary `Stop` or knowledge call. Use the host's
+  privacy-tier command rather than editing consent files by hand.
+- **Additional domains**: register an Engine/Feed with
+  `python -m mindie_knowledge.loop.domain_routes register --adapter-config <path>
+  --domain <domain> --engine-config <path>`. This updates `domain_configs`
+  (preserving `default_domain`) and never creates or widens consent.
 
-Knowledge loading follows [Advisory Knowledge & Domain Tooling](../SKILL.md#2-advisory-knowledge--domain-tooling). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
+Knowledge loading follows [Code-First Investigation, Knowledge & NPU Discipline](../SKILL.md#2-code-first-investigation-knowledge--npu-discipline). Query only to discover a missing reference; an exact returned ref can be read directly. Prefer `refs=[...]` for graded rules, even one unit, with observed `conditions`, visible `known_refs` and an explicit `token_budget`. Reserve single `ref` reads for legacy task/block navigation.
 
 ## Query (`knowledge_query`)
 
@@ -216,7 +217,7 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
   events, multi-domain routing, and graded `knowledge_query`/`knowledge_explain`
   options (`domain_path`, `token_budget`, `include_unknown`, `include_archived`,
   `refs`, `known_refs`, `conditions`) are provided by the paired
-  `mindie-knowledge 0.13.8` runtime. Existing single-`ref` explain, `up`/`down`
+  `mindie-knowledge 0.13.23` runtime. Existing single-`ref` explain, `up`/`down`
   votes, and calls that omit optional fields remain backward compatible.
   Graded Feeds use the single-line `ID@revision` reference contract on each
   content repository's `main` branch, with independent Feed sync and
@@ -240,11 +241,11 @@ ablation receipt; diagnostic findings need the evidence appropriate to their cla
 
 ## Service
 
-The tools communicate with the local `mindie-knowledge` (`0.13.8`) loopback service, which starts on demand and can be inspected or stopped with:
+The tools communicate with the local `mindie-knowledge` (`0.13.23`) loopback service, which starts on demand and can be inspected or stopped with:
 
 ```sh
-"$MINDIE_DSH_DATA_HOME"/venv/bin/python -m mindie_knowledge.loop.cli status \
-  --config <engine-config>
-"$MINDIE_DSH_DATA_HOME"/venv/bin/python -m mindie_knowledge.loop.cli stop \
-  --config <engine-config>
+<python-from-dsh.json> -m mindie_knowledge.loop.cli status \
+  --config <config>/dsh.engine.json
+<python-from-dsh.json> -m mindie_knowledge.loop.cli stop \
+  --config <config>/dsh.engine.json
 ```

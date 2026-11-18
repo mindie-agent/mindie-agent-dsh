@@ -1,793 +1,140 @@
 #!/usr/bin/env python3
-"""[Role] One-step runtime provisioner for the DeepSeek Harness adapter.
-[Invariants] Prepares an independent pinned runtime and immutable engine paths. One adapter pointer selects all domains after their old owners confirm idle retirement.
-[Timeouts & Locks] Every subprocess receives the remaining shared setup budget; timeout cleanup has a separate five-second allowance.
-[Side-Effect Policy] Populates data_home()/runtimes, prepares immutable engine JSON, publishes config.json atomically, stages updater scripts, and runs best-effort historical storage reclamation. Saved consent remains unchanged.
+"""[Role] Thin DSH setup CLI: `init` writes `dsh.json`/`dsh.engine.json`; `sharing`, `doctor`, `update`, and `release-metadata` delegate to `mindie_harness`.
+[Invariants] The engine carries an absolute transcript adapter, redactor, and loopback summary command; every compatibility code path and test id must resolve before emitting `mindie-plugin-release/1`.
+[Timeouts & Locks] Init performs atomic local writes and harness-owned GC only; doctor/update inherit `mindie_harness` deadlines and locks.
+[Side-Effect Policy] Writes only MindIE-owned profile documents and prints one JSON object per command.
 """
-
 from __future__ import annotations
-
-import argparse
-import datetime as _dt
-import hashlib
-import json
-import os
-import shutil
-import subprocess
-import sys
-import time
-import tomllib
-import uuid
+import argparse, ast, importlib.util, json, os
 from pathlib import Path
-from typing import Any
-
+import shutil, sys
 HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-
-import mindie_paths as mp  # noqa: E402
-import setup_process  # noqa: E402
-import storage_lifecycle  # noqa: E402
-
-SCHEMA = "mindie-dsh-setup/1"
-ADAPTER_SCHEMA = "mindie-dsh-adapter/1"
-ENGINE_SCHEMA = "mindie-knowledge-engine/1"
-VERSION = json.loads((mp.PACKAGE_DIR / "package.json").read_text(encoding="utf-8"))["version"]
-RUN_DEADLINE: float | None = None
-INSTALL_RUNTIME_DIR: Path | None = None
-DOMAIN = "vllm-ascend"
-FEED = {
-    "repository": "mindie-agent/knowledge-vllm-ascend",
-    "ref": "main",
-    "domain": DOMAIN,
-    "interval_seconds": 300,
-}
-PUBLIC_FEEDS = [
-    dict(FEED),
-    {
-        "repository": "mindie-agent/knowledge-operators",
-        "ref": "main",
-        "domain": "operators",
-        "interval_seconds": 300,
-    },
-]
-_project = tomllib.loads((mp.PACKAGE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
-_component_names = {
-    requirement.partition(" @ ")[0]
-    for requirement in _project["project"]["dependencies"]
-}
-COMPONENTS = {
-    package["name"]: package["version"]
-    for package in tomllib.loads((mp.PACKAGE_DIR / "uv.lock").read_text(encoding="utf-8"))["package"]
-    if package["name"] in _component_names
-}
-if COMPONENTS.keys() != _component_names:
-    raise ValueError("the runtime lock omits a declared component")
-
-
-class SetupError(RuntimeError):
-    pass
-
-
-def runtime_dir() -> Path:
-    return INSTALL_RUNTIME_DIR or mp.venv_dir()
-
-
-def runtime_python() -> Path:
-    return (runtime_dir() / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
-            if INSTALL_RUNTIME_DIR is not None else mp.venv_python())
-
-
-def runtime_identity() -> str:
-    """Bind dependency pins and native Python code, including same-version repairs."""
-    files = [mp.PACKAGE_DIR / name for name in ('pyproject.toml', 'uv.lock', 'package.json')]
-    files.extend(sorted((mp.PACKAGE_DIR / 'scripts').glob('*.py')))
-    digest = hashlib.sha256()
-    for path in files:
-        digest.update(str(path.relative_to(mp.PACKAGE_DIR)).encode() + b'\0' + path.read_bytes() + b'\0')
-    return digest.hexdigest()
-
-
-def prepared_engine_path(engine=None) -> Path:
-    if INSTALL_RUNTIME_DIR is None:
-        return mp.engine_config()
-    directory = mp.config_home() / 'engines' / INSTALL_RUNTIME_DIR.parent.name
-    if engine is not None:
-        directory /= hashlib.sha256(json.dumps(engine, sort_keys=True).encode()).hexdigest()[:20]
-    return directory / 'engine.json'
-
-
-def progress(message: str) -> None:
-    print("setup: " + message, file=sys.stderr, flush=True)
-
-
-def run(
-    argv: list[str],
-    *,
-    timeout: int,
-    env: dict[str, str] | None = None,
-    cwd: Path | None = None,
-    input_text: str | None = None,
-) -> subprocess.CompletedProcess[str]:
-    if RUN_DEADLINE is not None:
-        remaining = RUN_DEADLINE - time.monotonic()
-        if remaining <= 0:
-            raise SetupError("setup exceeded its total time budget")
-        timeout = min(timeout, remaining)
+PLUGIN_ROOT = HERE.parent
+VERSION = json.loads((PLUGIN_ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+DOMAIN, HARNESS, REPOSITORY = "vllm-ascend", "dsh", "mindie-agent/mindie-agent-dsh"
+COMMANDS = frozenset({"init", "install", "sharing", "doctor", "update", "release-metadata"})
+def _profile(config: str | None = None): from mindie_harness.paths import ProfileRef; return ProfileRef.resolve(HARNESS, plugin_root=PLUGIN_ROOT, config_path=config or os.environ.get("MINDIE_AGENT_CONFIG") or os.environ.get("MINDIE_DSH_CONFIG"))
+def _emit(value: dict) -> int: print(json.dumps(value, sort_keys=True)); return 0
+def _read(path: Path) -> dict:
+    try: value = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except TimeoutError: raise
+    except (OSError, ValueError): return {}
+    return value if isinstance(value, dict) else {}
+def _write(path: Path, document: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        return setup_process.run(
-            argv, cwd=str(cwd) if cwd else None, env=env,
-            timeout=timeout,
-            input_text=input_text,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise SetupError(f"command exceeded {timeout}s: {' '.join(argv)}") from exc
-    except subprocess.SubprocessError as exc:
-        raise SetupError(f"command tree cleanup failed: {exc}") from exc
-    except TimeoutError:
-        raise
-    except OSError as exc:
-        raise SetupError(f"could not run {argv[0]}: {exc}") from exc
-
-
-def tail(text: str, limit: int = 4000) -> str:
-    text = text.strip()
-    return text if len(text) <= limit else "..." + text[-limit:]
-
-
-def write_private(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"); os.replace(temporary, path)
+    finally: temporary.unlink(missing_ok=True)
+def _runtime_python(profile, cfg: dict) -> str:
+    configured = cfg.get("python")
+    if isinstance(configured, str) and Path(configured).is_file(): return configured
+    if importlib.util.find_spec("mindie_harness") is not None: return sys.executable
     try:
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
-def copy_private(source: Path, destination: Path) -> None:
-    if not source.is_file():
-        raise SetupError(f"required plugin file is missing: {source}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_bytes(source.read_bytes())
+        from mindie_harness.api import prepare_runtime
+        return str(prepare_runtime(profile).python_path)
+    except TimeoutError: raise
+    except (ImportError, AttributeError, RuntimeError, OSError): return sys.executable
+def _redactor(profile) -> str:
+    explicit = os.environ.get("MINDIE_REDACTOR_EXECUTABLE")
+    if explicit and Path(explicit).is_absolute(): return explicit
     try:
-        os.replace(tmp, destination)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
-_RETAINED_ITEMS = (
-    "pyproject.toml",
-    "uv.lock",
-    "package.json",
-    "product-contract.json",
-    "harness-compatibility.json",
-    "index.cjs",
-    "paths.cjs",
-    "host.mjs",
-    "host3.mjs",
-    "scripts",
-    "skills",
-)
-_TEXT_SUFFIXES = frozenset({".py", ".json", ".md", ".toml", ".lock", ".cjs", ".mjs", ".js"})
-
-
-def _copy_lf_clean(source: Path, destination: Path) -> None:
-    raw = source.read_bytes()
-    if source.suffix in _TEXT_SUFFIXES and b"\r\n" in raw:
-        raw = raw.replace(b"\r\n", b"\n")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp = destination.with_name(f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_bytes(raw)
-    try:
-        os.replace(tmp, destination)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
-def stage_retained_package(source_dir: Path | None = None) -> Path:
-    """Persist an LF-clean baseline package under `data_home()/update/generations/v<VERSION>/package`."""
-    src = (source_dir or mp.PACKAGE_DIR).resolve()
-    dest = (mp.data_home() / "update" / "generations" / f"v{VERSION}" / "package").resolve()
-    if src == dest:
-        return dest
-    dest.mkdir(parents=True, exist_ok=True)
-    for item in _RETAINED_ITEMS:
-        item_src = src / item
-        if not item_src.exists():
-            continue
-        item_dst = dest / item
-        if item_src.is_file():
-            _copy_lf_clean(item_src, item_dst)
-        else:
-            for child in item_src.rglob("*"):
-                if any(part in {"__pycache__", ".pytest_cache", ".git", ".venv", "node_modules"} for part in child.parts):
-                    continue
-                if child.is_file() and child.suffix != ".pyc":
-                    _copy_lf_clean(child, item_dst / child.relative_to(item_src))
-    return dest
-
-
-def adapter_configuration() -> dict[str, Any]:
-    """Refresh owned install fields without dropping explicitly registered domains."""
-    path = mp.config_file()
-    previous = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    if not isinstance(previous, dict):
-        raise SetupError("existing adapter configuration must be a JSON object")
-    pkg_dir = stage_retained_package() if mp.PACKAGE_DIR.name == "mindie-agent-dsh-install" else mp.PACKAGE_DIR
-    config = {**previous,
-        "schema": ADAPTER_SCHEMA,
-        "version": VERSION,
-        "package_dir": str(pkg_dir),
-        "created_at": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
-        "python": str(runtime_python()),
-        "venv_dir": str(runtime_dir()),
-        "engine_config": str(prepared_engine_path()),
-        "state_dir": str(mp.state_dir()),
-        "domain": DOMAIN,
-        "components": COMPONENTS,
-    }
-    if "domain_configs" in previous:
-        config["domain_configs"] = previous["domain_configs"]
-    return config
-
-
-def check_host() -> None:
-    if sys.version_info < (3, 11):
-        raise SetupError(
-            f"Python 3.11+ is required for setup, found {sys.version.split()[0]}. "
-            "Run: uv run --quiet --no-project --python 3.11 scripts/setup.py"
-        )
-    if mp.which_native("uv") is None:
-        raise SetupError(
-            "uv is required. Install it first: https://docs.astral.sh/uv/getting-started/installation/"
-        )
-
-
-def sync_runtime(python: str | None, *, timeout: int) -> None:
-    venv = runtime_dir()
-    mp.ensure_private_dir(mp.data_home())
-    env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
-    storage_lifecycle.configure_prebuild_uv_cache(env, data_home=mp.data_home())
-    env.setdefault("UV_NO_PROGRESS", "1")
-    env.setdefault("GIT_TERMINAL_PROMPT", "0")
-    env.setdefault("GCM_INTERACTIVE", "never")
-    if "UV_SYSTEM_CERTS" not in env and "UV_NATIVE_TLS" not in env:
-        env["UV_SYSTEM_CERTS"] = "true"
-        env["UV_NATIVE_TLS"] = "true"
-    elif "UV_SYSTEM_CERTS" not in env:
-        env.setdefault("UV_NATIVE_TLS", "true")
-    git_pairs = (
-        ("core.longpaths", "true"),
-        ("core.autocrlf", "false"),
-        ("credential.https://github.com.provider", "github"),
-    )
-    try:
-        existing_count = max(0, int(env.get("GIT_CONFIG_COUNT", "0")))
-    except ValueError:
-        existing_count = 0
-    existing_keys = {
-        env.get(f"GIT_CONFIG_KEY_{idx}")
-        for idx in range(existing_count)
-        if env.get(f"GIT_CONFIG_KEY_{idx}")
-    }
-    next_idx = existing_count
-    for k, v in git_pairs:
-        if k not in existing_keys:
-            env[f"GIT_CONFIG_KEY_{next_idx}"] = k
-            env[f"GIT_CONFIG_VALUE_{next_idx}"] = v
-            next_idx += 1
-    env["GIT_CONFIG_COUNT"] = str(next_idx)
-    uv_exe = mp.which_native("uv") or "uv"
-    argv = [
-        uv_exe, "sync", "--frozen", "--quiet", "--no-dev",
-        "--project", str(mp.PACKAGE_DIR), "--python", python or "3.11",
-    ]
-    progress(f"building locked runtime at {venv}")
-    completed = run(argv, timeout=timeout, env=env, cwd=mp.PACKAGE_DIR)
-    if completed.returncode != 0:
-        raise SetupError("uv sync failed. " + tail(completed.stderr or completed.stdout))
-    if not runtime_python().is_file():
-        raise SetupError(f"uv sync completed without creating {runtime_python()}")
-
-
-def probe_runtime(*, timeout: int = 120) -> dict[str, Any]:
-    completed = run(
-        [str(runtime_python()), "-X", "utf8", str(HERE / "runtime_probe.py")],
-        timeout=timeout,
-    )
-    if completed.returncode != 0:
-        raise SetupError("runtime import/FTS5 probe failed. " + tail(completed.stderr or completed.stdout))
-    try:
-        payload = json.loads(completed.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError) as exc:
-        raise SetupError("runtime probe returned an unexpected result: " + tail(completed.stdout)) from exc
-    if not isinstance(payload, dict):
-        raise SetupError("runtime probe returned a non-object")
-    versions = payload.get("versions") or {}
-    if missing := [name for name in COMPONENTS if not versions.get(name)]:
-        raise SetupError("missing runtime components: " + ", ".join(missing))
-    return payload
-
-
-def prepare_bound_runtime() -> bool:
-    """Let a new candidate complete an old updater's core-only runtime once."""
-    global INSTALL_RUNTIME_DIR
-    config = mp.config_file()
-    if not config.is_file() or not json.loads(config.read_text(encoding="utf-8")).get("component_commands"):
-        return False
-    # The old updater supplies 600s. The later probe/configuration/publication
-    # stages share 180s through run(), plus five seconds for this child's cleanup.
-    outer = min(575, RUN_DEADLINE - time.monotonic() - 185) if RUN_DEADLINE is not None else 575
-    if outer <= 5:
-        raise SetupError("setup has no remaining component preparation budget")
-    completed = run(
-        [str(runtime_python()), "-I", str(HERE / "component_update.py"),
-         str(mp.PACKAGE_DIR), str(runtime_python()), "--ensure-bound", "--timeout", str(outer - 5)],
-        timeout=outer,
-    )
-    if completed.returncode:
-        from component_update import recover_failure
-        error = SetupError("bound component preparation failed")
-        raise (recover_failure(completed.stdout, error) or error) from None
-    artifact = json.loads(completed.stdout)
-    if artifact is None:
-        return False
-    INSTALL_RUNTIME_DIR = Path(artifact["python"]).parent.parent
+        from mindie_knowledge.loop.transcript_redaction import install_scanner
+        return str(install_scanner())
+    except TimeoutError: raise
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return shutil.which("gitleaks") or str(profile.data_dir / "bin" / ("gitleaks.exe" if os.name == "nt" else "gitleaks"))
+def _init(profile, argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="setup.py init")
+    parser.add_argument("--root", type=Path, default=None); parser.add_argument("--domain", default=None)
+    opts = parser.parse_args(argv)
+    prev_cfg = _read(profile.config_path)
+    domain = opts.domain or prev_cfg.get("domain") or DOMAIN
+    root = opts.root.expanduser().resolve() if opts.root else profile.data_dir / "knowledge"
+    engine_path = profile.config_path.with_name("dsh.engine.json")
+    prev_engine = _read(engine_path)
+    python = _runtime_python(profile, prev_cfg)
+    engine = dict(prev_engine, **{
+        "root": str(root), "domain": domain, "admission_path": str(profile.admission_db),
+        "capture_mode": "public-transcript", "transcript_adapter": str(HERE / "dsh_transcript.py"),
+        "redactor_executable": _redactor(profile),
+        "summary_command": [python, "-I", "-X", "utf8", str(HERE / "mindie_launch.py"), "--config", str(profile.config_path), "summary"],
+        "community_config": str(profile.config_path.parent / "mindie-community.json"),
+        "feeds": prev_engine.get("feeds") if isinstance(prev_engine.get("feeds"), list) and prev_engine["feeds"] else [{"repository": "mindie-agent/knowledge-vllm-ascend", "ref": "main", "domain": domain, "interval_seconds": 300}],
+    })
+    adapter = dict(prev_cfg, **{
+        "schema": "mindie-dsh-adapter/1", "host": HARNESS, "version": VERSION, "python": python,
+        "venv_dir": str(Path(python).parent.parent), "engine_config": str(engine_path), "state_dir": str(profile.state_dir),
+        "config_path": str(profile.config_path), "consent_config": str(profile.consent_path),
+        "community_config": engine["community_config"], "package_dir": str(PLUGIN_ROOT),
+        "source_root": str(PLUGIN_ROOT), "runtime_scripts": str(HERE), "domain": domain,
+    })
+    _write(engine_path, engine); _write(profile.config_path, adapter)
+    from mindie_harness.api import maintain_runtime
+    return _emit({"status": "ready", "version": VERSION, "config_path": str(profile.config_path), "engine_config": str(engine_path),
+                  "python": python, "domain": domain, "transcript_adapter": engine["transcript_adapter"],
+                  "summary_command": engine["summary_command"], "gc": maintain_runtime(profile)})
+def _sharing(profile, argv: list[str]) -> int:
+    from mindie_harness.sharing import configure_sharing, sharing_status
+    parser = argparse.ArgumentParser(prog="setup.py sharing")
+    for flag in ("--status", "--enable", "--local-only", "--disable"): parser.add_argument(flag, action="store_true")
+    parser.add_argument("--project-root", action="append", default=[]); parser.add_argument("--repository"); parser.add_argument("--fork"); parser.add_argument("--account")
+    opts = parser.parse_args(argv)
+    if opts.status or not (opts.enable or opts.local_only or opts.disable): return _emit(sharing_status(profile, cwd=Path.cwd()))
+    choice = "contribute" if opts.enable else "local-only" if opts.local_only else "disabled"
+    return _emit(configure_sharing(profile, choice=choice, project_roots=opts.project_root, repository=opts.repository, fork=opts.fork, account=opts.account))
+def _doctor(profile, argv: list[str]) -> int:
+    from mindie_harness.api import run_host
+    parser = argparse.ArgumentParser(prog="setup.py doctor")
+    parser.add_argument("--probe-remote", action="store_true"); parser.add_argument("--cwd"); parser.add_argument("--timeout", type=float)
+    opts = parser.parse_args(argv)
+    command = ["--host", HARNESS, "--plugin-root", str(PLUGIN_ROOT), "--config", str(profile.config_path), "doctor"]
+    command += ["--probe-remote"] if opts.probe_remote else []
+    command += ["--cwd", opts.cwd] if opts.cwd else []
+    command += ["--timeout", str(opts.timeout)] if opts.timeout is not None else []
+    return run_host(command)
+def _update(profile, argv: list[str]) -> int:
+    from mindie_harness.runtime.wheelhouse import update_runtime
+    parser = argparse.ArgumentParser(prog="setup.py update")
+    parser.add_argument("--force", action="store_true"); parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--channel-base-url"); parser.add_argument("--background", action="store_true")
+    opts = parser.parse_args(argv)
+    return _emit(update_runtime(profile, force=opts.force, offline=opts.offline, channel_base_url=opts.channel_base_url, background=opts.background))
+def _declares(path: Path, parts: list[str]) -> bool:
+    body = ast.parse(path.read_text(encoding="utf-8")).body
+    for part in parts:
+        node = next((item for item in body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and item.name == part), None)
+        if node is None: return False
+        body = node.body
     return True
-
-
-def install_redactor(*, timeout: int = 300) -> str:
-    progress("installing the deterministic transcript redactor")
-    completed = run(
-        [str(runtime_python()), "-X", "utf8", "-m", "mindie_knowledge.loop.transcript_redaction"],
-        timeout=timeout,
-    )
-    if completed.returncode != 0:
-        raise SetupError("could not install the transcript redactor. " + tail(completed.stderr or completed.stdout))
-    path = completed.stdout.strip().splitlines()[-1].strip() if completed.stdout.strip() else ""
-    if not path or not Path(path).is_absolute() or not Path(path).is_file():
-        raise SetupError("the redactor installer did not return an existing absolute executable: " + tail(completed.stdout))
-    return path
-
-
-def engine_configuration(redactor: str) -> dict[str, Any]:
-    adapters = runtime_dir().parent / 'capture' if INSTALL_RUNTIME_DIR is not None else mp.data_home() / 'capture'
-    for name in ("dsh_transcript.py", "dsh_organizer.py", "mindie_paths.py"):
-        copy_private(mp.PACKAGE_DIR / "scripts" / name, adapters / name)
-    value = {
-        "root": str(mp.data_home()),
-        "domain": DOMAIN,
-        "admission_path": str(mp.data_home() / "admission.sqlite3"),
-        "capture_mode": "public-transcript",
-        "transcript_adapter": str(adapters / "dsh_transcript.py"),
-        "redactor_executable": redactor,
-        "summary_command": [str(runtime_python()), str(adapters / "dsh_organizer.py")],
-        "community_config": str(mp.config_home() / "mindie-community.json"),
-        "service_launch_context": {"paths": {}, "environment": ["MINDIE_DIAGNOSTICS_CONFIG"]},
-        "feeds": [dict(FEED)],
-    }
-    previous = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().is_file() else {}
-    if previous.get('engine_config'):
-        original = json.loads(Path(previous['engine_config']).read_text(encoding="utf-8"))
-        for key in ('root', 'domain', 'admission_path', 'community_config', 'feeds'):
-            if key in original:
-                value[key] = original[key]
-    return value
-
-
-def prepare_domains(adapter, engine):
-    request = dict(adapter=adapter, engine=engine,
-                   config_directory=str(Path(adapter['engine_config']).parent / 'domains'),
-                   authority_directory=str(mp.config_home() / 'knowledge-domains'),
-                   consent_config=str(mp.config_home() / 'mindie-consent.json'),
-                   domains=PUBLIC_FEEDS)
-    completed = run([str(runtime_python()), '-X', 'utf8', '-m', 'mindie_knowledge.loop.domain_catalog'],
-                    input_text=json.dumps(request), timeout=90)
-    if completed.returncode:
-        raise SetupError('domain preparation failed: ' + tail(completed.stderr))
-    return json.loads(completed.stdout)['domain_configs']
-
-
-def install_updater() -> dict[str, Any]:
-    stage_retained_package()
-    directory = mp.data_home() / "update"
-    for name in ("updater.py", "component_update.py", "native_update.py", "semver_range.py", "storage_lifecycle.py", "mindie_paths.py", "setup_process.py", "dsh_diagnostics.py"):
-        source = mp.PACKAGE_DIR / "scripts" / name
-        destination = directory / name
-        try:
-            if not (destination.is_file() and destination.read_bytes() == source.read_bytes()):
-                copy_private(source, destination)
-        except PermissionError:
-            if not destination.is_file():
-                raise
-    config = mp.config_home() / "update.json"
-    if not config.is_file():
-        write_private(config, {"enabled": True, "interval_minutes": 5})
-    else:
-        previous = json.loads(config.read_text(encoding='utf-8'))
-        if previous.get('interval_hours') == 6 and 'interval_minutes' not in previous:
-            previous.pop('interval_hours')
-            write_private(config, dict(previous, interval_minutes=5))
-    return {"script": str(directory / "updater.py"), "enabled": True, "interval_minutes": 5}
-
-
-def publish_binding(previous, adapter, engine, *, activate=True) -> dict:
-    path = Path(adapter['engine_config'])
-    if path.exists():
-        if json.loads(path.read_text(encoding='utf-8')) != engine:
-            raise SetupError('prepared engine path contains different immutable config')
-    else:
-        write_private(path, engine)
-    if not activate:
-        return dict(status='prepared')
-    outer = min(50, RUN_DEADLINE - time.monotonic()) if RUN_DEADLINE is not None else 50
-    if outer <= 5:
-        raise SetupError('setup has no remaining idle handoff and cleanup budget')
-    completed = run([str(runtime_python()), '-X', 'utf8', str(HERE / 'install_binding.py')],
-                    input_text=json.dumps(dict(path=str(mp.config_file()), previous=previous,
-                                               candidate=adapter, timeout=outer - 5)), timeout=outer)
-    if completed.returncode:
-        raise SetupError('runtime activation failed: ' + tail(completed.stderr))
-    result = json.loads(completed.stdout)
-    if result['status'] != 'active':
-        raise SetupError('runtime activation did not complete: ' + json.dumps(result, sort_keys=True))
-    return result
-
-
-def report_setup_failure(error: Exception, *, activation=None) -> None:
-    if activation is not None and activation.get("status") == "active":
-        print(json.dumps(dict(schema=SCHEMA, status="partial", activation=activation,
-                              error=str(error)), sort_keys=True))
-    if not runtime_python().is_file():
-        progress("diagnostic storage unavailable: runtime installation did not complete")
-        return
-    try:
-        facts = getattr(error, "mindie_component_failure", None)
-        detail_args = (["--category", "update", "--failure-json", json.dumps(facts, sort_keys=True)]
-                       if isinstance(facts, dict) else ["--category", type(error).__name__])
-        result = run([str(runtime_python()), "-X", "utf8", str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"),
-                      "record", "--operation", "setup", *detail_args], timeout=5)
-        progress("diagnostic: " + result.stdout.strip())
-        receipt = json.loads(result.stdout)
-        if isinstance(receipt, dict):
-            error.mindie_diagnostic = receipt
-    except TimeoutError:
-        raise
-    except (OSError, SetupError, ValueError) as exc:
-        progress("diagnostic storage unavailable: " + type(exc).__name__)
-
-
-def _read_json_dict(path: Path) -> tuple[dict[str, Any] | None, str]:
-    if not path.exists():
-        return None, "missing"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except TimeoutError:
-        raise
-    except (OSError, ValueError):
-        return None, "corrupt"
-    if not isinstance(data, dict):
-        return None, "corrupt"
-    return data, "valid"
-
-
-def sharing_status(config_home: Path | None = None) -> dict[str, Any]:
-    """Pure-stdlib fast path (< 50ms, read-only) for `setup.py sharing --status`."""
-    cfg_dir = (config_home or mp.config_home()).expanduser().resolve()
-    consent_data, consent_file_state = _read_json_dict(cfg_dir / "mindie-consent.json")
-    community_data, community_file_state = _read_json_dict(cfg_dir / "mindie-community.json")
-    diag_path = cfg_dir / "diagnostics.json" if config_home is not None else mp.diagnostics_config()
-    diag_data, _ = _read_json_dict(diag_path)
-
-    consent_choice: str | None = None
-    choice_revision: str | int | None = None
-    if consent_file_state == "missing":
-        consent_state = "unset"
-    elif consent_file_state != "valid" or consent_data is None:
-        consent_state = "corrupt"
-    else:
-        raw_choice = consent_data.get("choice")
-        rev = consent_data.get("choice_revision")
-        rev_ok = (
-            isinstance(rev, str)
-            and len(rev) == 32
-            and all(ch in "0123456789abcdef" for ch in rev)
-        ) or (isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1)
-        if raw_choice == "contribute" and rev_ok:
-            consent_choice = "contribute"
-            choice_revision = rev
-            consent_state = "contribute"
-        elif raw_choice == "contribute" and not rev_ok:
-            consent_choice = "contribute"
-            consent_state = "needs_choice"
-        elif raw_choice in {"disabled", "read-only", "later"}:
-            consent_choice = str(raw_choice)
-            choice_revision = rev if rev_ok else None
-            consent_state = str(raw_choice)
-        elif raw_choice is None:
-            consent_state = "unset"
-        else:
-            consent_state = "corrupt"
-
-    community_enabled = bool(community_data and community_data.get("enabled") is True)
-    reporting_enabled = bool(
-        diag_data
-        and (
-            diag_data.get("reporting") is True
-            or diag_data.get("enabled") is True
-            or diag_data.get("decision") == "enabled"
-        )
-    )
-    repository = (
-        str(community_data.get("repository"))
-        if isinstance(community_data, dict) and isinstance(community_data.get("repository"), str) and community_data.get("repository")
-        else FEED["repository"]
-    )
-    fork = (
-        str(community_data.get("fork"))
-        if isinstance(community_data, dict) and isinstance(community_data.get("fork"), str) and community_data.get("fork")
-        else None
-    )
-    account = (
-        str(community_data.get("account"))
-        if isinstance(community_data, dict) and isinstance(community_data.get("account"), str) and community_data.get("account")
-        else None
-    )
-    raw_roots = community_data.get("project_roots") if isinstance(community_data, dict) else None
-    project_roots = [str(item) for item in raw_roots if isinstance(item, str) and item] if isinstance(raw_roots, list) else []
-
-    repair_required = (
-        consent_state == "corrupt"
-        or community_file_state == "corrupt"
-        or (consent_choice == "contribute" and (not community_enabled or not fork or not project_roots))
-    )
-    sharing_enabled = bool(consent_choice == "contribute" and community_enabled and not repair_required)
-    needs_onboarding_prompt = bool(consent_state in {"unset", "needs_choice"} or repair_required)
-    return {
-        "schema": "mindie-sharing-status/1",
-        "harness": "dsh",
-        "consent_state": consent_state,
-        "consent_choice": consent_choice,
-        "choice_revision": choice_revision,
-        "sharing_enabled": sharing_enabled,
-        "community_enabled": community_enabled,
-        "reporting_enabled": reporting_enabled,
-        "repository": repository,
-        "fork": fork,
-        "account": account,
-        "project_roots": project_roots,
-        "needs_onboarding_prompt": needs_onboarding_prompt,
-        "repair_required": repair_required,
-    }
-
-
-def sharing_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="setup.py sharing", description="Inspect or configure MindIE community sharing and fault reporting.")
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--status", action="store_true", help="Print sharing and consent status JSON without side effects")
-    mode.add_argument("--enable", action="store_true", help="Enable public community sharing and fault reporting")
-    mode.add_argument("--disable", action="store_true", help="Disable public community sharing and fault reporting")
-    parser.add_argument("--config", type=Path, default=None, help="Optional config.json or config directory path")
-    parser.add_argument("--project-root", action="append", default=[], help="Workspace root allowed for capture (repeatable)")
-    parser.add_argument("--fork", default=None, help="Public GitHub fork owner/repo")
-    parser.add_argument("--account", default=None, help="Public GitHub account login")
-    parser.add_argument("--repository", default=FEED["repository"], help="Upstream community knowledge repository owner/repo")
-    parser.add_argument("--visibility", default="public", help="Repository visibility (must be public)")
-    return parser
-
-
-def _ensure_runtime_imports() -> None:
-    try:
-        import mindie_knowledge  # noqa: F401
-        return
-    except ModuleNotFoundError:
-        import site
-        for candidate in (mp.venv_dir(), mp.data_home() / "venv"):
-            for sp in Path(candidate).glob("lib*/python*/site-packages"):
-                site.addsitedir(str(sp))
-            win_sp = Path(candidate) / "Lib" / "site-packages"
-            if win_sp.is_dir():
-                site.addsitedir(str(win_sp))
-
-
-def run_sharing_cli(argv: list[str]) -> int:
-    args = sharing_parser().parse_args(argv)
-    prev_dsh_cfg_env = os.environ.get("MINDIE_DSH_CONFIG_HOME")
-    cfg_home: Path | None = None
-    if args.config is not None:
-        resolved_cfg = args.config.expanduser().resolve()
-        cfg_home = resolved_cfg.parent if resolved_cfg.suffix == ".json" else resolved_cfg
-        os.environ["MINDIE_DSH_CONFIG_HOME"] = str(cfg_home)
-    try:
-        if args.status:
-            print(json.dumps(sharing_status(cfg_home), ensure_ascii=False, indent=2))
-            return 0
-        _ensure_runtime_imports()
-        import mindie_sidecar
-
-        project_root = args.project_root[-1] if args.project_root else None
-        try:
-            if args.enable:
-                mindie_sidecar.cmd_sharing_enable(
-                    project_root=project_root,
-                    repository=args.repository,
-                    account=args.account,
-                    fork=args.fork,
-                    visibility=args.visibility,
-                )
-            else:
-                mindie_sidecar.cmd_sharing_disable(project_root=project_root)
-        except TimeoutError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps(sharing_status(cfg_home), ensure_ascii=False, indent=2))
-        return 0
-    finally:
-        if args.config is not None:
-            if prev_dsh_cfg_env is None:
-                os.environ.pop("MINDIE_DSH_CONFIG_HOME", None)
-            else:
-                os.environ["MINDIE_DSH_CONFIG_HOME"] = prev_dsh_cfg_env
-
-
+def _release(argv: list[str]) -> int:
+    from mindie_knowledge.releases import validate_compatibility, validate_release_metadata
+    parser = argparse.ArgumentParser(prog="setup.py release-metadata")
+    parser.add_argument("--source", type=Path, required=True); parser.add_argument("--revision", required=True); parser.add_argument("--tests", type=Path, default=None)
+    opts = parser.parse_args(argv)
+    source = opts.source.expanduser().resolve()
+    declaration = validate_compatibility(json.loads((source / "harness-compatibility.json").read_text(encoding="utf-8-sig")), harness_name=HARNESS)
+    problems = []
+    for entry in declaration["interface_registry"].values():
+        for raw in [*entry["code_paths"], *entry["test_ids"]]:
+            relative, _, symbol = raw.partition("::") if "::" in raw else raw.partition(":")
+            path = (source / relative).resolve()
+            if not path.is_file() or (symbol and path.suffix == ".py" and not _declares(path, symbol.split("."))): problems.append(raw)
+    if problems: raise SystemExit("unresolved release metadata targets: " + "; ".join(sorted(set(problems))))
+    return _emit(validate_release_metadata({"schema": "mindie-plugin-release/1", "version": VERSION,
+                                            "source": {"repository": REPOSITORY, "sha": opts.revision}, "compatibility": declaration},
+                                           repository=REPOSITORY, harness_name=HARNESS))
 def main(argv: list[str] | None = None) -> int:
-    global RUN_DEADLINE, INSTALL_RUNTIME_DIR
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if raw_argv and raw_argv[0] == "sharing":
-        return run_sharing_cli(raw_argv[1:])
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--python", default=None, help="interpreter to pass to uv sync (default 3.11)")
-    parser.add_argument("--dry-run", action="store_true", help="validate prerequisites and print the plan only")
-    parser.add_argument("--install-timeout", type=int, default=900, help="seconds allowed for uv sync")
-    parser.add_argument("--total-timeout", type=float, default=None,
-                        help="shared budget for all setup subprocesses")
-    parser.add_argument("--component-manifest", type=Path,
-                        help="verified independent component generation prepared by the updater")
-    parser.add_argument("--prepare-only", action="store_true",
-                        help="validate and prepare without publishing the native binding")
-    args = parser.parse_args(raw_argv)
-    RUN_DEADLINE = (time.monotonic() + args.total_timeout
-                    if args.total_timeout is not None else None)
-
-    os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(mp.diagnostics_config())
-    started = time.time()
-    publication = None
-    storage_gc: dict = {}
-    try:
-        check_host()
-        INSTALL_RUNTIME_DIR = mp.data_home() / 'runtimes' / runtime_identity() / 'venv'
-        if args.component_manifest:
-            from mindie_knowledge.component_runtime import source_baseline
-            from mindie_knowledge.component_releases import runtime_identity as effective_identity
-            from mindie_knowledge.runtime_inventory import verify, verify_lock
-            manifest = json.loads(args.component_manifest.read_text(encoding="utf-8"))
-            effective_identity(
-                source_baseline(mp.PACKAGE_DIR),
-                {k: v for k, v in manifest.items() if k != "generation_key"}
-                if isinstance(manifest, dict) else manifest,
-            )
-            INSTALL_RUNTIME_DIR = args.component_manifest.parent / 'runtime/.venv'
-            if not mp.same_path(sys.prefix, INSTALL_RUNTIME_DIR):
-                raise SetupError('component setup must run in its prepared interpreter')
-            verify_lock(manifest)
-            verify(manifest['runtime'])
-        paths = {
-            "package_dir": str(mp.PACKAGE_DIR),
-            "data_home": str(mp.data_home()),
-            "config_home": str(mp.config_home()),
-            "config_file": str(mp.config_file()),
-            "engine_config": str(prepared_engine_path()),
-            "state_dir": str(mp.state_dir()),
-            "venv_dir": str(runtime_dir()),
-            "venv_python": str(runtime_python()),
-        }
-        if args.dry_run:
-            print(
-                json.dumps(
-                    {
-                        "schema": SCHEMA, "status": "dry-run", "version": VERSION,
-                        "python": sys.version.split()[0], "uv": mp.which_native("uv"),
-                        "components": COMPONENTS, "paths": paths,
-                        "knowledge": {"status": "inactive"},
-                    },
-                    ensure_ascii=False, indent=2, sort_keys=True,
-                )
-            )
-            return 0
-
-        for d in (mp.data_home(), mp.config_home(), mp.state_dir()):
-            mp.ensure_private_dir(d)
-        if not args.component_manifest:
-            # The updater already swept before component_prepare; a second
-            # Pre-Build sweep here could reclaim the just-prepared artifact
-            # before its binding is published.
-            storage_gc["pre_build"] = storage_lifecycle.safe_sweep(stage="pre-build")
-        previous = json.loads(mp.config_file().read_text(encoding="utf-8")) if mp.config_file().is_file() else {}
-        probe = None
-        if args.component_manifest:
-            probe = probe_runtime()
-        if not args.component_manifest and mp.same_path(previous.get('venv_dir'), runtime_dir()):
-            try:
-                probe = probe_runtime()
-            except SetupError:
-                # A repair builds separately so existing processes keep their
-                # original imports until the complete replacement is ready.
-                INSTALL_RUNTIME_DIR = INSTALL_RUNTIME_DIR.parent.with_name(
-                    INSTALL_RUNTIME_DIR.parent.name + '-repair-' + uuid.uuid4().hex[:8]) / 'venv'
-        if probe is None:
-            sync_runtime(args.python, timeout=args.install_timeout)
-            probe = probe_runtime()
-        if prepare_bound_runtime():
-            probe = probe_runtime()
-        adapter = adapter_configuration()
-        adapter["components"] = probe["versions"]
-        redactor = install_redactor()
-        engine = engine_configuration(redactor)
-        adapter['engine_config'] = str(prepared_engine_path(engine))
-        adapter['domain'] = engine['domain']
-        adapter['domain_configs'] = prepare_domains(adapter, engine)
-        publication = publish_binding(previous, adapter, engine, activate=not args.prepare_only)
-        if args.prepare_only:
-            print(json.dumps(dict(status='prepared', components=probe['versions'], paths=paths)))
-            return 0
-        storage_gc["post_switch"] = storage_lifecycle.safe_sweep(stage="post-switch")
-        paths.update(engine_config=adapter['engine_config'], venv_dir=adapter['venv_dir'], venv_python=adapter['python'])
-        knowledge = {"status": "inactive"}
-        update = install_updater()
-        reporting_process = run(
-            [str(runtime_python()), "-X", "utf8", str(mp.PACKAGE_DIR / "scripts" / "dsh_diagnostics.py"), "activate"],
-            timeout=90,
-        )
-        if reporting_process.returncode:
-            raise SetupError("reporter activation failed: " + tail(reporting_process.stderr))
-        try:
-            reporting = json.loads(reporting_process.stdout)
-        except ValueError as exc:
-            raise SetupError("reporter activation did not return JSON") from exc
-        status = "ready"
-        if reporting.get("status") not in {"running", "disabled", "needs_choice"}:
-            status = "partial"
-        summary = {
-            "schema": SCHEMA, "status": status, "version": VERSION,
-            "package_dir": str(mp.PACKAGE_DIR), "python": probe.get("python"),
-            "sqlite": probe.get("sqlite"), "executable": probe.get("executable"),
-            "components": probe.get("versions"), "paths": paths,
-            "knowledge": knowledge, "update": update, "reporting": reporting, "activation": publication,
-            "storage_gc": storage_gc,
-            "contribution_notice": "One contribution choice controls public knowledge sharing and sanitized fault reports. Existing choices are preserved; legacy choices require explicit confirmation before reporting.",
-            "elapsed_seconds": round(time.time() - started, 2),
-            "next": (
-                "Enable the mindie-agent-dsh bundle in DSH (Plugins page or plugin_manager) "
-                "and open a new session; Ascend knowledge and remote-dev tools are ready by default."
-            ),
-        }
-        print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    except SetupError as exc:
-        progress("failed: " + str(exc))
-        report_setup_failure(exc, activation=publication)
-        if hasattr(exc, "mindie_component_failure"):
-            from component_update import failure_envelope
-            print(json.dumps(failure_envelope(exc), sort_keys=True))
-        return 1
-    except TimeoutError:
-        raise
-    except OSError as exc:
-        progress("failed: " + f"{type(exc).__name__}: {exc}")
-        report_setup_failure(exc, activation=publication)
-        return 1
-
-
+    args, config = list(sys.argv[1:] if argv is None else argv), None
+    while "--config" in args:
+        index = args.index("--config")
+        if index + 1 >= len(args): raise SystemExit("--config requires a path")
+        config, args = args[index + 1], args[:index] + args[index + 2:]
+    command = args[0] if args and args[0] in COMMANDS else "init"
+    rest = args[1:] if args and args[0] in COMMANDS else args
+    if command == "release-metadata": return _release(rest)
+    profile = _profile(config)
+    if command in {"init", "install"}: return _init(profile, rest)
+    return {"sharing": _sharing, "doctor": _doctor, "update": _update}[command](profile, rest)
 if __name__ == "__main__":
     raise SystemExit(main())

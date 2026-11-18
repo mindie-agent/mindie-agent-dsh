@@ -6,11 +6,12 @@
 #   @deepseek-ai/dsh-skill-filesystem  (the provider the standard preset uses)
 #   @deepseek-ai/dsh-mcp-client        (the shipped MCP stdio bridge)
 #
-# The knowledge tool surface is this package's own Host plugin; the published
-# mindie-knowledge runtime still owns capture, redaction and indexing. The rows
-# are Host rows, so the skill, native tools and per-session MCP clients are inherited by
-# every agent preset, including the shipped `standard` preset. Nothing here
-# shadows or rewrites the standard composition.
+# The two per-session MCP surfaces (`remote-dev` and `mindie-tools`) are spawned by
+# this package's `host.mjs` through `scripts/mindie_launch.py` and `mindie-harness`;
+# the published mindie-knowledge runtime still owns capture, redaction and indexing.
+# The rows are Host rows, so the skill, native tools and per-session MCP clients are
+# inherited by every agent preset, including the shipped `standard` preset. Nothing
+# here shadows or rewrites the standard composition.
 #
 # `baseUrl` is the profile context base URL, so createRequire resolves this
 # bundle from the profile's node_modules exactly as the shipped cordis preset
@@ -28,9 +29,8 @@
         customSkillDirs:
           - !!js process.getBuiltinModule('node:module').createRequire(baseUrl)('mindie-agent-dsh/paths.cjs').paths().skillsDir
 
-    # Native Host tool surface and the Stop handoff. The knowledge bridge is
-    # an ordinary Host plugin (this package's index.mjs); the published
-    # mindie-knowledge runtime still owns capture, redaction and indexing.
+    # Thin Host launcher: mounts `host3.mjs` and the two per-session MCP clients.
+    # The published mindie-knowledge runtime still owns capture and indexing.
     - id: mindie-agent-host
       name: ./host.mjs
       config:

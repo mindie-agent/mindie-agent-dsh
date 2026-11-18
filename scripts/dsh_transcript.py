@@ -1,36 +1,28 @@
-"""[Role] DSH v4 concatenated-zstd session-log public-transcript adapter for mindie-knowledge.
-[Invariants] Extracts only public user messages (source.kind == 'user') and assistant text blocks; preserves append-only byte-offset cursor monotonicity.
-[Timeouts & Locks] Decompression bounded at MAX_DECOMPRESSED_BYTES=32 MiB and scan budget max_seconds=2.0s.
+"""DSH v4 concatenated-zstd public-transcript adapter for mindie-knowledge.
+[Role] Extracts only public user messages (`source.kind == "user"`) and assistant text blocks from `session.v4.jsonl.zstd`.
+[Invariants] Excludes reasoning/tool blocks, preserves append-only byte-offset cursor monotonicity, FileIdentity semantics, and benchmarks/release.py compatibility.
+[Timeouts & Locks] Decompression is bounded at 32 MiB and the scan budget at 2.0s.
 [Side-Effect Policy] Strictly read-only; never mutates session logs or external state.
 """
-
 from __future__ import annotations
-
-import hashlib
-import io
-import json
-import os
-import sys
-import time
+import hashlib, io, json, os, time
 from dataclasses import dataclass
 from pathlib import Path
-
-HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-
-import mindie_paths as mp  # noqa: E402
-
 try:
     import zstandard
 except ImportError:  # pragma: no cover
     zstandard = None
-
 ANCHOR_BYTES = 512
 MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024
 PUBLIC_USER_KINDS = {"user"}
-
-
+def _strip_win_extended_prefix(path_str: str) -> str:
+    if os.name != "nt":
+        return path_str
+    if path_str.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + path_str[8:]
+    if path_str.startswith("\\\\?\\"):
+        return path_str[4:]
+    return path_str
 @dataclass(frozen=True)
 class FileIdentity:
     path: str
@@ -40,17 +32,15 @@ class FileIdentity:
     mtime_ns: int
     anchor_len: int = 0
     anchor_digest: str = ""
-
     @property
     def key(self) -> str:
         return f"{self.path}|{self.dev}:{self.ino}"
-
     def serialize(self) -> str:
         return json.dumps(
-            {"dev": self.dev, "ino": self.ino, "anchor_len": self.anchor_len, "anchor_digest": self.anchor_digest},
+            {"dev": self.dev, "ino": self.ino, "anchor_len": self.anchor_len,
+             "anchor_digest": self.anchor_digest},
             sort_keys=True, separators=(",", ":"),
         )
-
     @staticmethod
     def unserialize(text, path):
         try:
@@ -64,12 +54,12 @@ class FileIdentity:
                 or len(anchor_digest) != 64
             ):
                 return None
-            clean = mp.strip_win_extended_prefix(str(path))
+            clean = _strip_win_extended_prefix(str(path))
             if os.name != "nt" and len(clean) >= 3 and clean[1] == ":" and clean[2] in ("\\", "/"):
                 norm_path = clean
             else:
                 try:
-                    norm_path = mp.strip_win_extended_prefix(str(Path(clean).resolve()))
+                    norm_path = _strip_win_extended_prefix(str(Path(clean).resolve()))
                 except TimeoutError:
                     raise
                 except OSError:
@@ -77,14 +67,12 @@ class FileIdentity:
             return FileIdentity(norm_path, int(data["dev"]), int(data["ino"]), 0, 0, anchor_len, anchor_digest)
         except (ValueError, KeyError, TypeError):
             return None
-
-
 def identify(path) -> FileIdentity | None:
     try:
         with open(path, "rb") as stream:
             stat = os.fstat(stream.fileno())
             anchor = stream.read(ANCHOR_BYTES)
-        resolved = mp.strip_win_extended_prefix(str(Path(path).resolve()))
+        resolved = _strip_win_extended_prefix(str(Path(path).resolve()))
     except TimeoutError:
         raise
     except (OSError, ValueError):
@@ -93,25 +81,15 @@ def identify(path) -> FileIdentity | None:
         resolved, stat.st_dev, stat.st_ino,
         stat.st_size, stat.st_mtime_ns, len(anchor), hashlib.sha256(anchor).hexdigest(),
     )
-
-
 def _seconds(raw):
-    if type(raw) not in (int, float) or raw <= 0:
-        return None
+    if type(raw) not in (int, float) or raw <= 0: return None
     value = float(raw)
     return value / 1000.0 if value >= 1e12 else value
-
-
 def _session_in_path(path):
-    try:
-        resolved = Path(path).resolve()
-    except TimeoutError:
-        raise
-    except OSError:
-        return None
+    try: resolved = Path(path).resolve()
+    except TimeoutError: raise
+    except OSError: return None
     return (resolved.parent.name or None) if "sessions" in resolved.parts else None
-
-
 def _decompress(path):
     if zstandard is None:
         raise RuntimeError("zstandard is unavailable in the pinned runtime")
@@ -135,8 +113,6 @@ def _decompress(path):
                 break
             chunks.append(chunk)
     return b"".join(chunks), partial
-
-
 def _text_blocks(content):
     if not isinstance(content, list):
         return []
@@ -146,8 +122,6 @@ def _text_blocks(content):
         if isinstance(block, dict) and block.get("type") == "text"
         and isinstance(text := block.get("text"), str) and text.strip()
     ]
-
-
 def _records(raw, *, boundary):
     current_turn = None
     for raw_line in io.BytesIO(raw):
@@ -177,8 +151,6 @@ def _records(raw, *, boundary):
             texts = _text_blocks(message.get("content"))
             if texts and (boundary is None or (stamp is not None and stamp >= boundary)):
                 yield stamp, "assistant", "\n".join(texts), data.get("turn", current_turn)
-
-
 def read_material(
     path,
     start,
@@ -197,7 +169,6 @@ def read_material(
         raise ValueError("invalid scan budget")
     if scan_until is not None and (type(scan_until) is not int or scan_until < start):
         raise ValueError("scan_until must be an exact byte boundary at or after start")
-
     result = dict(
         status="ok", start=start, end=start, digest=hashlib.sha256(b"").hexdigest(),
         text="", records=0, skipped_records=0, oversize_records=0,
@@ -214,7 +185,7 @@ def read_material(
         result["snapshot_size"] = current.size
         if expected is not None:
             # Appending may grow a short initial anchor; compare only the bytes
-            # that belonged to the saved identity, as the other host adapters do.
+            # that belonged to the saved identity, as the other adapters do.
             with open(path, "rb") as stream:
                 same_prefix = hashlib.sha256(stream.read(expected.anchor_len)).hexdigest()
             if (
@@ -235,7 +206,6 @@ def read_material(
         elif session_id:
             result.update(status="unknown-format", coverage_note="task path identity unavailable")
             return result
-
         begun = time.monotonic()
         raw, partial = _decompress(path)
         result["partial"] = partial
@@ -253,7 +223,6 @@ def read_material(
             begin = len(full)
             full.extend(value)
             spans.append((begin, len(full)))
-
         if start > len(full):
             result.update(status="replaced", coverage_note="transcript truncated")
             return result
@@ -264,22 +233,20 @@ def read_material(
             return result
         effective_start = start
         begin_index = next((i for i, (begin, _f) in enumerate(spans) if begin == effective_start), None)
-        if begin_index is None and full[start : start + 2] == b"\n\n":
+        if begin_index is None and full[start:start + 2] == b"\n\n":
             effective_start = start + 2
             begin_index = next((i for i, (begin, _f) in enumerate(spans) if begin == effective_start), None)
         if begin_index is None:
             result.update(status="invalid-boundary", coverage_note="cursor is not a record boundary")
             return result
-
         selected = 0
         end = effective_start
         for index in range(begin_index, len(spans)):
             candidate = spans[index + 1][0] if index + 1 < len(spans) else len(full)
-            if selected:
-                if candidate - effective_start > max_text_bytes or candidate - effective_start > max_scan_bytes:
-                    break
-                if scan_until is not None and candidate > scan_until:
-                    break
+            if scan_until is not None and candidate > scan_until:
+                break
+            if selected and (candidate - effective_start > max_text_bytes or candidate - effective_start > max_scan_bytes):
+                break
             if time.monotonic() - begun >= max_seconds:
                 break
             selected += 1
@@ -288,8 +255,12 @@ def read_material(
             result.update(status="unchanged", end=start)
             return result
         slice_bytes = bytes(full[effective_start:end])
+        text_out = slice_bytes.decode("utf-8", "replace")
+        if len(slice_bytes) > max_text_bytes:
+            text_out = slice_bytes[:max_text_bytes].decode("utf-8", "ignore")
+            result["oversize_records"] += 1
         result.update(
-            end=end, text=slice_bytes.decode("utf-8", "replace"), records=selected,
+            end=end, text=text_out, records=selected,
             digest=hashlib.sha256(slice_bytes).hexdigest(), more=end < len(full),
             skipped_records=max(0, len(records) - selected),
         )
