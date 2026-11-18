@@ -81,7 +81,7 @@ test('windowless spawn options and Windows PATH normalization', () => {
 })
 
 test('canonical dsh.json wins over legacy and explicit configuration', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-paths-'))
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mindie-dsh-paths-')))
   const restore = isolate(root)
   try {
     delete process.env.MINDIE_DSH_CONFIG
