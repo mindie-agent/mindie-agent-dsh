@@ -1,4 +1,4 @@
-"""End-to-end pre-0.1.26 (`v0.1.25 -> v0.1.27`) DSH self-upgrade handoff tests."""
+"""End-to-end pre-0.1.26 (`v0.1.25 -> v0.1.28`) DSH self-upgrade handoff tests."""
 from __future__ import annotations
 
 import importlib.util
@@ -75,7 +75,7 @@ def test_v0125_setup_candidate_two_phase_handoff_and_legacy_migration(tmp_path: 
     assert prep.returncode == 0, prep.stderr
     prep_doc = json.loads(prep.stdout)
     assert prep_doc["status"] == "prepared"
-    assert prep_doc["version"] == "0.1.27"
+    assert prep_doc["version"] == "0.1.28"
     assert not canonical_cfg.exists()
     assert not (cfg_base / "mindie-community.json").exists()
 
@@ -88,7 +88,7 @@ def test_v0125_setup_candidate_two_phase_handoff_and_legacy_migration(tmp_path: 
     assert apply_proc.returncode == 0, apply_proc.stderr
     applied = json.loads(apply_proc.stdout)
     assert applied["status"] == "ready"
-    assert applied["version"] == "0.1.27"
+    assert applied["version"] == "0.1.28"
     assert applied["python"] == sys.executable
     saved = json.loads(canonical_cfg.read_text(encoding="utf-8"))
     assert saved["python"] == sys.executable
@@ -126,5 +126,5 @@ def test_same_interp_distinguishes_posix_venv_symlinks(tmp_path: Path) -> None:
 def test_package_json_files_include_legacy_updater_artifacts() -> None:
     pkg = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     files = set(pkg["files"])
-    for required in ("pyproject.toml", "uv.lock", "runtime-requirements.txt", "harness-compatibility.json", "assets/", "scripts/", "skills/"):
+    for required in ("pyproject.toml", "uv.lock", "runtime-requirements.txt", "product-contract.json", "harness-compatibility.json", "assets/", "scripts/", "skills/"):
         assert required in files, required

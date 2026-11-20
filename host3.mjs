@@ -1,6 +1,6 @@
 // MindIE Agent DSH generation fiber: summary bridge, idle update, capture.
 // [Role] Serve loopback `/summary`, schedule windowless idle updates, and hand consent-authorized `agent/turn-stopping` turns to `mindie_launch.py`.
-// [Invariants] Reject unknown schemas/route changes; check consent and project roots in pure Node before transcript lookup or spawn; subagents never capture.
+// [Invariants] Reject unknown schemas/route changes; check consent, project roots, and non-empty `turn` in pure Node before spawn; subagents never capture.
 // [Timeouts & Locks] Summary stream 300s, request body 512 KiB, unref'd update timers, no filesystem/SQLite locks.
 // [Side-Effect Policy] Only `ctx.llm.stream`, atomic `summary-endpoint.json`, and windowless update/capture launchers.
 import { spawn } from 'node:child_process'
@@ -11,7 +11,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import path from 'node:path'
 const require = createRequire(import.meta.url)
-const { paths: runtimePaths, configHome, backgroundSpawnOptions, buildChildEnv } = require('./paths.cjs')
+const { paths: runtimePaths, configHome, backgroundSpawnOptions, buildChildEnv, resolvePythonCommand } = require('./paths.cjs')
 const MAX_BODY = 512 * 1024
 const SUMMARY_TIMEOUT_MS = 300000
 export const name = 'mindie-agent-dsh'
@@ -73,7 +73,7 @@ export function createSummaryHandler({ summarize, token }) {
 }
 export function createSummaryServer({ summarize, token }) { return createServer(createSummaryHandler({ summarize, token })) }
 function readJson(file) {
-  try { const value = JSON.parse(readFileSync(file, 'utf8')); return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined } catch { return undefined }
+  try { const value = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined } catch { return undefined }
 }
 function atomicJson(file, value) {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
@@ -87,7 +87,6 @@ export function apply(ctx) {
   const endpointToken = randomBytes(32).toString('hex')
   const routes = new Map()
   let latestRoute, endpointUrl, server
-  const python = existsSync(p.venvPython) ? p.venvPython : (process.env.MINDIE_DSH_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'))
   const resolveRoute = (payload) => {
     const sessionId = payload?.session_id
     if (typeof sessionId === 'string' && routes.has(sessionId)) return routes.get(sessionId)
@@ -121,7 +120,9 @@ export function apply(ctx) {
     const agents = typeof ctx.agents?.list === 'function' ? ctx.agents.list() : []
     if (agents.some((agent) => agent?.status === 'running')) return
     try {
-      const child = spawn(python, ['-I', '-X', 'utf8', p.launchScript, '--config', p.configFile, 'update', '--background'], {
+      const current = runtimePaths()
+      const { command, args } = resolvePythonCommand(current, [current.launchScript, '--config', current.configFile, 'update', '--background'])
+      const child = spawn(command, args, {
         ...backgroundSpawnOptions(), windowsHide: true, stdio: 'ignore', env: buildChildEnv(process.env, {}),
       })
       child.on('error', () => {})
@@ -134,43 +135,60 @@ export function apply(ctx) {
   const canonical = (target) => { try { return realpathSync(target) } catch { return path.resolve(target) } }
   const normalize = (value) => process.platform === 'win32' ? value.toLowerCase() : value
   const inScope = (cwd, root) => {
-    const relative = path.relative(normalize(canonical(root)), normalize(canonical(cwd)))
+    const left = normalize(canonical(root)), right = normalize(canonical(cwd))
+    if (process.platform === 'win32' && path.parse(left).root !== path.parse(right).root) return false
+    const relative = path.relative(left, right)
     return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))
   }
-  const authorized = (cwd) => {
-    if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return false
-    const engine = readJson(p.engineConfig) || {}
+  const authorizedRoots = () => {
+    const current = runtimePaths()
+    const engine = readJson(current.engineConfig) || {}
     const community = readJson(typeof engine.community_config === 'string' ? engine.community_config : path.join(configHome(), 'mindie-community.json'))
-    if (!community || community.enabled !== true || !Array.isArray(community.project_roots) || !community.project_roots.length) return false
+    if (!community || community.enabled !== true || !Array.isArray(community.project_roots) || !community.project_roots.length) return []
     const consent = readJson(typeof community.consent_config === 'string' ? community.consent_config : path.join(configHome(), 'mindie-consent.json'))
-    if (!consent || (consent.choice !== 'contribute' && consent.choice !== 'local-only')) return false
+    if (!consent || (consent.choice !== 'contribute' && consent.choice !== 'local-only')) return []
     const roots = community.project_roots.filter((root) => typeof root === 'string' && path.isAbsolute(root))
-    return roots.length === community.project_roots.length && roots.some((root) => inScope(cwd, root))
+    return roots.length === community.project_roots.length ? roots : []
   }
-  const findTranscript = (sessionId) => {
+  const findTranscript = (sessionId, cwd, roots) => {
     if (!sessionId || sessionId === '.' || sessionId === '..' || /[/\\]/.test(sessionId)) return undefined
     const root = path.join(process.env.DSH_HOME || path.join(homedir(), '.dsh'), 'sessions')
+    const encodedCwd = normalize(canonical(cwd)).replace(/[^a-zA-Z0-9]+/g, '-')
+    let fallback
     try {
       for (const entry of readdirSync(root, { withFileTypes: true })) {
-        const candidate = path.join(root, entry.name, sessionId, 'session.v4.jsonl.zstd')
-        if (entry.isDirectory() && existsSync(candidate)) return candidate
+        if (!entry.isDirectory()) continue
+        const dir = path.join(root, entry.name, sessionId)
+        const candidate = path.join(dir, 'session.v4.jsonl.zstd')
+        if (!existsSync(candidate)) continue
+        const meta = readJson(path.join(dir, 'header.json')) || readJson(path.join(dir, 'session.json'))
+        if (meta && typeof meta.cwd === 'string' && path.isAbsolute(meta.cwd) && !roots.some((r) => inScope(meta.cwd, r))) continue
+        if (meta && typeof meta.cwd === 'string' && normalize(canonical(meta.cwd)) === normalize(canonical(cwd))) return candidate
+        if (encodedCwd && entry.name.toLowerCase().includes(encodedCwd.replace(/^-+|-+$/g, '').toLowerCase())) return candidate
+        if (!fallback) fallback = candidate
       }
     } catch {}
-    return undefined
+    return fallback
   }
   const spawnCapture = (session, turn) => {
     const cwd = session?.header?.cwd
     if (!session || typeof session.id !== 'string' || Number(session.header?.delegationDepth || 0) > 0) return
-    if (!authorized(cwd)) return
-    const transcript = findTranscript(session.id)
+    if (turn === undefined || turn === null || String(turn).trim() === '') return
+    const turnId = String(turn).trim()
+    if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return
+    const roots = authorizedRoots()
+    if (!roots.some((root) => inScope(cwd, root))) return
+    const transcript = findTranscript(session.id, cwd, roots)
     if (!transcript) return
     try {
-      const child = spawn(python, ['-I', '-X', 'utf8', p.launchScript, '--config', p.configFile, 'hook', 'stop'], {
+      const current = runtimePaths()
+      const { command, args } = resolvePythonCommand(current, [current.launchScript, '--config', current.configFile, 'hook', 'stop'])
+      const child = spawn(command, args, {
         ...backgroundSpawnOptions(), windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'],
-        env: buildChildEnv(process.env, { MINDIE_DSH_CONFIG: p.configFile, MINDIE_DSH_STATE_DIR: p.stateDir }),
+        env: buildChildEnv(process.env, { MINDIE_DSH_CONFIG: current.configFile, MINDIE_DSH_STATE_DIR: current.stateDir }),
       })
       child.on('error', () => {}); child.stdin.on('error', () => {})
-      child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', identity_kind: 'turn', session_id: session.id, turn_id: String(turn), transcript_path: transcript, harness: 'dsh', cwd }) + '\n')
+      child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', identity_kind: 'turn', session_id: session.id, turn_id: turnId, transcript_path: transcript, harness: 'dsh', cwd }) + '\n')
       child.unref()
     } catch {}
   }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """[Role] Pure-stdlib cold-start launcher for DSH: verify the bundled seed, fast-path passive hooks, and delegate MCP/summary/capture/setup to the active runtime.
-[Invariants] No third-party or SQLite work on passive hooks; `Stop` requires an enabled community tier and an in-scope absolute project root; seed verification is streaming SHA-256 plus size; a configured Python is preferred.
-[Timeouts & Locks] At most one bounded 1 MiB stdin read on `Stop`; no local locks; capture hands off with a 6.0s shared budget.
-[Side-Effect Policy] Writes `{}`, the atomic pending-update marker, one seed/runtime child, and the runtime's own consent-gated capture state.
+[Invariants] No third-party or SQLite work on passive hooks; `Stop` verifies in-scope workspace + native transcript `cwd`; cold seed provisioning never writes to live MCP `stdout`; WindowsApps stubs are rejected.
+[Timeouts & Locks] At most one bounded 1 MiB stdin read on `Stop`; no local locks; capture hands off to `mindie_harness` with a 6.0s shared budget.
+[Side-Effect Policy] Writes `{}`, the atomic pending-update marker, one windowless seed/runtime child, and runtime-owned consent-gated capture state.
 """
 from __future__ import annotations
 import hashlib, json, os, subprocess, sys, time
@@ -20,6 +20,12 @@ def _read_json(path: Path) -> dict | None:
     except TimeoutError: raise
     except (OSError, ValueError): return None
     return value if isinstance(value, dict) else None
+def _is_win_store_stub(cand: Path) -> bool:
+    if os.name != "nt": return False
+    if "\\microsoft\\windowsapps\\" in str(cand).replace("/", "\\").lower(): return True
+    try: return cand.stat().st_size == 0
+    except TimeoutError: raise
+    except OSError: return True
 def _cfg_home() -> Path:
     if value := os.environ.get("MINDIE_CONFIG_HOME"): return Path(value)
     return (Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming") if os.name == "nt" else Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")) / "mindie-agent"
@@ -52,27 +58,31 @@ def _engine_path(cfg_path: Path, cfg: dict | None) -> Path:
 def _stop_roots(cfg_path: Path) -> list[str]:
     cfg = _read_json(cfg_path) or {}
     engine = _read_json(_engine_path(cfg_path, cfg)) or {}
-    community = _read_json(Path(engine["community_config"]) if isinstance(engine.get("community_config"), str) and engine["community_config"] else cfg_path.parent / "mindie-community.json")
+    comm_raw = engine.get("community_config") or cfg.get("community_config")
+    community = _read_json(Path(comm_raw) if isinstance(comm_raw, str) and comm_raw else cfg_path.parent / "mindie-community.json")
     if not isinstance(community, dict) or community.get("enabled") is not True: return []
-    consent = _read_json(Path(community["consent_config"]) if isinstance(community.get("consent_config"), str) and community["consent_config"] else cfg_path.parent / "mindie-consent.json")
+    cons_raw = community.get("consent_config") or cfg.get("consent_config")
+    consent = _read_json(Path(cons_raw) if isinstance(cons_raw, str) and cons_raw else cfg_path.parent / "mindie-consent.json")
     if not isinstance(consent, dict) or consent.get("choice") not in {"contribute", "local-only"}: return []
     raw_roots = community.get("project_roots")
     if not isinstance(raw_roots, list) or not raw_roots: return []
     roots = [os.path.normcase(os.path.realpath(item)) for item in raw_roots if isinstance(item, str) and os.path.isabs(item)]
     return roots if len(roots) == len(raw_roots) else []
+def _match_root(value: object, roots: list[str]) -> str | None:
+    if not isinstance(value, str) or not os.path.isabs(value): return None
+    target = os.path.normcase(os.path.realpath(value))
+    for root in roots:
+        try:
+            if os.path.splitdrive(target)[0] == os.path.splitdrive(root)[0] and os.path.commonpath([target, root]) == root: return root
+        except ValueError: continue
+    return None
 def _stop_event(raw: bytes, roots: list[str]) -> dict | None:
     if not 0 < len(raw) <= MAX_STDIN or not raw.strip(): return None
     try: event = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError): return None
     if not isinstance(event, dict): return None
     for key in ("cwd", "workspace_root"):
-        value = event.get(key)
-        if not isinstance(value, str) or not os.path.isabs(value): continue
-        target = os.path.normcase(os.path.realpath(value))
-        for root in roots:
-            try:
-                if os.path.commonpath([target, root]) == root: return event
-            except ValueError: continue
+        if _match_root(event.get(key), roots) is not None: return event
     return None
 def _quiet() -> int:
     sys.stdout.buffer.write(b"{}\n"); sys.stdout.buffer.flush(); return 0
@@ -84,17 +94,20 @@ def _pending() -> None:
     finally: temporary.unlink(missing_ok=True)
 def _norm(path: Path) -> Path: return path.parent.resolve() / path.name
 def _active_python(cfg_path: Path) -> Path | None:
-    value = (_read_json(cfg_path) or {}).get("python")
-    return Path(value).expanduser() if isinstance(value, str) and value and Path(value).expanduser().is_file() else None
+    for raw in ((_read_json(cfg_path) or {}).get("python"), os.environ.get("MINDIE_DSH_PYTHON")):
+        if isinstance(raw, str) and raw.strip():
+            cand = Path(raw.strip()).expanduser()
+            if cand.is_file() and not _is_win_store_stub(cand): return cand
+    return None
 def _has_runtime() -> bool:
-    try: import mindie_harness  # noqa: F401
-    except ImportError: return False
-    return True
+    import importlib.util
+    return importlib.util.find_spec("mindie_harness") is not None
 def _exec_launcher(python: Path, cfg_path: Path, argv: list[str], raw: bytes | None) -> int:
     command = [str(python), "-I", "-X", "utf8", str(HERE / "mindie_launch.py"), "--config", str(cfg_path), *argv]
     if raw is None and os.name != "nt": os.execv(str(python), command)
     if raw is not None: return subprocess.run(command, input=raw, creationflags=CREATE_NO_WINDOW).returncode
     try: sys.stdin.fileno(); sys.stdout.fileno(); sys.stderr.fileno(); io_kw = {"stdin": sys.stdin, "stdout": sys.stdout, "stderr": sys.stderr}
+    except TimeoutError: raise
     except Exception: io_kw = {}
     return subprocess.run(command, **io_kw, creationflags=CREATE_NO_WINDOW).returncode
 def _bootstrap(argv: list[str], cfg_path: Path, event: dict | None = None, raw: bytes | None = None) -> int:
@@ -103,87 +116,35 @@ def _bootstrap(argv: list[str], cfg_path: Path, event: dict | None = None, raw: 
     if _has_runtime(): return _run_in_runtime(argv, cfg_path, event)
     seed = PLUGIN_ROOT / "assets" / "mindie-harness-seed.pyz"
     _verify_seed(seed, PLUGIN_ROOT / "assets" / "seed-lock.json")
-    # Provision without rest arguments so an authorized Stop payload is not consumed by the seed's passive gate.
-    boot = subprocess.run([sys.executable, "-I", "-X", "utf8", str(seed), "--host", HOST, "--plugin-root", str(PLUGIN_ROOT), "--config", str(cfg_path), "--cli-module", "mindie_harness.cli"], creationflags=CREATE_NO_WINDOW)
-    if boot.returncode: return boot.returncode
+    # Isolate seed stdin/stdout so `{"status": "provisioned", ...}` never corrupts byte 0 of MCP JSON-RPC.
+    boot = subprocess.run(
+        [sys.executable, "-I", "-X", "utf8", str(seed), "--host", HOST, "--plugin-root", str(PLUGIN_ROOT), "--config", str(cfg_path), "--cli-module", "mindie_harness.cli"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW,
+    )
+    if boot.returncode:
+        if boot.stderr: sys.stderr.buffer.write(boot.stderr); sys.stderr.buffer.flush()
+        return boot.returncode
     python = _active_python(cfg_path)
     if python is not None and _norm(python) != _norm(Path(sys.executable)): return _exec_launcher(python, cfg_path, argv, raw)
     if _has_runtime(): return _run_in_runtime(argv, cfg_path, event)
     sys.stderr.write("MindIE runtime provisioning did not yield an active interpreter\n"); return 1
 def _dsh_adapter(**kwargs):
     from mindie_harness.mcp.gateway import ManagedMCPAdapter
-    class DSHManagedAdapter(ManagedMCPAdapter):
-        def dispatch_tool(self, ctx, arguments, profile):
-            from mindie_harness.mcp.knowledge_rpc import KNOWLEDGE_NAMES
-            result = super().dispatch_tool(ctx, arguments, profile)
-            structured = result.get("structuredContent") if isinstance(result, dict) else None
-            if ctx.tool_name not in KNOWLEDGE_NAMES or not isinstance(structured, dict) or structured.get("reason") != "knowledge_unavailable": return result
-            return _knowledge_fallback(ctx, arguments, profile)
-    return DSHManagedAdapter("dsh", **kwargs)
-def _knowledge_fallback(ctx, arguments: dict, profile) -> dict:
-    import sqlite3
-    from mindie_harness.mcp.gateway_dispatch import mcp_result
-    from mindie_knowledge.graded.distill import result_view
-    from mindie_knowledge.loop.activation import Admission
-    from mindie_knowledge.loop.cli import distill_selected, ensure_service
-    from mindie_knowledge.loop.transport import rpc
-    cfg = _read_json(profile.config_path) or {}
-    domains = cfg.get("domain_configs") if isinstance(cfg.get("domain_configs"), dict) else {}
-    req_domain = arguments.get("domain") if isinstance(arguments, dict) else None
-    engine = Path(domains[req_domain]) if isinstance(req_domain, str) and isinstance(domains.get(req_domain), str) else _engine_path(profile.config_path, cfg)
-    body = {key: value for key, value in (arguments or {}).items() if key != "domain"}
-    session, method = ctx.session_id, ctx.tool_name.removeprefix("knowledge_")
-    admission = token = None
-    if method in {"feedback", "distill"}:
-        admission = Admission((_read_json(engine) or {}).get("admission_path") or profile.admission_db)
-        state = admission.inspect(session)
-        if state.get("status") == "inactive": return mcp_result("MindIE knowledge is deactivated for this session.", is_error=True, structured={"reason": "knowledge_inactive"})
-        lease = state if state.get("status") == "active" else admission.activate(session, project_root=str(ctx.cwd or Path.cwd()), root_session=session, not_before=0.0)
-        token = lease.get("token")
-    result, succeeded = None, False
-    try:
-        if method == "distill":
-            payload = {"inputs": body.get("inputs"), "task_state": body.get("task_state"), "_session_id": session, "_activation": token}
-            payload.update({key: body[key] for key in ("related_refs", "proposal", "topic", "target_signature") if key in body})
-            view, is_error = result_view(distill_selected(str(engine), payload))
-            result = mcp_result(json.dumps(view, ensure_ascii=False, sort_keys=True, default=str), is_error=is_error, structured=view)
-            succeeded = not is_error
-            return result
-        raw = rpc(ensure_service(str(engine)), method, dict(body, _session_id=session, _session_verified=True), timeout=110.0 if method == "sync" else 35.0)
-        view = {"status": "ok", "feeds": raw} if method == "sync" and isinstance(raw, list) else raw
-        result = mcp_result(json.dumps(view, ensure_ascii=False, sort_keys=True, default=str), is_error=False, structured=view if isinstance(view, dict) else {"result": view})
-        succeeded = True
-        return result
-    finally:
-        pending = sys.exc_info()[1]
-        if admission is not None and token and not isinstance(pending, (TimeoutError, ConnectionError)):
-            try: admission.finish(session, token, succeeded)
-            except (TimeoutError, Exception) as exc:
-                if result is not None and not result.get("isError"):
-                    structured = dict(result.get("structuredContent") or {})
-                    structured.update(receipt_warning=f"{type(exc).__name__}: {exc}", receipt_unconfirmed=True)
-                    result["structuredContent"] = structured
-                    result["content"] = [{"type": "text", "text": json.dumps(structured, ensure_ascii=False, sort_keys=True, default=str)}]
+    return ManagedMCPAdapter("dsh", **kwargs)
 def _stop_runtime(profile, event: dict) -> int:
-    from mindie_harness.sharing import sharing_status
-    from mindie_knowledge import state_layout
-    from mindie_knowledge.loop.activation import Admission
-    from mindie_knowledge.loop.cli import capture_hook
-    from mindie_knowledge.loop.handoff import prepare_schema
-    cwd, session = event.get("cwd"), event.get("session_id")
-    if not isinstance(cwd, str) or not os.path.isabs(cwd) or not isinstance(session, str) or not session: return _quiet()
-    status = sharing_status(profile, cwd=cwd)
-    if status.get("tier") not in {"contribute", "local-only"} or not status.get("cwd_in_scope"): return _quiet()
-    cfg = _read_json(profile.config_path) or {}
-    engine = _engine_path(profile.config_path, cfg)
-    engine_doc = _read_json(engine) or {}
-    admission = Admission(engine_doc.get("admission_path") or profile.admission_db)
-    if admission.inspect(session).get("status") == "inactive": return _quiet()
-    lease = admission.activate(session, project_root=cwd, root_session=session, not_before=0.0)
-    event = {**event, "cwd": cwd, "mindie_activation": lease["token"]}
-    root, domain = engine_doc.get("root"), engine_doc.get("domain")
-    if isinstance(root, str) and root and isinstance(domain, str) and domain and not (state_layout.state_root(root, domain) / state_layout.DATABASE).is_file(): prepare_schema(str(engine))
-    capture_hook(str(engine), event, timeout=6.0)
+    from mindie_harness.runtime.knowledge_binding import run_stop_capture
+    tp, sid, cwd = event.get("transcript_path"), event.get("session_id"), event.get("cwd")
+    if isinstance(tp, str) and tp and isinstance(sid, str) and sid and Path(tp).is_file():
+        import dsh_transcript
+        if dsh_transcript._is_zstd_path(tp) and Path(tp).stat().st_size > 0:
+            root = _match_root(cwd, _stop_roots(profile.config_path))
+            if root is None: return _quiet()
+            try:
+                src = dsh_transcript.capture_source(tp, sid, binding={"session": sid, "enabled": 1, "project_root": root, "activated_at": 0.0})
+            except TimeoutError: raise
+            except (OSError, ValueError, RuntimeError): return _quiet()
+            event = {**event, "transcript_path": src["transcript_path"]}
+    run_stop_capture(profile, event, plugin_root=PLUGIN_ROOT, timeout_sec=6.0)
     return _quiet()
 def _endpoint() -> dict | None:
     value = _read_json(_state_dir() / "summary-endpoint.json")
@@ -272,13 +233,17 @@ def _summary(profile, identity_only: bool) -> int:
     return emit(request, status="returned", result=result, raw_result=text, usage=usage, usage_known=usage is not None, model_calls=1)
 def _run_in_runtime(argv: list[str], cfg_path: Path, event: dict | None = None) -> int:
     from mindie_harness.api import serve_mcp
-    from mindie_harness.mcp.gateway import ManagedMCPAdapter, rebind_native_plugin_if_needed  # noqa: F401
+    from mindie_harness.mcp.gateway import rebind_native_plugin_if_needed
     from mindie_harness.paths import ProfileRef
+    from mindie_harness.runtime.knowledge_binding import ensure_knowledge_binding
     profile = ProfileRef.resolve(HOST, plugin_root=PLUGIN_ROOT, config_path=cfg_path)
     os.environ.setdefault("REMOTE_DEV_STATE_DIR", str(profile.state_dir / "remote"))
     os.environ.setdefault("REMOTE_DEV_HARNESS_PROFILE", HOST)
     rebind_native_plugin_if_needed(profile, native_version=VERSION, runtime_scripts=HERE)
-    if argv[:1] == ["mcp"]: return serve_mcp(argv[1] if len(argv) > 1 else "all", profile=profile, adapter=_dsh_adapter(plugin_root=PLUGIN_ROOT, config_path=cfg_path), managed=True)
+    if argv[:1] == ["mcp"]:
+        if not (_read_json(cfg_path) or {}).get("engine_config"):
+            ensure_knowledge_binding(profile, plugin_root=PLUGIN_ROOT, python_executable=sys.executable)
+        return serve_mcp(argv[1] if len(argv) > 1 else "all", profile=profile, adapter=_dsh_adapter(plugin_root=PLUGIN_ROOT, config_path=cfg_path), managed=True)
     if argv[:2] == ["hook", "stop"]: return _stop_runtime(profile, event or {})
     if argv[:1] == ["summary"]: return _summary(profile, "--identity" in argv)
     command = ["init", *argv[1:]] if argv[:1] == ["setup"] else argv

@@ -1,17 +1,18 @@
 'use strict'
 // [Role] Resolve MindIE-owned DSH config, data, state, runtime, launch, and
 // setup paths and provide the shared windowless spawn/environment boundary.
-// [Invariants] Canonical `dsh.json` wins over legacy `dsh/config.json` exactly
-// as `mindie_launch.py` and `mindie_harness.ProfileRef` resolve it; config file
-// overrides must be absolute paths.
-// [Timeouts & Locks] Synchronous local environment/config reads only; no locks,
-// child processes, or network I/O.
+// [Invariants] Canonical `dsh.json` wins over legacy `dsh/config.json`; UTF-8
+// BOM is stripped before JSON parsing; `WindowsApps` / 0-byte Python stubs are
+// rejected across `dsh.json`, `MINDIE_DSH_PYTHON`, and `PATH` (`win32` never
+// falls back to bare `'python'`).
+// [Timeouts & Locks] Synchronous local reads only; no locks, spawns, or network.
 // [Side-Effect Policy] Read-only resolution; never creates or mutates files.
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const PACKAGE_DIR = resolveCanonical(__dirname), APP = 'mindie-agent'
 function env(name) { const value = process.env[name]; return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined }
+function parseJson(raw) { return JSON.parse(String(raw).replace(/^\uFEFF/, '')) }
 function expandHome(raw) { return raw === '~' ? os.homedir() : raw.startsWith('~/') || raw.startsWith('~\\') ? path.join(os.homedir(), raw.slice(2)) : raw }
 function stripExtendedPrefix(raw) {
   if (process.platform !== 'win32') return raw
@@ -56,11 +57,9 @@ function dataHome() {
   return path.join(resolveCanonical(base), APP)
 }
 function paths() {
-  const configFile = resolveConfigFile()
-  const data = dataHome()
-  const config = path.dirname(configFile)
+  const configFile = resolveConfigFile(), data = dataHome(), config = path.dirname(configFile)
   let installed = {}
-  try { installed = JSON.parse(fs.readFileSync(configFile, 'utf8')) }
+  try { installed = parseJson(fs.readFileSync(configFile, 'utf8')) }
   catch (error) { if (error.code !== 'ENOENT') throw error }
   if (!installed || typeof installed !== 'object' || Array.isArray(installed)) throw new Error('DSH adapter configuration must be a JSON object')
   const selected = (name, fallback) => {
@@ -101,4 +100,49 @@ function buildChildEnv(baseEnv = process.env, overrides = {}, platform = process
   if (merged.PYTHONIOENCODING === undefined) merged.PYTHONIOENCODING = 'utf-8'
   return merged
 }
-module.exports = { paths, seedPaths, dataHome, configHome, backgroundSpawnOptions, buildChildEnv }
+function isWinStoreStub(candidate, platform = process.platform, stat = undefined) {
+  if (platform !== 'win32') return false
+  if (String(candidate).replace(/\//g, '\\').toLowerCase().includes('\\microsoft\\windowsapps\\')) return true
+  try { return (stat || fs.statSync(candidate)).size === 0 } catch { return true }
+}
+function findExecutableOnPath(names, envObj = process.env, platform = process.platform) {
+  const rawPath = buildChildEnv(envObj, {}, platform).PATH || ''
+  const sep = platform === 'win32' ? ';' : ':'
+  for (const entry of rawPath.split(sep)) {
+    const dir = entry.trim().replace(/^"+|"+$/g, '')
+    if (!dir) continue
+    for (const name of names) {
+      const candidate = path.join(dir, name)
+      try {
+        const stat = fs.statSync(candidate)
+        if (stat.isFile() && !isWinStoreStub(candidate, platform, stat)) return candidate
+      } catch {}
+    }
+  }
+  return undefined
+}
+function resolveExplicitPython(raw, envObj, platform) {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  const trimmed = expandHome(raw.trim())
+  if (platform !== 'win32') return (path.isAbsolute(trimmed) || trimmed.includes('/')) ? (fs.existsSync(trimmed) ? trimmed : undefined) : trimmed
+  if (path.isAbsolute(trimmed) || trimmed.includes('\\') || trimmed.includes('/')) {
+    try { const st = fs.statSync(trimmed); return st.isFile() && !isWinStoreStub(trimmed, 'win32', st) ? trimmed : undefined } catch { return undefined }
+  }
+  const names = trimmed.toLowerCase().endsWith('.exe') ? [trimmed] : [`${trimmed}.exe`, trimmed]
+  return findExecutableOnPath(names, envObj, 'win32')
+}
+function resolvePythonCommand(binding, scriptArgs = [], envObj = process.env, platform = process.platform) {
+  const venvPy = binding?.venvPython
+  if (typeof venvPy === 'string' && venvPy && fs.existsSync(venvPy) && !isWinStoreStub(venvPy, platform)) {
+    return { command: venvPy, args: ['-I', '-X', 'utf8', ...scriptArgs] }
+  }
+  const explicit = resolveExplicitPython(envObj?.MINDIE_DSH_PYTHON, envObj, platform)
+  if (explicit) return { command: explicit, args: ['-I', '-X', 'utf8', ...scriptArgs] }
+  const uvExe = findExecutableOnPath(platform === 'win32' ? ['uv.exe'] : ['uv'], envObj, platform)
+  if (uvExe) return { command: uvExe, args: ['run', '--no-project', '--python', '>=3.11,<3.15', 'python', '-B', '-X', 'utf8', ...scriptArgs] }
+  const pyExe = findExecutableOnPath(platform === 'win32' ? ['python.exe', 'python3.exe'] : ['python3', 'python'], envObj, platform)
+  if (pyExe) return { command: pyExe, args: ['-I', '-X', 'utf8', ...scriptArgs] }
+  if (platform === 'win32') throw new Error('No valid Python >=3.11 or uv launcher found on Windows PATH (WindowsApps stubs excluded)')
+  return { command: 'python3', args: ['-I', '-X', 'utf8', ...scriptArgs] }
+}
+module.exports = { paths, seedPaths, dataHome, configHome, backgroundSpawnOptions, buildChildEnv, isWinStoreStub, resolvePythonCommand }

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.27-0F766E.svg" alt="Release v0.1.27"></a>
+  <a href="https://github.com/mindie-agent/mindie-agent-dsh/releases"><img src="https://img.shields.io/badge/release-v0.1.28-0F766E.svg" alt="Release v0.1.28"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F766E.svg" alt="License: MIT"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2_%3C1.0.0-7045F5.svg" alt="DSH >=0.2.0-rc.2 <1.0.0"></a>
   <a href="harness-compatibility.json"><img src="https://img.shields.io/badge/stable--only-plugins-2563EB.svg" alt="Stable plugins only"></a>
@@ -27,11 +27,11 @@
 
 ---
 
-**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.27` (paired with `mindie-agent 0.1.17`).
+**MindIE Agent for DeepSeek Harness** (`mindie-agent-dsh`) is the native DeepSeek Harness (DSH) adapter for [MindIE Agent](https://github.com/mindie-agent/mindie-agent), release `0.1.28` (paired with `mindie-agent 0.1.18`; see the [`v0.1.28` release notes](docs/releases/mindie-agent-dsh-0.1.28.en.md)).
 
-`0.1.27` completes the **Great Subtraction**: `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while the Host boundary retains only `paths.cjs`, `host.mjs`, and `host3.mjs`. MCP routing, runtime preparation, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold start still uses the bundled `assets/mindie-harness-seed.pyz`.
+`0.1.28` preserves the **Great Subtraction** thin-host boundary: `scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`, while the Host boundary retains only `paths.cjs`, `host.mjs`, and `host3.mjs` (`1,466` total lines within the `<= 1,500` ceiling, zero `_knowledge_fallback` shadow shims). All 9 runtime packages (adding `npu-top 0.3.5` and compatible with `mindie-harness >= 0.1.5`) are pinned across [`pyproject.toml`](pyproject.toml), [`runtime-requirements.txt`](runtime-requirements.txt), and [`product-contract.json`](product-contract.json). MCP routing, 9-domain content-addressed bindings, sharing/update, locking, and storage GC delegate to `mindie-harness` (`API_VERSION = 1`); cold-seed bootstrap (`assets/mindie-harness-seed.pyz`) isolates `stdin=DEVNULL` and `stdout=DEVNULL` so byte 0 of MCP JSON-RPC `stdout` stays pure.
 
-- **Default-on Ascend capabilities** — `remote-dev` exposes 14 native `dsh` remote tools; `mindie-tools` exposes deterministic component tools, read-only `mindie_doctor`, and the 5 `knowledge_*` tools for L1–L4 graded retrieval, remote NPU development, profiling, Roofline simulation, and fault triage.
+- **Default-on Ascend capabilities** — `remote-dev` exposes 14 native `dsh` remote tools; `mindie-tools` exposes 11 deterministic component/status tools (including `npu_top`, read-only `mindie_doctor`, `rsi_loop`, and `experiment_ledger`) plus the 5 `knowledge_*` tools for 9-domain `L1–L4` graded retrieval, remote NPU development, profiling, Roofline simulation, and fault triage.
 - **One-command install** — `uv run https://github.com/mindie-agent/mindie-agent/releases/latest/download/install.py --host dsh` warms the runtime and configures the plugin. `gh` only gates the optional `contribute` tier; it never blocks `local-only` or `read-only`.
 - **Non-blocking task continuity** — MindIE tools are accelerators, never roadblocks. If a tool fails, report the concrete error once (reconciling uncertain remote writes first), then continue immediately with native `ssh`/`scp` or local scripts.
 
@@ -90,9 +90,9 @@ Defaults: data `<XDG_DATA_HOME>/mindie-agent` (state `<data>/state/dsh`), config
 | Ascend knowledge, experience, and troubleshooting | **Default-on** | Describe the task in natural language; the agent calls `knowledge_query` / `knowledge_explain` / `knowledge_distill` / `knowledge_feedback`. Historical knowledge is reference only; current-environment evidence wins |
 | Remote Ascend hosts / containers | **Default-on** | `mcp__remote-dev__remote_*` exposes 14 `dsh` tools for files, commands, jobs, artifact transfer, SSH auth, and probing |
 | Read-only health check | **Default-on** | `mcp__mindie-tools__mindie_doctor` checks runtime, config, permissions, and remote reachability; a failure reports one concrete error |
-| Profiling, simulation, leases, and diagnostics | **Default-on** | `mindie_status`, `diagnostics_status`, `diagnostics_bundle`, `profiler`, `sim`, `coordinator`, and `debugger` use the pinned runtime or installed components |
+| Profiling, fleet monitoring, simulation, leases, and diagnostics | **Default-on** | `mindie_status`, `diagnostics_status`, `diagnostics_bundle`, `profiler`, `sim`, `coordinator`, `npu_top`, `debugger`, `rsi_loop`, and `experiment_ledger` use the pinned runtime packages |
 | Knowledge refresh | On-demand `knowledge_sync` | Call once when the corpus is missing/stale or the user asks |
-| Experience capture & fault reporting | **Unified contribution switch + authorized `project_roots`** | `contribute` captures sanitized `session.v4.jsonl.zstd` after turns; `local-only` stays local; `read-only`/off skips with zero SQLite overhead |
+| Experience capture & fault reporting | **Unified contribution switch + authorized `project_roots`** | `contribute` captures sanitized `session.v4.jsonl.zstd` via unified UTF-8 spools after non-blank turns (preserving `inactive` revocations); `local-only` stays local; `read-only`/off skips with zero SQLite overhead |
 
 ## Architecture and Stability Boundary
 
@@ -121,12 +121,12 @@ flowchart TB
 | Host row / file | Responsibility |
 | --- | --- |
 | `mindie-agent-skill` | Exposes the `mindie-agent` workflow skill to every preset (`user-invocable: false`, silently default-on) |
-| `mindie-agent-host` (`host.mjs`) | Resolves `source_root`/`package_dir` and `venvPython` from `dsh.json`, mounts `host3.mjs`, and attaches `remote-dev` plus `mindie-tools` stdio MCP servers per session; rolls back the first attach if the second fails |
-| `host3.mjs` | Loopback `/summary` (Bearer + 512 KiB), idle windowless update check, authorized `Stop` capture |
-| `paths.cjs` | Canonical `dsh.json` / legacy `config.json` precedence, data/state paths, `windowsHide`, and PATH normalization |
-| `scripts/mindie_launch.py` | Pure-stdlib cold start, seed verification, passive hook fast paths, `ManagedMCPAdapter("dsh")` plus knowledge RPC fallback, and the summary HTTP client |
-| `scripts/dsh_transcript.py` | DSH v4 concatenated-zstd public transcript projection (user + assistant text only) |
-| `scripts/setup.py` | `init` / `sharing` / `doctor` / `update` / `release-metadata`, all backed by `mindie_harness` |
+| `mindie-agent-host` (`host.mjs`) | Resolves `source_root`/`package_dir` and the Python launcher, resolves omitted-`sessionId` agents once into a cached `dsh-conn-<uuid>` identity, mounts `host3.mjs`, and attaches `remote-dev` plus `mindie-tools` stdio MCP servers per session (`closed`-guarded across `await` boundaries to dispose late or partial fibers cleanly) |
+| `host3.mjs` | Loopback `/summary` (Bearer + 512 KiB), idle windowless update check, non-blank `turn` guard + authorized `Stop` capture |
+| `paths.cjs` | UTF-8 BOM stripping, canonical `dsh.json` / legacy `config.json` precedence, `resolvePythonCommand` (`uv` preference, `WindowsApps` stub rejection, never bare `'python'` on `win32`), `windowsHide`, and PATH normalization |
+| `scripts/mindie_launch.py` | Pure-stdlib cold start, `stdin=DEVNULL` & `stdout=DEVNULL` seed bootstrap (preserving MCP JSON-RPC byte 0), passive hook fast paths, direct `ManagedMCPAdapter("dsh")`, and the summary HTTP client |
+| `scripts/dsh_transcript.py` | DSH v4 concatenated-zstd projection into byte-addressed UTF-8 spools (`identify(native_zstd) == identify(spool_path)`, native `cwd` containment check, locked cold eviction `<= 64`) |
+| `scripts/setup.py` | Single-lock `.dsh.json.update.lock` `init` (`inactive` revocation migration across `admission_path` + 9-domain `ensure_knowledge_binding`), mutually exclusive `sharing` flags, `doctor`, `update`, `release-metadata` |
 
 `mindie-tools` exposes `mindie_status`, `mindie_doctor`, `profiler`, `sim`, `coordinator`, `npu_top`, `debugger`, `rsi_loop`, `experiment_ledger`, `diagnostics_status`, `diagnostics_bundle`, and the 5 `knowledge_*` tools. `remote-dev` uses the `dsh` profile strictly and never leaks another harness's aliases.
 
@@ -137,27 +137,28 @@ flowchart TB
 ## Contribution and Fault Reporting
 
 - **Unified switch**: `mindie-consent.json` controls both community knowledge sharing and sanitized fault reporting. `contribute` enables both; `local-only` captures locally; `read-only`/`disabled` turns both off.
-- **Runtime tier command**: `python scripts/setup.py sharing --enable | --local-only | --disable [--project-root <abs>]`; inspect with `--status`.
-- **Authorization boundary**: before opening SQLite or spawning a child, `Stop` capture checks `mindie-community.json` (`enabled`, `project_roots`) and `mindie-consent.json` (`choice`); disabled or out-of-scope paths print `{}` immediately.
+- **Runtime tier command**: `python scripts/setup.py sharing --enable | --local-only | --disable [--project-root <abs>]` (mutually exclusive flags; `exit 2` on conflict); inspect with `--status`.
+- **Authorization boundary & revocation permanence**: before opening SQLite or spawning a child, `Stop` capture checks for a non-blank `turn`, `mindie-community.json` (`enabled`, `project_roots`), and `mindie-consent.json` (`choice`), while preserving explicit `inactive` revocations (including revocations migrated across `admission_path`); disabled or out-of-scope paths print `{}` immediately.
 - **Three states**: local config written, background worker running, and GitHub Issue/PR created are distinct facts. See the **[contribution notice](docs/install/user-notice.md)**.
 
 ## Scope and Known Limits
 
-- **Pinned runtime**: exact component SHAs live in `pyproject.toml`, `uv.lock`, `runtime-requirements.txt`, and `harness-compatibility.json`; `0.1.27` does not change component pins.
-- **State directory**: `remote-dev` state is fixed at `<data>/state/dsh/remote`; parent/subagent sessions share `job_id` visibility while `REMOTE_DEV_SESSION_ID` isolates read ledgers.
+- **Pinned runtime**: all 9 runtime packages (including `npu-top 0.3.5` and `mindie-harness >= 0.1.5`) are pinned across [`pyproject.toml`](pyproject.toml), [`uv.lock`](uv.lock), [`runtime-requirements.txt`](runtime-requirements.txt), [`product-contract.json`](product-contract.json), and [`harness-compatibility.json`](harness-compatibility.json).
+- **State directory & spools**: `remote-dev` state is fixed at `<data>/state/dsh/remote` (parent/subagent sessions share `job_id` visibility while `REMOTE_DEV_SESSION_ID` isolates read ledgers); DSH v4 UTF-8 transcript spools live under `<data>/state/dsh/spools/` (bounded `<= 64`).
 - **Background update**: only `host3.mjs` triggers `mindie_launch.py update --background` while DSH is alive and no agent is `running`; no OS-level scheduler is registered.
 - **Benchmark scope**: `benchmarks/release.py` measures local public-transcript parsing latency only; it is not a productivity claim. G3 native capture in `mindie-bench` remains unwired for DSH.
 
 ## Development, Tests, and Release Benchmarks
 
 ```bash
-# LF endings, thin-plugin LOC (<= 1,200), and syntax
+# LF endings, thin-plugin LOC (1,466 <= 1,500), and syntax
 python3 .github/scripts/check_lf_eol.py
 node --check paths.cjs && node --check host.mjs && node --check host3.mjs
 wc -l paths.cjs host.mjs host3.mjs scripts/*.py
 
-# Fast isolated contract tests (no user-directory writes)
-pytest -q tests
+# Fast isolated contract tests (no user-directory writes; CI also runs verify-host-plugin.yml host: dsh)
+pytest -q -ra -m "not live_npu"
+node --test tests/test_dsh_host.mjs
 
 # Release metadata validation
 python3 scripts/setup.py release-metadata --source . --tests tests --revision <40-char-sha>
@@ -165,7 +166,7 @@ python3 scripts/setup.py release-metadata --source . --tests tests --revision <4
 
 ### Release Benchmark
 
-Every formal `0.1.27` GitHub Release attaches `benchmark-results.json` and `benchmark-results.md`:
+Every formal `0.1.28` GitHub Release attaches `benchmark-results.json` and `benchmark-results.md`:
 
 - [`benchmarks/release.json`](benchmarks/release.json) (executed by `benchmarks/release.py`) measures deterministic per-operation latency (`us/op`) for extracting public messages and filtering hidden reasoning from a 100-message DSH v4 `session.v4.jsonl.zstd` transcript (`public-transcript` / `public_100_message_parse_latency`).
 - These CPU microbenchmarks measure local parser latency only; they are distinct from Ascend A2/A3 NPU live integration acceptance and end-to-end Agent productivity evaluation in `mindie-bench`. See [`docs/benchmark.md`](docs/benchmark.md) and [`docs/verification.md`](docs/verification.md).
