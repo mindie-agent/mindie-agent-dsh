@@ -7,13 +7,19 @@
 from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
-import hashlib, importlib, importlib.util, json, math, os, shutil, subprocess, time
+import hashlib, importlib, importlib.util, json, math, os, re, shutil, subprocess, time
 from pathlib import Path
 
 zstandard = importlib.import_module("zstandard") if importlib.util.find_spec("zstandard") is not None else None
 ANCHOR_BYTES, MAX_DECOMPRESSED_BYTES, MAX_COLD_SPOOLS = 512, 32 * 1024 * 1024, 64
 CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 PUBLIC_USER_KINDS = {"user"}
+_PEM_RE = re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----", re.DOTALL)
+_SECRET_RE = re.compile(rb"(?:\bsk-[A-Za-z0-9_-]{16,}\b|\bgh[pousr]_[A-Za-z0-9_]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bAKIA[0-9A-Z]{16}\b)")
+_BEARER_RE = re.compile(rb"(?i)\b(Bearer\s+)([A-Za-z0-9._~+/=-]{16,})")
+
+def _redact_spool_bytes(raw: bytes) -> bytes:
+    return _BEARER_RE.sub(rb"\1<redacted:bearer>", _SECRET_RE.sub(b"<redacted:secret>", _PEM_RE.sub(b"<redacted:private-key>", raw)))
 
 def _strip_win_extended_prefix(path_str: str) -> str:
     if os.name != "nt": return path_str
@@ -227,8 +233,8 @@ def _sync_spool(path: str | Path) -> tuple[Path, dict]:
             return spool_path, cached
         raw, partial = _decompress(Path(path))
         nl = raw.rfind(b"\n")
-        committed = raw[:nl + 1] if nl >= 0 else b""
-        if len(committed) < len(raw): partial = True
+        committed = _redact_spool_bytes(raw[:nl + 1] if nl >= 0 else b"")
+        if nl + 1 < len(raw): partial = True
         if spool_path.is_file() and len(committed) >= (old_len := spool_path.stat().st_size) and _prefix_matches(spool_path, committed[:old_len]):
             if len(committed) > old_len:
                 with spool_path.open("r+b") as out: out.seek(old_len); out.write(committed[old_len:]); out.flush()
