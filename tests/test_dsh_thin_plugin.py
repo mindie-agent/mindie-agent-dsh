@@ -150,7 +150,7 @@ def test_cold_mcp_seed_bootstrap_keeps_stdout_pure_jsonrpc(monkeypatch, tmp_path
     seed_bytes = seed_pyz.read_bytes()
     _write(assets / "seed-lock.json", {
         "schema": "mindie-harness-seed/1",
-        "version": "0.1.7",
+        "version": "0.1.8",
         "artifact": "mindie-harness-seed.pyz",
         "sha256": hashlib.sha256(seed_bytes).hexdigest(),
         "size_bytes": len(seed_bytes),
@@ -414,7 +414,7 @@ def test_release_metadata_and_compatibility_registry() -> None:
     assert contract["harness"] == "dsh"
     assert contract["native_version"] == "0.1.28"
     assert contract["components"]["npu-top"] == "0.3.5"
-    assert contract["components"]["mindie-harness"] == "0.1.7"
+    assert contract["components"]["mindie-harness"] == "0.1.8"
     assert len(contract["components"]) == 9
 
 
