@@ -182,11 +182,15 @@ def _evict_cold_spools(spools_dir: Path, *, keep_stem: str) -> None:
         try: fd = os.open(lock_file, os.O_RDWR | os.O_CREAT, 0o600)
         except TimeoutError: raise
         except OSError: continue
+        acquired = False
         try:
-            if not _acquire_fd_nb(fd): continue
+            acquired = _acquire_fd_nb(fd)
+            if not acquired: continue
             try:
                 victim.unlink(missing_ok=True)
                 (spools_dir / f".{victim.stem}.meta.json").unlink(missing_ok=True)
+                try: lock_file.unlink(missing_ok=True)
+                except OSError: pass
                 removed += 1
             finally:
                 _release_fd(fd)
@@ -194,8 +198,6 @@ def _evict_cold_spools(spools_dir: Path, *, keep_stem: str) -> None:
         except OSError: pass
         finally:
             os.close(fd)
-            try: lock_file.unlink(missing_ok=True)
-            except OSError: pass
 
 def _prefix_matches(spool_path: Path, expected: bytes) -> bool:
     offset = 0

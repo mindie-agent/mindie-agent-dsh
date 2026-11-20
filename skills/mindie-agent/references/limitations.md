@@ -42,7 +42,7 @@ and `product-contract.json`) declares all 9 runtime packages and keeps the
 background knowledge service idle at setup time (`knowledge.status` is not
 started until a `knowledge_*` call or an authorized `Stop` capture):
 
-- `mindie-harness` `>= 0.1.5` (`440b8bd3dfa47f3c2e2131259c391c8cee14f13d`)
+- `mindie-harness` `>= 0.1.5` (`f403ea9166752383175af64644c3f5d401db85cf`)
 - `mindie-knowledge` `0.13.25` (`9befde292ea0e6c79e9e5f475c266cbcf845d59a`)
 - `remote-dev` `0.11.15` (`784fc2ca1db172f683889a6d47543c37141b3278`)
 - `mindie-diagnostics` `0.5.17` (`7464cbb4381e9dc996871d192eb3f05f61dfdb28`)

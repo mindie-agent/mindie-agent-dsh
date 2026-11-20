@@ -4,7 +4,7 @@ version = "0.1.28"
 description = "Pinned component runtime for the MindIE Agent DeepSeek Harness adapter"
 requires-python = ">=3.11"
 dependencies = [
-  "mindie-harness @ git+https://github.com/mindie-agent/harness@440b8bd3dfa47f3c2e2131259c391c8cee14f13d",
+  "mindie-harness @ git+https://github.com/mindie-agent/harness@f403ea9166752383175af64644c3f5d401db85cf",
   "mindie-coordinator @ git+https://github.com/mindie-agent/coordinator@79df7c373bf35fda2a94907d1f3beb51c6462357",
   "mindie-debugger @ git+https://github.com/mindie-agent/debugger@e15c2ed38d8f928db67c5bb1a94269f62207227c",
   "mindie-diagnostics @ git+https://github.com/mindie-agent/diagnostics@7464cbb4381e9dc996871d192eb3f05f61dfdb28",
@@ -22,7 +22,7 @@ component-contracts = []
 package = false
 # The reviewed plugin selection also replaces older transitive component pins.
 override-dependencies = [
-  "mindie-harness @ git+https://github.com/mindie-agent/harness@440b8bd3dfa47f3c2e2131259c391c8cee14f13d",
+  "mindie-harness @ git+https://github.com/mindie-agent/harness@f403ea9166752383175af64644c3f5d401db85cf",
   "mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@9befde292ea0e6c79e9e5f475c266cbcf845d59a",
   "mindie-coordinator @ git+https://github.com/mindie-agent/coordinator@79df7c373bf35fda2a94907d1f3beb51c6462357",
   "mindie-debugger @ git+https://github.com/mindie-agent/debugger@e15c2ed38d8f928db67c5bb1a94269f62207227c",
