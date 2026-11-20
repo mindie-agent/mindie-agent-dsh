@@ -1,8 +1,8 @@
-// Node contract tests for the DSH path/spawn boundary and generation fiber.
+// Node contract tests for the DSH path/spawn boundary, host launcher, and generation fiber.
 //
-// [Role] Verifies canonical `dsh.json` vs legacy config precedence, Windows
-// windowless spawn options, the loopback summary endpoint, and consent-first
-// capture/update spawn flags.
+// [Role] Verifies canonical `dsh.json` vs legacy config precedence (including UTF-8 BOM),
+// Windows windowless spawn options & cold Python resolution, omitted-`sessionId` &
+// mid-mount cancellation safety in `host.mjs`, loopback `/summary`, and `Stop` capture.
 // [Invariants] Each test owns one temporary tree and restores every environment
 // variable it changes.
 // [Timeouts & Locks] Local in-process HTTP and timer waits only; no network.
@@ -14,14 +14,16 @@ import { createRequire } from 'node:module'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
+import { apply as applyHost, componentMcpConfig, remoteMcpConfig, resolveSessionId } from '../host.mjs'
 import { apply } from '../host3.mjs'
 
 const require = createRequire(import.meta.url)
 const pathsModule = require('../paths.cjs')
-const { backgroundSpawnOptions, buildChildEnv, paths } = pathsModule
+const { backgroundSpawnOptions, buildChildEnv, paths, resolvePythonCommand } = pathsModule
 const KEYS = ['MINDIE_CONFIG_HOME', 'MINDIE_DATA_HOME', 'MINDIE_DSH_CONFIG_HOME', 'MINDIE_DSH_STATE_DIR',
-  'MINDIE_DSH_CONFIG', 'MINDIE_AGENT_CONFIG', 'DSH_HOME', 'MINDIE_DSH_UPDATE_DELAY_MS']
+  'MINDIE_DSH_CONFIG', 'MINDIE_AGENT_CONFIG', 'DSH_HOME', 'MINDIE_DSH_UPDATE_DELAY_MS', 'MINDIE_DSH_PYTHON']
 
 function isolate(root) {
   const previous = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]))
@@ -33,6 +35,7 @@ function isolate(root) {
   process.env.DSH_HOME = path.join(root, 'dsh-home')
   process.env.MINDIE_DSH_UPDATE_DELAY_MS = '600000'
   delete process.env.MINDIE_AGENT_CONFIG
+  delete process.env.MINDIE_DSH_PYTHON
   mkdirSync(path.join(root, 'config'), { recursive: true })
   mkdirSync(path.join(root, 'state'), { recursive: true })
   mkdirSync(path.join(root, 'dsh-home'), { recursive: true })
@@ -80,7 +83,117 @@ test('windowless spawn options and Windows PATH normalization', () => {
   assert.equal(env.PYTHONIOENCODING, 'utf-8')
 })
 
-test('canonical dsh.json wins over legacy and explicit configuration', () => {
+test('cold Python launcher prefers uv, rejects WindowsApps stubs, and never returns bare python on win32', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-py-'))
+  try {
+    const uvDir = path.join(root, 'uv-bin')
+    const winApps = path.join(root, 'Microsoft', 'WindowsApps')
+    const realPyDir = path.join(root, 'Python313')
+    mkdirSync(uvDir, { recursive: true })
+    mkdirSync(winApps, { recursive: true })
+    mkdirSync(realPyDir, { recursive: true })
+    const uvExe = path.join(uvDir, 'uv.exe')
+    const stubPy = path.join(winApps, 'python.exe')
+    const realPy = path.join(realPyDir, 'python.exe')
+    writeFileSync(uvExe, 'MZ-fake-uv')
+    writeFileSync(stubPy, '')
+    writeFileSync(realPy, 'MZ-real-python')
+    const stubBinding = { venvPython: stubPy, configFile: path.join(root, 'dsh.json'), configHome: root, stateDir: path.join(root, 'state') }
+
+    const withUv = resolvePythonCommand(stubBinding, ['launch.py', 'mcp', 'tools'], { PATH: `${winApps};${uvDir};${realPyDir}`, MINDIE_DSH_PYTHON: stubPy }, 'win32')
+    assert.equal(withUv.command, uvExe)
+    assert.deepEqual(withUv.args, ['run', '--no-project', '--python', '>=3.11,<3.15', 'python', '-B', '-X', 'utf8', 'launch.py', 'mcp', 'tools'])
+
+    const withoutUv = resolvePythonCommand(stubBinding, ['launch.py', 'mcp', 'remote'], { PATH: `${winApps};${realPyDir}`, MINDIE_DSH_PYTHON: 'python' }, 'win32')
+    assert.equal(withoutUv.command, realPy)
+    assert.deepEqual(withoutUv.args, ['-I', '-X', 'utf8', 'launch.py', 'mcp', 'remote'])
+
+    assert.throws(
+      () => resolvePythonCommand(stubBinding, ['launch.py'], { PATH: winApps, MINDIE_DSH_PYTHON: stubPy }, 'win32'),
+      /WindowsApps stubs excluded/,
+    )
+
+    const entry = path.join(root, 'host3.mjs')
+    const mcpCfg = componentMcpConfig(stubBinding, entry, {}, { PATH: `${winApps};${uvDir}` }, 'win32')
+    assert.equal(mcpCfg.command, uvExe)
+    assert.equal(mcpCfg.args[0], 'run')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('host.mjs attaches omitted-sessionId agents and guards mid-mount disposal races', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-host-'))
+  const restore = isolate(root)
+  const effectDisposers = []
+  try {
+    writeFileSync(path.join(root, 'config', 'dsh.json'), '\uFEFF{}')
+    const mcpStub = path.join(root, 'mock-mcp-plugin.mjs')
+    writeFileSync(
+      mcpStub,
+      'export const attached = []; export const disposed = []; export let delayMs = 0;\n'
+      + 'export function setDelay(ms) { delayMs = ms; }\n'
+      + 'export default { name: "mock-mcp", async apply(_ctx, cfg) {\n'
+      + '  const tag = cfg.serverName + ":" + (cfg.env.REMOTE_DEV_SESSION_ID || cfg.env.DSH_SESSION_ID) + "#" + attached.length;\n'
+      + '  attached.push(cfg);\n'
+      + '  if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));\n'
+      + '  return { dispose: async () => { disposed.push(tag); } };\n'
+      + '} };\n',
+    )
+    const mcpMod = await import(pathToFileURL(mcpStub).href)
+    const makeAgent = (extra = {}) => ({
+      ...extra,
+      ctx: {
+        async plugin(mod, cfg) {
+          const impl = mod.default || mod
+          return impl.apply(this, cfg)
+        },
+      },
+    })
+    const headlessAgent = makeAgent()
+    const idOnlyAgent = makeAgent({ id: 'subagent-7', session: { id: '' } })
+    const hostListeners = new Map()
+    const rootCtx = {
+      agents: { list: () => [headlessAgent, idOnlyAgent] },
+      llm: { async *stream() {} },
+      on(event, cb) { hostListeners.set(event, cb) },
+      effect(cb) { effectDisposers.push(cb()) },
+      async plugin(p, cfg) {
+        const impl = p.default || p
+        return impl.apply(rootCtx, cfg)
+      },
+    }
+    await applyHost(rootCtx, { mcpPluginUrl: pathToFileURL(mcpStub).href })
+    assert.equal(mcpMod.attached.length, 4)
+    const headlessSid = resolveSessionId(headlessAgent)
+    assert.match(headlessSid, /^dsh-conn-/)
+
+    // Mid-mount disposal + immediate replacement with same session ID must dispose the late fiber and keep the new mount
+    mcpMod.setDelay(40)
+    const firstRaceAgent = makeAgent({ id: 'race-sid' })
+    const secondRaceAgent = makeAgent({ id: 'race-sid' })
+    hostListeners.get('agent/created')({ agent: firstRaceAgent })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    hostListeners.get('agent/disposed')({ agent: firstRaceAgent })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    mcpMod.setDelay(0)
+    hostListeners.get('agent/created')({ agent: secondRaceAgent })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    assert.ok(mcpMod.disposed.some((tag) => tag.startsWith('remote-dev:race-sid#')))
+    const raceAttachments = mcpMod.attached.filter((c) => (c.env.REMOTE_DEV_SESSION_ID || c.env.DSH_SESSION_ID) === 'race-sid')
+    assert.equal(raceAttachments.length, 3)
+
+    const remoteCfg = remoteMcpConfig(paths(), path.join(root, 'host3.mjs'), {})
+    assert.equal(remoteCfg.serverName, 'remote-dev')
+    assert.match(remoteCfg.env.REMOTE_DEV_SESSION_ID, /^dsh-conn-/)
+  } finally {
+    for (const close of effectDisposers.reverse()) await close?.()
+    restore()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('canonical dsh.json wins over legacy and explicit configuration and strips UTF-8 BOM', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'mindie-dsh-paths-')))
   const restore = isolate(root)
   try {
@@ -88,7 +201,7 @@ test('canonical dsh.json wins over legacy and explicit configuration', () => {
     const canonical = path.join(root, 'config-base', 'dsh.json')
     const legacy = path.join(root, 'config-base', 'dsh', 'config.json')
     mkdirSync(path.dirname(canonical), { recursive: true })
-    writeFileSync(canonical, '{}')
+    writeFileSync(canonical, '\uFEFF{}')
     assert.equal(paths().configFile, realpathSync.native(canonical))
     assert.equal(paths().configHome, path.dirname(realpathSync.native(canonical)))
     rmSync(canonical)
@@ -168,7 +281,7 @@ test('summary endpoint enforces bearer auth, schema dispatch, and the 512 KiB ca
   }
 })
 
-test('capture and idle update spawns are windowless and consent-first', async () => {
+test('capture and idle update spawns are windowless, consent-first, and skip omitted turn ids', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'mindie-dsh-capture-'))
   const restore = isolate(root)
   const originalSpawn = ChildProcess.prototype.spawn
@@ -190,6 +303,9 @@ test('capture and idle update spawns are windowless and consent-first', async ()
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.ok(seen.some((options) => options.stdio === 'ignore' && options.windowsHide === true))
     const agent = { session: { id: 'session-1', header: { cwd: root } }, options: { provider: 'p', model: 'm' } }
+    listeners.get('agent/turn-stopping')({ agent })
+    listeners.get('agent/turn-stopping')({ agent, turn: '   ' })
+    assert.equal(seen.filter((options) => Array.isArray(options.stdio)).length, 0)
     listeners.get('agent/turn-stopping')({ agent, turn: 2 })
     const capture = seen.find((options) => Array.isArray(options.stdio))
     assert.ok(capture)

@@ -1,4 +1,4 @@
-# DSH Benchmarks (`0.1.27`)
+# DSH Benchmarks (`0.1.28`)
 
 `mindie-agent-dsh` participates in two distinct benchmark layers with separate verification scopes:
 
@@ -7,7 +7,7 @@
 Every formal GitHub Release publishes `benchmark-results.json`, `benchmark-results.md` generated from [`benchmarks/release.json`](../benchmarks/release.json) and [`benchmarks/release.py`](../benchmarks/release.py):
 
 - **Workload Measured**:
-  - `public-transcript` (`public_100_message_parse_latency`, `us/op`): measures deterministic per-operation latency for decompressing a 100-message DSH v4 `session.v4.jsonl.zstd` stream via `dsh_transcript.read_material`, extracting visible user/assistant text, and filtering non-public `reasoning` blocks.
+  - `public-transcript` (`public_100_message_parse_latency`, `us/op`): measures deterministic per-operation latency for projecting and reading a 100-message DSH v4 `session.v4.jsonl.zstd` stream via `dsh_transcript.read_material` (`<state_dir>/spools/<24hex>.jsonl`), extracting visible user/assistant text, and filtering non-public `reasoning` and injected-context blocks.
 - **What Release Microbenchmarks Prove vs. Do Not Prove**:
   - **Proves**: local CPU parser latency and reasoning-exclusion invariants for the declared synthetic input.
   - **Does Not Prove**: standing Ascend A2/A3 NPU hardware integration (`@pytest.mark.live_npu`) or end-to-end Agent task productivity on real engineering problems.

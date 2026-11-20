@@ -2,17 +2,18 @@
 
 ## Composition & Host Rows
 
-`mindie-agent-dsh` (`0.1.27`) is a thin DeepSeek Harness adapter. `cordis.patch.yml`
+`mindie-agent-dsh` (`0.1.28`) is a thin DeepSeek Harness adapter (`1,466` total lines `<= 1,500` across `paths.cjs`, `host.mjs`, `host3.mjs`, and `scripts/{mindie_launch,dsh_transcript,setup}.py`). `cordis.patch.yml`
 registers two Host rows using stable DSH packages and the local `host.mjs`:
 
 | Row ID | Package / Entry | Purpose |
 | --- | --- | --- |
 | `mindie-agent-skill` | `@deepseek-ai/dsh-skill-filesystem` | Exposes the `mindie-agent` workflow skill to every preset (`user-invocable: false`, silently default-on) |
-| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` and two per-session stdio MCP servers) | Attaches `remote-dev` (14 `dsh` tools) and `mindie-tools` (deterministic tools + `mindie_doctor` + 5 `knowledge_*`), serves the loopback summary bridge, and runs consent-first `Stop` capture |
+| `mindie-agent-host` | `./host.mjs` (mounts `./host3.mjs` and two per-session stdio MCP servers) | Attaches `remote-dev` (14 `dsh` tools) and `mindie-tools` (11 component/status tools + 5 `knowledge_*`), serves the loopback summary bridge, and runs consent-first `Stop` capture |
 
-`scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`;
-all shared runtime, MCP routing, sharing, update, lock, and GC behavior delegates
-to `mindie-harness` (`API_VERSION = 1`).
+`scripts/` retains only `mindie_launch.py`, `dsh_transcript.py`, and `setup.py`
+(with zero `_knowledge_fallback` shadow shims); all shared runtime, 9-domain
+binding, MCP routing, sharing, update, lock, and GC behavior delegates to
+`mindie-harness` (`API_VERSION = 1`).
 
 ## Paths
 
@@ -22,40 +23,45 @@ Defaults (override with the corresponding `MINDIE_DSH_*` environment variable):
 | --- | --- |
 | data | `mindie-agent` under `$XDG_DATA_HOME` (`MINDIE_DSH_DATA_HOME` / `MINDIE_DATA_HOME`) |
 | state | `<data>/state/dsh` (`MINDIE_DSH_STATE_DIR`) |
-| config | `mindie-agent/dsh.json` under `$XDG_CONFIG_HOME` (canonical; legacy `dsh/config.json` under the same base remains readable) |
-| engine config | the `engine_config` binding in `dsh.json` (default `<config>/dsh.engine.json`) |
-| runtime interpreter | the absolute `python` binding in `dsh.json` (fallback `<data>/venv/bin/python`) |
+| transcript spools | `<data>/state/dsh/spools/<24hex>.jsonl` (bounded `<= 64` cold spools) |
+| config | `mindie-agent/dsh.json` under `$XDG_CONFIG_HOME` (canonical; legacy `dsh/config.json` under the same base remains readable; UTF-8 BOM stripped) |
+| engine configs | content-addressed `<config>/engines/dsh/<20hex>/<domain>.engine.json` across 9 domains (plus fallback `<config>/dsh.engine.json`) |
+| runtime interpreter | `resolvePythonCommand`: absolute `python` in `dsh.json` -> `MINDIE_DSH_PYTHON` -> `uv` -> verified `PATH` Python (`WindowsApps` / 0-byte stubs excluded) |
 | unified consent authority | `<config>/mindie-consent.json` |
 | diagnostics policy | `<config>/diagnostics.json` |
-| knowledge state | `<data>/vllm-ascend` (engine `root`/`domain`) |
+| knowledge root | `<data>/knowledge` (engine `root` across registered `domain_configs`) |
 | remote-dev state | `<data>/state/dsh/remote` (shared across parent/subagent sessions) |
 
 `MINDIE_AGENT_CONFIG` / `MINDIE_DSH_CONFIG` select an explicit config file;
 `MINDIE_DSH_CONFIG_HOME` keeps the legacy `<dir>/config.json` layout.
 
-## Pinned `0.1.27` Runtime Components
+## Pinned `0.1.28` Runtime Components
 
-The locked Python runtime keeps the background knowledge service idle at setup
-time (`knowledge.status` is not started until a `knowledge_*` call or an
-authorized `Stop` capture). Component pins are unchanged from the prior release:
+The locked Python runtime (`pyproject.toml`, `runtime-requirements.txt`, `uv.lock`,
+and `product-contract.json`) declares all 9 runtime packages and keeps the
+background knowledge service idle at setup time (`knowledge.status` is not
+started until a `knowledge_*` call or an authorized `Stop` capture):
 
-- `mindie-harness` `0.1.0` (`f05569947dbf0131061d8698bb779d024df0c43b`)
-- `mindie-knowledge` `0.13.23` (`8fe8455669e88ef6963314332422653841518900`)
-- `remote-dev` `0.11.13` (`64c5a8d0ca9fe344e7af05f89fc0de6249f2368a`)
-- `mindie-diagnostics` `0.5.16` (`54ac7c03c78f9e02f379051d1613a4427559e10d`)
+- `mindie-harness` `>= 0.1.5` (`440b8bd3dfa47f3c2e2131259c391c8cee14f13d`)
+- `mindie-knowledge` `0.13.25` (`9befde292ea0e6c79e9e5f475c266cbcf845d59a`)
+- `remote-dev` `0.11.15` (`784fc2ca1db172f683889a6d47543c37141b3278`)
+- `mindie-diagnostics` `0.5.17` (`7464cbb4381e9dc996871d192eb3f05f61dfdb28`)
 - `mindie-debugger` `0.1.4` (`e15c2ed38d8f928db67c5bb1a94269f62207227c`)
 - `mindie-profiler` `0.5.16` (`b702893129724b852c5abcb8971724b8b0a6e870`)
 - `mindie-sim` `0.9.18` (`83fb8288aa998e0a6ad345ca7a16269f0181545b`)
-- `mindie-coordinator` `0.7.13` (`a3c7336faa0bc14ebdb8f2fd75606c82e96422e9`)
+- `npu-top` `0.3.5` (`72654fe6047df6ccc67746c242b3ce18bcabc945`)
+- `mindie-coordinator` `0.7.14` (`79df7c373bf35fda2a94907d1f3beb51c6462357`)
 
 ## Unified Contribution Switch
 
 - `mindie-consent.json` controls `contribute`, `local-only`, and `read-only` /
-  `disabled`; `setup.py sharing --status|--enable|--local-only|--disable` is the
-  only supported switch.
-- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades.
-  Legacy knowledge-only `contribute` records lacking `choice_revision` require
-  one explicit confirmation before fault uploads begin.
+  `disabled`; `setup.py sharing --status|--enable|--local-only|--disable`
+  (mutually exclusive flags; `exit 2` on conflict) is the only supported switch.
+- Existing `disabled`, `later`, and `read-only` choices stay off across upgrades,
+  and explicitly revoked (`inactive`) sessions are preserved across
+  `admission_path` migrations during `setup.py init`. Legacy knowledge-only
+  `contribute` records lacking `choice_revision` require one explicit
+  confirmation before fault uploads begin.
 - Keep three states distinct: (1) local consent configuration written,
   (2) background worker running, and (3) external GitHub Issue or knowledge PR
   created.

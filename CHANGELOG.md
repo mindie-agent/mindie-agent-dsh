@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.28 — 2026-11-20
+
+- Declare and pin all 9 runtime packages across `pyproject.toml`, `runtime-requirements.txt`, `uv.lock`, and `product-contract.json` (`npu-top 0.3.5`, `mindie-harness >= 0.1.5`, `mindie-knowledge 0.13.25`, `remote-dev 0.11.15`, `mindie-diagnostics 0.5.17`, `mindie-coordinator 0.7.14`, `mindie-debugger 0.1.4`, `mindie-profiler 0.5.16`, `mindie-sim 0.9.18`), keeping the 6 thin production files at `1,466` total lines (`<= 1,500`).
+- Delete the legacy `_knowledge_fallback` shadow shim in `scripts/mindie_launch.py` and isolate cold-seed bootstrap with `stdin=DEVNULL` and `stdout=DEVNULL` so seed output never corrupts byte 0 of MCP JSON-RPC `stdout`.
+- Harden `paths.cjs` (UTF-8 BOM stripping plus `resolvePythonCommand` `uv` / `WindowsApps` stub rejection without bare `'python'` fallback on `win32`), `host.mjs` (single-resolution omitted-`sessionId` `dsh-conn-<uuid>` fallback and `closed`-guarded mid-mount fiber disposal), and `host3.mjs` (non-blank `turn` guard on `agent/turn-stopping`).
+- Preserve `inactive` revoked sessions across `admission_path` migrations, provision all 9 content-addressed domain bindings via `ensure_knowledge_binding(..., retire_previous=True, already_locked=True)` under `.dsh.json.update.lock`, and enforce mutually exclusive `sharing` flags in `scripts/setup.py`.
+- Unify `scripts/dsh_transcript.py` onto a byte-addressed UTF-8 spool (`identify(native_zstd) == identify(spool_path)`) with native `cwd` containment checks and locked cold eviction (`<= 64`), and wire `verify-host-plugin.yml` (`host: dsh`) into `.github/workflows/ci.yml`.
+
 ## 0.1.27 — 2026-11-19
 
 - Restore seamless `v0.1.25 -> v0.1.27` native self-upgrade handoff (`--python`, `--total-timeout`, `--component-manifest`, `--prepare-only` in `scripts/setup.py`, bundled seed bootstrap when `mindie_harness.mcp.gateway` is absent, and legacy `dsh/config.json` migration).
